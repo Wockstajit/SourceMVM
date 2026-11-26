@@ -6,10 +6,10 @@ This document tracks the multi-batch codebase audit and implementation plan for 
 
 | Batch | Branch | Scope | Status | Tracking Issue | Pull Request |
 | --- | --- | --- | --- | --- | --- |
-| **Batch 1** | `fix/audit-batch-1-stability-safety` | Critical bugs, D3D11 leaks/UAFs, Panorama UAFs, thread races, shutdown hangs, atomic saves, `save-reset` exFAT fix, leftover debug HTTP removal | `in_review` | #199 | #200 |
-| **Batch 2** | `perf/audit-batch-2-low-end-pc` | Low-end PC zero-idle-cost rendering, MapData/VPK/TextureCache perf, idle VRAM reaper, single per-frame `FrameEntityCache`, `FilmmakerSettings` dirty check, `PlayingDemoPath` & save debounce | `in_review` | TBD | TBD |
-| **Batch 3** | `feat/audit-batch-3-launcher-perf-qol` | Launcher performance (pause WebM/blurs when CS2 runs, async main thread, remove 2s sleep), reliability (single-instance, update races, timeouts, DPI fix), QoL & unused asset cleanup | `pending` | — | — |
-| **Batch 4** | `perf/audit-batch-4-panorama-ui-qol` | In-game Panorama UI speed (`WorkspaceShell` blur/WebM gating, hide-instead-of-teardown, split cursor from state JSON, `RunScriptCached`, `$.Schedule` cleanup, catalog/localization bloat), undo/redo & QoL, CI test wiring & `automation/` path fix | `pending` | — | — |
+| **Batch 1** | `fix/audit-batch-1-stability-safety` | Critical bugs, D3D11 leaks/UAFs, Panorama UAFs, thread races, shutdown hangs, atomic saves, `save-reset` exFAT fix, leftover debug HTTP removal | `merged` | #199 | #200 |
+| **Batch 2** | `perf/audit-batch-2-low-end-pc` | Low-end PC zero-idle-cost rendering, MapData/VPK/TextureCache perf, idle VRAM reaper, single per-frame `FrameEntityCache`, `FilmmakerSettings` dirty check, `PlayingDemoPath` & save debounce | `merged` | #201 | #202 |
+| **Batch 3** | `feat/audit-batch-3-launcher-perf-qol` | Launcher performance (pause WebM/blurs when CS2 runs, async main thread, remove 2s sleep), reliability (single-instance, update races, timeouts, DPI fix), QoL & unused asset cleanup | `merged` | #203 | #204 |
+| **Batch 4** | `perf/audit-batch-4-panorama-ui-qol` | In-game Panorama UI speed (`WorkspaceShell` blur/WebM gating, hide-instead-of-teardown, split cursor from state JSON, `RunScriptCached`, `$.Schedule` cleanup, catalog/localization bloat), undo/redo & QoL, CI test wiring & `automation/` path fix | `in_review` | #207 | #208 |
 | **Deferred: Perf Mode** | — | Unified Low-Spec / Performance Mode toggle (`mirv_filmmaker perfmode` + UI) and GPU/VRAM budget HUD | `deferred` | — | — |
 | **Deferred: Deadlock** | — | Deadlock bug fixes, performance, cross-game consolidation, and launcher parity | `deferred` | — | — |
 
@@ -70,6 +70,8 @@ Measured in CS2 at 1920x1080 with ReShade loaded, `mvm_debug` off (it forces ext
 - [ ] **Reliability & security**: add `app.requestSingleInstanceLock()`, gate `SMVM_RENDERER_URL` on `!app.isPackaged`, add CSP in `index.html`; fix `update-service.cjs` dropping `manual: true`/`install()` during in-flight checks and `autoUpdater.on('error')` locking `GO`; add `AbortSignal.timeout` / cancelation to `runtime-payload.cjs` & `ffmpeg-tool.cjs`, timeout to `host/InjectorClient.cs` deserialization, and atomic replace in `ffmpeg-tool.cjs`; fix `setDrawerOpen(false)` DPI height mismatch, unparented dialogs, dangling junction `EEXIST` in `dlss-tool.cjs`, and `host/Program.cs` `Process` handle leak + null-check order.
 - [ ] **QoL & Cleanup**: add **When CS2 Starts** behavior (`Minimize` / `Tray` / `Close` / `Stay open`), one-click `LOCATIONS` cache & `ReShade.log` cleanup, quick launch options presets, recent demos + `.dem` drag-and-drop, proactive Steam status badge, copyable error/crash card, `MB` progress + cancel button for downloads, `RE-DETECT` CS2 / `RESET TO AUTO` FFmpeg buttons; remove ~2.3 MB duplicate intro video & 35 unused `public/` assets, extract shared `electron/fs-net-utils.cjs`, split `src/App.tsx` & `src/styles.css`, and pin `"latest"` deps in `package.json`.
 
+**Merged in #204:** pause the GO video and title sweep while CS2 runs, the drawer is open or the window is behind; drop the intro video after it plays (Space/Esc/click skip); no reg.exe or Steam scan on every settings save; single-instance lock; no 2 s settle wait on GO; `SMVM_RENDERER_URL` only when unpackaged; six more launcher test files in CI. Everything else above is still open.
+
 ---
 
 ## Batch 4 — In-Game Panorama UI Speed, QoL & CI Hygiene
@@ -79,6 +81,14 @@ Measured in CS2 at 1920x1080 with ReShade loaded, `mvm_debug` off (it forces ext
 - [ ] **Panorama GPU & V8 speed**: gate/disable `WorkspaceShellJs.h`'s 60 FPS Gaussian blur on 5 labels and 4x `linemap.webm` mask panels; keep `ConfigHud` (1.19 MB) and `CameraEditor` (1.09 MB) roots hidden instead of tearing down and recompiling on every toggle; convert periodic/input `RunScript` calls (`Localization.cpp`, `VideoSettingsResolution.cpp`, HUD wheel/char dispatches) to `RunScriptCached` + attributes; split live `mx`/`my` from monolithic state JSON (`ConfigHud`, `CameraEditor`, `GraphEditor`, `CameraTimeline`) and add missing `raw !== lastParsedRaw` guards; stop background `$.Schedule` timers while hidden; pool `GraphEditorJs.h` SVG/DOM nodes; deduplicate 378 KB `CameraEditorCosmeticsCatalog.inc`, lazy-load `EasterEggOverlayHud`, and gzip-compress/externalize 7.98 MiB `LocalizationTables.rc`.
 - [ ] **In-game QoL**: wire the 5 missing `PushCurveUndo()` calls in `CameraPath.cpp`; add bounded undo/redo to `Takes` / `SceneEditor` + `#MvmCamToast` undo/redo notifications; add `Ctrl+K` quick-jump across all workspace tabs; add `Shift`/`Ctrl` precision arrow-key stepping in `MovieMode.cpp`; make `G`/`Tab`/workspace toggles rebindable in `KeybindsMath.h` + swap-on-conflict; add `?`/`F1` hotkey cheatsheet; add Essentials/Advanced filter & consistent card reset/modified indicators in `ConfigHud`; surface Onboarding from UI and use dynamic `Keybinds` in `Onboarding.cpp`.
 - [ ] **UI & C++ consolidation + CI hygiene**: extract shared `PanoramaPrimitivesJs.h` (`$.MvmUi`) and C++ `HudPanelBase`; fix newline command injection in `DemoOrganizerJs.h` and unquoted skybox filenames in `ConfigHudWeatherSkyTabJs.h`; rename lowercase `automation/tests/relight-native-cluster-tests.cpp` -> `Automation/tests/...`; wire missing `.mjs` and `.py` tests into `.github/workflows/ci.yml`.
+
+**In review in #208** (measured with `mvm_debug`'s `perf.ui` probe at 1080p):
+- [x] Camera Editor: the scene-key catalog (35 KB of a 54.5 KB per-frame state) moved to its own attribute, rebuilt at most every 60 frames and parsed only on change; unchanged state not re-parsed. Editor 1.50 -> 1.11 ms a frame; UI total with the editor open ~41% -> 30-34% of the frame.
+- [x] Command safety: `addCommand` keeps one command per line (demo-list folder names); skybox apply/delete pass the name as one quoted argument.
+- [x] Camera path undo for place, re-pose, delete, delete all, ease and segment speed.
+- [x] CI: always-run `source-tests` job (every `*-tests.mjs` except two needing extracted UI assets), required by `ci-gate`; stale `portable-zip` test fixed; lowercase `automation/` path fixed.
+- [ ] Config rebuilds its 25 KB state every frame (0.46 ms) though it changes ~2 of 120 frames; the per-frame JS of Config, the timeline and the editor is 0.4-0.7 ms each; the editor's player lists change every frame.
+- [ ] Everything else listed above for batch 4.
 
 ---
 
