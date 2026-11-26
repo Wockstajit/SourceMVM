@@ -245,7 +245,7 @@ test('eight task cards, one page each with groups as dividers', () => {
   // page would not fit the pane (Scene Objects).
   assert.deepEqual(h.card('LOOKS').groups.map(p=>p.head),['Presets','Color','Lens']);
   assert.equal(h.card('LOOKS').pages.length,0);
-  assert.deepEqual(h.card('WEATHER').groups.map(p=>p.head),['Weather','Ground drift','Ground','Lightning']);
+  assert.deepEqual(h.card('WEATHER').pages.map(p=>p.head),['General','Rain','Snow','Sand','Storm']);
   assert.deepEqual(h.card('SCENE OBJECTS').pages.map(p=>p.head),['Outliner','Library','Decals & Media','Map lights']);
   // Lights and cameras are added from ONE header menu; the four add buttons are gone.
   assert.equal(h.card('SCENE OBJECTS').action.__lbl.text,'+ Add');
@@ -568,7 +568,66 @@ test('weather switch includes standalone lightning',()=>{
   assert.equal(h.card('WEATHER').pill.on,true);
   h.card('WEATHER').pill.click();
   // pass-off holds the weather and its ground in the scene, so the switch gets them back after a restart.
-  assert.ok(h.sent.includes('mirv_filmmaker environment pass-off weatherType 0 snow 0 wet 0 puddles 0 storm 0'));
+  assert.ok(h.sent.includes('mirv_filmmaker environment pass-off weatherType 0 snow 0 sand 0 tumbleweeds 0 wet 0 puddles 0 storm 0'));
+});
+test('sand weather mode, sandstorm yellow fog, sand textures and harmonize slider drive backend commands',()=>{
+  const h=harness();h.render();
+  const s=h.context.st;
+  const sandBtn=h.buttons.find(c=>c.__lbl&&c.__lbl.text==='Sand');
+  assert.ok(sandBtn,'Weather card exposes Sand mode button');
+  sandBtn.click();
+  assert.ok(h.sent.includes('mirv_filmmaker environment weather sand'));
+  const stormBtn=h.buttons.find(c=>c.__lbl&&c.__lbl.text==='Sandstorm');
+  assert.ok(stormBtn,'Weather card / Looks exposes Sandstorm button');
+  const wxSandstorm=h.groups.find(g=>g.caption==='Weather')?.btns?.sandstorm;
+  assert.ok(wxSandstorm,'Weather preset grid exposes Sandstorm');
+  wxSandstorm.click();
+  assert.ok(h.sent.includes('mirv_filmmaker environment weather sandstorm'));
+  const sandCov=h.slider('Sand coverage');
+  const sandDepth=h.slider('Sand depth');
+  const harmSlider=h.slider('Color harmonize');
+  const weeds=h.slider('Tumbleweeds');
+  const sandFog=h.slider('Sandstorm fog');
+  const floorSandFog=h.slider('Floor sand fog');
+  assert.ok(sandCov&&sandDepth&&harmSlider&&weeds&&sandFog&&floorSandFog,'Sand sub-tab exposes coverage, depth, harmonize slider, tumbleweeds and sandstorm fog');
+  assert.equal(harmSlider.opts.min,0);assert.equal(harmSlider.opts.max,1);assert.equal(harmSlider.opts.decimals,2);
+  assert.equal(weeds.opts.min,0);assert.equal(weeds.opts.max,16);assert.equal(weeds.opts.decimals,0);
+  sandCov.opts.onChange(.7);
+  sandDepth.opts.onChange(.6);
+  harmSlider.opts.onChange(.45);
+  weeds.opts.onChange(5);
+  sandFog.opts.onChange(.62);
+  floorSandFog.opts.onChange(.75);
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate sand 0.7'));
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate sandDepth 0.6'));
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate sandHarmonize 0.45'));
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate tumbleweeds 5'));
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate fogDensity 0.62'));
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate groundFog 0.75'));
+  // Sand texture style switcher names each surface by its look (Dusty Mix, Cracked Crust, Pebbly Grit, Trampled).
+  const texGrid=h.groups.find(g=>g.caption==='Sand texture');
+  assert.ok(texGrid,'Sand sub-tab exposes Sand texture option grid');
+  for(const [k,cap] of [['0','Dusty Mix'],['1','Cracked Crust'],['2','Pebbly Grit'],['3','Trampled']])
+    assert.equal(texGrid.btns[k].__lbl.text,cap,'Sand texture option '+cap);
+  texGrid.btns['2'].click();
+  assert.ok(h.sent.includes('mirv_filmmaker environment climate sandStyle 2'));
+  // Both Snow and Sand sub-tabs expose independent prop-coating toggles.
+  const snowPropsToggle=h.toggle('Snow on props');
+  const sandPropsToggle=h.toggle('Sand on props');
+  assert.ok(snowPropsToggle&&sandPropsToggle,'Snow and Sand sub-tabs expose prop coating toggles');
+  snowPropsToggle.click();
+  sandPropsToggle.click();
+  assert.ok(h.sent.some(c=>/^mirv_filmmaker environment climate snowProps [01]$/.test(c)));
+  assert.ok(h.sent.some(c=>/^mirv_filmmaker environment climate sandProps [01]$/.test(c)));
+  // No unwanted Sand color picker cluttering the Sand tab.
+  assert.ok(!h.colorFields.some(f=>f.title==='Sand color'),'Sand color picker removed per user request');
+  // Weather card switch recognizes standalone sand or tumbleweeds as active and switches them off cleanly.
+  s.environment.weather.type=0;
+  Object.assign(s.environment.climate,{enabled:1,snow:0,sand:.6,tumbleweeds:4,wet:0,puddles:0,storm:0});
+  h.context.renderHooks.forEach(fn=>fn(s));
+  assert.equal(h.card('WEATHER').pill.on,true);
+  h.card('WEATHER').pill.click();
+  assert.ok(h.sent.includes('mirv_filmmaker environment pass-off weatherType 0 snow 0 sand 0 tumbleweeds 0 wet 0 puddles 0 storm 0'));
 });
 
 test('switching Sky off releases an otherwise idle renderer despite stale native state',()=>{

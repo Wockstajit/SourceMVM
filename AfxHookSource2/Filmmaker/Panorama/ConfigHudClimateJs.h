@@ -8,8 +8,9 @@ R"CFJS(
       [T('Storm'), function () { envCommand('look storm'); }],
       [T('Winter'), function () { envCommand('look winter'); }],
       [T('Sunset'), function () { envCommand('look sunset'); }],
-      [T('Night'), function () { envCommand('look night'); }]
-    ], 4, T('Sets the sky, fog and weather together. Save the result with the preset menu in this card’s header.'));
+      [T('Night'), function () { envCommand('look night'); }],
+      [T('Sandstorm'), function () { envCommand('look sandstorm'); }]
+    ], 3, T('Sets the sky, fog and weather together. Save the result with the preset menu in this card’s header.'));
     var envGradeColour = envLooksSec.__group(T('Color'));
     envSceneSlider(envGradeColour, T('Exposure'), 'exposure', 0.05, 4, T('Brightness of the finished frame.'));
     cs(envGradeColour, 'saturation'); cs(envGradeColour, 'contrast');
@@ -56,6 +57,7 @@ R"CFJS(
     cs(envExposurePage, 'exposureBias');
     var envAdaptNote = envNote(envExposurePage, '');
     cs(envRelightPage, 'mapLightPower'); cs(envRelightPage, 'ambient'); cs(envRelightPage, 'playerFill');
+    lw(envRelightPage, T('Fill lights'), 'fillLights', T('Lights a map adds only to brighten a place, with no lamp of their own: lights that only add bounce, and panels or spots aimed up at arches and ceilings. Off removes them on every map.'));
     cs(envRelightPage, 'bounce');
     cs(envRelightPage, 'bounceSteps');
     lw(envShadowPage, T('Cast shadows'), 'contactShadows', T('Sunlight and map lamps cast real-time shadows from geometry and players.'));

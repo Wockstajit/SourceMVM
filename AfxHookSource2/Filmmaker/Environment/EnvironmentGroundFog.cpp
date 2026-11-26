@@ -2,6 +2,7 @@
 #include "EnvironmentGroundFog.h"
 #include "EnvironmentGroundFogMath.h"
 #include "EnvironmentGroundFogShaders.h"
+#include "EnvironmentCasterMath.h" // the map's water surfaces (VisualCasters::water)
 #include "EnvironmentShaderCompiler.h"
 #include "EnvironmentWeatherCover.h"
 #include "EnvironmentWindFluidMath.h" // WindObstacles: a step too high to flow over is a wall
@@ -78,6 +79,8 @@ struct State {
     GroundFogFloorMap floorInfo; // dimensions only; the heights live in floorTexture
     ComPtr<ID3D11Texture2D> floorTexture, thicknessTexture, driftTexture;
     ComPtr<ID3D11ShaderResourceView> floorSrv, thicknessSrv, driftSrv; // driftSrv: the floor a gust's drift lies on (t50)
+    ComPtr<ID3D11Texture2D> waterTexture;
+    ComPtr<ID3D11ShaderResourceView> waterSrv; // the water grid (t57): row 0 origin x, y and cell; then the heights. Null without water
     // What is in front of the fog (FrontMask): the HDR frame before CS2's transparent effects, the finished
     // one, and the mask they make. `frontWanted` is set by a frame with fog, so nothing runs without it.
     ComPtr<ID3D11Texture2D> frontBefore, frontAfter;
@@ -166,6 +169,8 @@ void ReleaseFloorMap() {
     state.thicknessSrv.Reset();
     state.driftTexture.Reset();
     state.driftSrv.Reset();
+    state.waterTexture.Reset();
+    state.waterSrv.Reset();
     state.floorInfo = GroundFogFloorMap{};
     state.floorKey.clear();
 }
@@ -221,6 +226,29 @@ void PumpFloorMap(const Frame &f) {
                         state.driftSrv = driftView;
                     }
                 }
+                // The water grid (BuildWaterGrid): snow and sand are not laid over water, and the
+                // relighting leaves it as the game shades it. Its first row says where the grid lies
+                // (origin x, origin y, cell), so it needs no constants of its own.
+                if (built->water.Valid() && built->water.width >= 3) {
+                    const auto &w = built->water;
+                    std::vector<float> texels(size_t(w.width) * size_t(w.height + 1), 0.f);
+                    texels[0] = w.originX;
+                    texels[1] = w.originY;
+                    texels[2] = w.cell;
+                    std::copy(w.heights.begin(), w.heights.end(), texels.begin() + w.width);
+                    D3D11_TEXTURE2D_DESC wd = d;
+                    wd.Width = UINT(w.width);
+                    wd.Height = UINT(w.height + 1);
+                    wd.Format = DXGI_FORMAT_R32_FLOAT;
+                    D3D11_SUBRESOURCE_DATA waterData{texels.data(), UINT(w.width * sizeof(float)), 0};
+                    ComPtr<ID3D11Texture2D> waterTexture;
+                    ComPtr<ID3D11ShaderResourceView> waterView;
+                    if (SUCCEEDED(state.device->CreateTexture2D(&wd, &waterData, &waterTexture)) &&
+                        SUCCEEDED(state.device->CreateShaderResourceView(waterTexture.Get(), nullptr, &waterView))) {
+                        state.waterTexture = waterTexture;
+                        state.waterSrv = waterView;
+                    }
+                }
                 state.floorInfo = *built;
                 state.floorInfo.layers.clear();
                 state.floorInfo.layers.shrink_to_fit();
@@ -228,6 +256,7 @@ void PumpFloorMap(const Frame &f) {
                 state.floorInfo.thickness.shrink_to_fit();
                 state.floorInfo.drift.clear();
                 state.floorInfo.drift.shrink_to_fit();
+                state.floorInfo.water = WaterGrid{};
                 state.floorKey = key;
             }
         }
@@ -245,6 +274,9 @@ void PumpFloorMap(const Frame &f) {
         auto map = std::make_shared<GroundFogFloorMap>(
             BuildGroundFogFloorMap(mesh->positions, mesh->indices, mesh->low, mesh->high, {}, mesh->navPositions, mesh->navIndices));
         map->drift = GroundFogDriftFloor(*map);
+        if (mesh->visual) map->water = BuildWaterGrid(mesh->visual->water);
+        size_t waterTexels = 0;
+        for (float h : map->water.heights) waterTexels += h > kGroundFogNoFloor * .5f;
         size_t floors = 0, columns = 0;
         for (const auto &column : map->layers) {
             size_t n = 0;
@@ -253,8 +285,9 @@ void PumpFloorMap(const Frame &f) {
             columns += n > 0;
         }
         MvmDebugLog_LinefAlways("environment.groundfog.floor",
-            "texels=%dx%d cell=%.1f origin=(%.0f %.0f) columns=%zu floors=%zu triangles=%zu navTriangles=%zu ms=%lld", map->width,
+            "texels=%dx%d cell=%.1f origin=(%.0f %.0f) columns=%zu floors=%zu triangles=%zu navTriangles=%zu waterTriangles=%zu waterTexels=%zu ms=%lld", map->width,
             map->height, map->cell, map->originX, map->originY, columns, floors, mesh->indices.size() / 3, mesh->navIndices.size() / 3,
+            mesh->visual ? mesh->visual->water.size() / 3 : size_t(0), waterTexels,
             (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count());
         return map;
     });
@@ -583,6 +616,8 @@ void BindGroundFog(ID3D11DeviceContext *ctx) {
     // The floor a gust's drift lies on (GustFloor); none, and the shader keeps each texel's own floor.
     ID3D11ShaderResourceView *drift = state.driftSrv.Get();
     ctx->PSSetShaderResources(50, 1, &drift);
+    ID3D11ShaderResourceView *water = state.waterSrv.Get();
+    ctx->PSSetShaderResources(57, 1, &water);
     ID3D11SamplerState *sampler = state.sampler.Get();
     ctx->PSSetSamplers(6, 1, &sampler);
     // The particle and splash vertex shaders measure the fog and drift in front of each particle

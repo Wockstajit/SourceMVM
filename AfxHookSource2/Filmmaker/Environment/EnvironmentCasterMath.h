@@ -40,6 +40,7 @@ struct VisualCasters {
     std::vector<Vec3> rigidPositions;
     std::vector<uint32_t> rigidIndices;
     std::vector<uint32_t> rigidAlbedo; // one linear R8G8B8 material albedo per rigid triangle
+    std::vector<Vec3> water;           // water surface triangles, three corners each (no casters)
     Vec3 low{1e20f,1e20f,1e20f}, high{-1e20f,-1e20f,-1e20f};
 };
 inline bool ReadVisualCasters(std::istream &in, VisualCasters &out, std::string &error) {
@@ -47,9 +48,9 @@ inline bool ReadVisualCasters(std::istream &in, VisualCasters &out, std::string 
     auto fail=[&](const char *message){error=message;return false;};
     auto read=[&](void *p,size_t n){in.read(static_cast<char*>(p),n);return bool(in);};
     char magic[8];uint32_t count=0;
-    // Only version 6 (render geometry, material albedo, stained glass). Older packs are rebuilt
-    // by map preparation, never read with a guessed reflectance or missing glass.
-    if(!read(magic,8)||memcmp(magic,"MVMCAST6",8)||!read(&count,4)||count>4096)
+    // Only version 7 (render geometry, material albedo, stained glass, water surfaces). Older packs
+    // are rebuilt by map preparation, never read with a guessed reflectance or missing water.
+    if(!read(magic,8)||memcmp(magic,"MVMCAST7",8)||!read(&count,4)||count>4096)
         return fail("Invalid visual caster header");
     uint64_t bytes=0;
     {
@@ -118,6 +119,12 @@ inline bool ReadVisualCasters(std::istream &in, VisualCasters &out, std::string 
         for(auto i:glass.indices)if(i>=nv)return fail("Invalid stained glass index");
         result.glass.push_back(std::move(glass));
     }
+    uint32_t waterCount=0;
+    if(!read(&waterCount,4)||waterCount>MapData::kWaterTrianglesMax)return fail("Invalid water surface count");
+    result.water.resize(size_t(waterCount)*3);
+    if(waterCount&&!read(result.water.data(),result.water.size()*sizeof(Vec3)))return fail("Truncated water surfaces");
+    for(const auto &p:result.water)
+        if(!Finite(p)||std::abs(p.x)>100000||std::abs(p.y)>100000||std::abs(p.z)>100000)return fail("Invalid water surface vertex");
     if(in.peek()!=std::char_traits<char>::eof())return fail("Unexpected visual caster data");
     out=std::move(result);error.clear();return true;
 }

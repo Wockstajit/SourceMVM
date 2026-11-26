@@ -256,7 +256,7 @@ ProbeBinding PrepareLiteGrid(ID3D11Device* device,const std::shared_ptr<const En
         if(light.transient)continue;
         for(const auto* field:{&light.position,&light.angles,&light.color})key=Hash(field,sizeof(Vec3),key);
         for(const float value:{light.lumens,light.brightnessScale,light.range,light.sourceRadius,light.sizeX,light.sizeY,
-            light.innerAngle,light.outerAngle,float(light.enabled),float(light.sceneObject)})key=Hash(&value,sizeof(value),key);
+            light.innerAngle,light.outerAngle,light.skirtNear,light.skirtFar,light.bounceScale,float(light.enabled),float(light.sceneObject)})key=Hash(&value,sizeof(value),key);
     }
     if(!g_worker){
         g_worker=std::make_unique<Worker>();

@@ -50,7 +50,7 @@ R"CFJS(
     var ENV_WX_KEYS = ['particleDetail', 'turbulence', 'gusts', 'gustDensity', 'gustHeight', 'gustWisps', 'gustFloor', 'particleOpacity', 'softness', 'streak', 'particleLight',
        'storm', 'stormInterval', 'stormStrength', 'stormRadius', 'stormX', 'stormY', 'stormZ',
        'stormSeed', 'stormHold',
-       'snow', 'snowDepth', 'wet', 'puddles', 'ripple', 'puddleHeight', 'puddleDepth', 'maskScale', 'surfaceRadius',
+       'snow', 'snowDepth', 'snowProps', 'sand', 'sandDepth', 'sandProps', 'sandStyle', 'sandHarmonize', 'sandColorR', 'sandColorG', 'sandColorB', 'tumbleweeds', 'wet', 'puddles', 'ripple', 'puddleHeight', 'puddleDepth', 'maskScale', 'surfaceRadius',
        'reflectionRoughness', 'puddleNative', 'rainTexture'];
     var envWeatherClimate = envResetCmds(ENV_WX_KEYS);
     var envWeatherReset = envWeatherSec.__headerReset({
@@ -82,56 +82,69 @@ R"CFJS(
       var s = envState(), c = envClimate();
       if (!s) return false;
       return envWeatherArmed || !!s.weather.type ||
-        !!(c && c.enabled && (c.snow > 0 || c.wet > 0 || c.puddles > 0 || c.storm > 0));
+        !!(c && c.enabled && (c.snow > 0 || c.sand > 0 || c.tumbleweeds > 0 || c.wet > 0 || c.puddles > 0 || c.storm > 0));
     }
     var envWeatherPill = envWeatherSec.__headerPill(function () {
       var s = envState(), c = envClimate();
       if (!s || !c) return;
       if (envWeatherOn()) {
+        var wasSandstorm = s.weather.type === 7 && c.enabled && c.groundFog > 0.15 && c.fogDensity > 0.35;
         envWeatherMemo = {
-          type: ['clear', 'rain', 'snow', 'ash', 'embers', 'motes', 'smoke'][s.weather.type] || 'clear',
-          snow: c.snow || 0, wet: c.wet || 0, puddles: c.puddles || 0, storm: c.storm || 0
+          type: wasSandstorm ? 'sandstorm' : (['clear', 'rain', 'snow', 'ash', 'embers', 'motes', 'smoke', 'sand'][s.weather.type] || 'clear'),
+          snow: c.snow || 0, sand: c.sand || 0, tumbleweeds: c.tumbleweeds || 0, wet: c.wet || 0, puddles: c.puddles || 0, storm: c.storm || 0
         };
         envWeatherArmed = false;
         // Held by the backend (pass-off), so the weather and its ground come back after a restart too.
-        envCommand('pass-off weatherType 0 snow 0 wet 0 puddles 0 storm 0');
-        envReleaseIfIdle({ weatherType: 0, snow: 0, wet: 0, puddles: 0, storm: 0 });
+        envCommand('pass-off weatherType 0 snow 0 sand 0 tumbleweeds 0 wet 0 puddles 0 storm 0');
+        envReleaseIfIdle({ weatherType: 0, snow: 0, sand: 0, tumbleweeds: 0, wet: 0, puddles: 0, storm: 0 });
       } else {
         var m = envWeatherMemo;
         // The backend holds what was running (a demo change, a restart, or this switch's own pass-off).
         // Preferred over the session memo: `weather set type` keeps the tuned count and speed, where
         // re-picking the preset by name would reset them.
         var held = s.held || {};
-        if (held.weatherType || held.snow || held.wet || held.puddles || held.storm) {
+        if (held.weatherType || held.snow || held.sand || held.tumbleweeds || held.wet || held.puddles || held.storm) {
           envEnsureEnabled();
           // By number, not by name: `weather rain` re-applies the rain preset's count and speed.
           if (held.weatherType) envCommand('weather set type ' + held.weatherType);
-          envCommand('climate snow ' + (held.snow || 0)); envCommand('climate wet ' + (held.wet || 0));
+          envCommand('climate snow ' + (held.snow || 0)); envCommand('climate sand ' + (held.sand || 0));
+          envCommand('climate tumbleweeds ' + (held.tumbleweeds || 0));
+          envCommand('climate wet ' + (held.wet || 0));
           envCommand('climate puddles ' + (held.puddles || 0)); envCommand('climate storm ' + (held.storm || 0));
           return;
         }
-        if (!m || (m.type === 'clear' && !m.snow && !m.wet && !m.puddles && !m.storm)) {
+        if (!m || (m.type === 'clear' && !m.snow && !m.sand && !m.tumbleweeds && !m.wet && !m.puddles && !m.storm)) {
           envWeatherArmed = true; // on, clear: pick a weather or a ground coating from here
           envEnsureEnabled();
           return;
         }
         envEnsureEnabled();
         if (m.type !== 'clear') envCommand('weather ' + m.type);
-        envCommand('climate snow ' + m.snow); envCommand('climate wet ' + m.wet);
+        envCommand('climate snow ' + m.snow); envCommand('climate sand ' + m.sand);
+        envCommand('climate tumbleweeds ' + m.tumbleweeds);
+        envCommand('climate wet ' + m.wet);
         envCommand('climate puddles ' + m.puddles); envCommand('climate storm ' + m.storm);
       }
-    }, T('Switches the weather and its wet or snowy ground off together, and puts both back.'));
+    }, T('Switches the weather and its wet, snowy or sandy ground off together, and puts both back.'));
 
-    // ONE page, grouped (2026-10 sidebar cleanup): Weather, Ground and Lightning are twelve rows.
-    var envWxType = envWeatherSec.__group(T('Weather'));
-    var envWeatherModes = modeRow(envWxType, T('Weather'),
-      [['clear', T('Clear##weather')], ['rain', T('Rain')], ['snow', T('Snow')], ['ash', T('Ash')]], '236px',
-      envChooseWeather,
-      T('The precipitation the field emits. Rain and Snow also start wet or snowy ground if the '
-      + 'Ground page is untouched. Clear stops the particles only.'), 13);
-    ws(envWxType, 'count'); ws(envWxType, 'speed');
+    // Weather preset bar pinned above the sub-tabs so switching weather stays one click from any tab.
+    var envWeatherModes = optionGrid(envWeatherSec, T('Weather'),
+      [['clear', T('Clear##weather')], ['rain', T('Rain')], ['snow', T('Snow')],
+       ['ash', T('Ash')], ['sand', T('Sand')], ['sandstorm', T('Sandstorm')]], 3,
+      T('Pick a weather preset. Rain, Snow, Sand and Sandstorm also set their ground coating; Sandstorm turns height and floor fog dusty yellow. Clear stops everything.'),
+      envChooseWeather, 12);
+
+    // Universal controls on General, with dedicated per-weather sub-tabs for deeper control.
+    var envWxGeneral = envWeatherSec.__page(T('General'));
+    var envWxRain    = envWeatherSec.__page(T('Rain'));
+    var envWxSnow    = envWeatherSec.__page(T('Snow'));
+    var envWxSand    = envWeatherSec.__page(T('Sand'));
+    var envWxStorm   = envWeatherSec.__page(T('Storm'));
+
+    // ---- WEATHER > General (universal controls shared across all weathers) ----
+    ws(envWxGeneral, 'count'); ws(envWxGeneral, 'speed');
     var envWindDirection = 0;
-    var envWindSpeedControl = sliderRow(envWxType, {
+    var envWindSpeedControl = sliderRow(envWxGeneral, {
       label: T('Wind speed'), min: 0, max: 500, decimals: 0, unit: 'u/s',
       tip: T('How strongly the wind pushes the weather.'),
       onChange: function (v) {
@@ -142,7 +155,7 @@ R"CFJS(
         cmd('mirv_filmmaker props wind ' + Math.round(Math.min(200, v * 0.4)));
       }
     });
-    var envWindDirectionControl = sliderRow(envWxType, {
+    var envWindDirectionControl = sliderRow(envWxGeneral, {
       label: T('Wind direction'), min: 0, max: 360, decimals: 0, unit: '°',
       tip: T('Compass direction of the wind.'),
       onChange: function (v) {
@@ -151,10 +164,10 @@ R"CFJS(
         envCommand('weather wind ' + Math.sqrt(w.windX * w.windX + w.windY * w.windY) + ' ' + v);
       }
     });
-    cs(envWxType, 'gusts');
+    cs(envWxGeneral, 'gusts');
     // Foliage wind: CS2 sways placed trees and grass with the level's wind, and most maps have none,
     // so this adds one (Filmmaker/Props, `props wind`). The trees move while the demo plays.
-    var envFoliageWind = sliderRow(envWxType, {
+    var envFoliageWind = sliderRow(envWxGeneral, {
       label: T('Foliage wind'), min: 0, max: 200, decimals: 0, unit: '',
       tip: T('How hard the wind sways placed trees, plants and grass. 0 leaves them to their own gentle sway. They move while the demo plays.'),
       onChange: function (v) { cmd('mirv_filmmaker props wind ' + v); }
@@ -162,15 +175,56 @@ R"CFJS(
     renderHooks.push(function (st) { if (st && st.props) envFoliageWind.sync(st.props.wind || 0); });
     // What the gusts blow along the floor, each row scaling the weather's own look. Picking a
     // weather puts them back to 1.
-    var envDriftPage = envWeatherSec.__group(T('Ground drift'));
-    cs(envDriftPage, 'gustDensity'); cs(envDriftPage, 'gustHeight'); cs(envDriftPage, 'gustWisps'); cs(envDriftPage, 'gustFloor');
-    var envCoatPage = envWeatherSec.__group(T('Ground'));
-    cs(envCoatPage, 'wet'); cs(envCoatPage, 'puddles'); cs(envCoatPage, 'snow'); cs(envCoatPage, 'snowDepth');
-    // CS2's own water beads, read from the game install: a switch, so the two looks can be compared.
-    cw(envCoatPage, T('CS2 water beads'), 'rainTexture', T('Puts Counter-Strike’s own beads of water on wet ground, read from your game. Off keeps the plain wet film.'));
-    var envStormPage = envWeatherSec.__group(T('Lightning'));
-    cw(envStormPage, T('Lightning'), 'storm', T('Lightning channels, cloud flashes and illuminated surfaces.'));
-    cs(envStormPage, 'stormStrength'); cs(envStormPage, 'stormInterval');
+    subHead(envWxGeneral, T('Ground drift'));
+    cs(envWxGeneral, 'gustDensity'); cs(envWxGeneral, 'gustHeight'); cs(envWxGeneral, 'gustWisps'); cs(envWxGeneral, 'gustFloor');
+    subHead(envWxGeneral, T('Particles'));
+    cs(envWxGeneral, 'particleOpacity'); cs(envWxGeneral, 'turbulence'); cs(envWxGeneral, 'particleLight'); cs(envWxGeneral, 'softness');
+    subHead(envWxGeneral, T('Area'));
+    cs(envWxGeneral, 'maskScale'); cs(envWxGeneral, 'surfaceRadius');
+
+    // ---- WEATHER > Rain ----
+    cs(envWxRain, 'wet'); cs(envWxRain, 'puddles'); cs(envWxRain, 'ripple'); cs(envWxRain, 'reflectionRoughness');
+    cs(envWxRain, 'streak');
+    // CS2's own water beads, read from the game install: how many, from none (the plain wet film) up.
+    cs(envWxRain, 'rainTexture');
+
+    // ---- WEATHER > Snow ----
+    cs(envWxSnow, 'snow'); cs(envWxSnow, 'snowDepth'); cs(envWxSnow, 'particleDetail');
+    cw(envWxSnow, T('Snow on props'), 'snowProps', T('Coats props like cars, crates and barrels, including subtle accumulation on their sides and edges. Off keeps snow on walkable ground and wall bases.'));
+
+    // ---- WEATHER > Sand ----
+    var envSandStyle = optionGrid(envWxSand, T('Sand texture'),
+      [['0', T('Dusty Mix')], ['1', T('Cracked Crust')], ['2', T('Pebbly Grit')], ['3', T('Trampled')]], 2,
+      T('The sand’s surface. Dusty Mix blends the other three; Cracked Crust is packed sand with a dry, cracked top; Pebbly Grit is gritty sand strewn with small stones; Trampled is soft sand churned with old tracks.'),
+      function (k) { envEnsureEnabled(); envCommand('climate sandStyle ' + k); }, 12);
+    climateControls.push([envSandStyle, 'sandStyle', 'seg']);
+    cs(envWxSand, 'sandHarmonize');
+    cs(envWxSand, 'sand'); cs(envWxSand, 'sandDepth'); cs(envWxSand, 'tumbleweeds');
+    cw(envWxSand, T('Sand on props'), 'sandProps', T('Coats props like cars, crates and barrels, including subtle wind-blown sand on their sides and edges. Off keeps sand on walkable ground and wall bases.'));
+    subHead(envWxSand, T('Sandstorm'));
+    actionGroup(envWxSand, T('Sandstorm preset'), [
+      [T('Sand breeze'), function () { envChooseWeather('sand'); }],
+      [T('Sandstorm'), function () { envChooseWeather('sandstorm'); }]
+    ], 2, T('Sandstorm turns both height fog and floor fog dusty yellow with heavy blown sand, gusts and tumbleweeds.'));
+    var envSandFog = sliderRow(envWxSand, {
+      label: T('Sandstorm fog'), min: 0, max: 6, decimals: 2, unit: '', offAtZero: true,
+      tip: T('Density of the regular height fog during a sandstorm. Shared with the Fog card.'),
+      onChange: function (v) { envEnsureEnabled(); envCommand('climate fogDensity ' + v); }
+    });
+    climateControls.push([envSandFog, 'fogDensity']);
+    var envSandFloorFog = sliderRow(envWxSand, {
+      label: T('Floor sand fog'), min: 0, max: 4, decimals: 2, unit: '', offAtZero: true,
+      tip: T('Density of the low yellow floor fog during a sandstorm. Shared with Ground fog on the Fog card.'),
+      onChange: function (v) { envEnsureEnabled(); envCommand('climate groundFog ' + v); }
+    });
+    climateControls.push([envSandFloorFog, 'groundFog']);
+
+    // ---- WEATHER > Storm ----
+    cw(envWxStorm, T('Lightning'), 'storm', T('Lightning channels, cloud flashes and illuminated surfaces.'));
+    cs(envWxStorm, 'stormStrength'); cs(envWxStorm, 'stormInterval'); cs(envWxStorm, 'stormRadius');
+    actionGroup(envWxStorm, T('Storm center'), [
+      [T('Place at camera'), function () { envEnsureEnabled(); envCommand('storm-center'); }]
+    ], 1, T('Centers lightning strikes around the current camera position.'));
 )CFJS"
 #include "ConfigHudHeatmapJs.h"
 #include "ConfigHudAltEnvironmentJs.h"

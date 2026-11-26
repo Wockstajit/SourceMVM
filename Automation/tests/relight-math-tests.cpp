@@ -100,6 +100,11 @@ int main() {
         const auto globeRecord=ToRecord(globe,1);
         Check(Near(globeRecord[48]+globeRecord[49],1)&&Near(globeRecord[48]-globeRecord[49],1),
             "Omni globe illuminates both hemispheres despite retained spotlight properties");
+        Light housing=globe;housing.outerAngle=180;housing.range=17;housing.position.z+=7;
+        globe.range=340;std::vector<Light> paired{globe,housing};
+        MarkHoodedEmitters(paired);
+        Check(paired[0].hoodedEmitter && !paired[1].hoodedEmitter && ToRecord(paired[0],1)[49]<0,
+              "The paired downlight uses its cone while the bulb illuminates the housing");
         globe.kind="light_spot";const auto spotRecord=ToRecord(globe,1);
         Check(std::clamp(spotRecord[48]+spotRecord[49],0.f,1.f)==0&&
               std::clamp(spotRecord[48]-spotRecord[49],0.f,1.f)==1,
@@ -110,11 +115,46 @@ int main() {
         Check(Near(ndc({40,-12,60}).x,1)&&Near(ndc({40,-20,76}).y,1),"Barn size parameters are authored half extents");
         Check(Near(ndc({50,-12,60}).x,.5f)&&Near(ndc({140,-20,60}).z,1),"Perspective fixture expands from the aperture toward authored range");
         Check(record[56]==.75f&&record[57]==.75f&&FixtureFaces(barn)==1,"Barn uses authored soft edges and one projection");
+        const auto farFadeAt=[&](float distance) {
+            return (1-ndc({40+distance,-20,60}).z)*record[39];
+        };
+        Check(FixtureFarSkirt(-1,1)==1&&FixtureFarSkirt(.1f,1)==1&&FixtureFarSkirt(.1f,.25f)==.25f,
+              "Missing and nonzero skirts retain the existing projected fade");
+        barn.skirtFar=FixtureFarSkirt(0,1);
+        Check(ToRecord(barn,1)[39]==0&&Near(ndc({140,-20,60}).z,1),
+              "Zero authored far skirt removes the fade but keeps the range clip");
+        barn.skirtFar=FixtureFarSkirt(.1f,.25f);
+        record=ToRecord(barn,1);
+        Check(Near(farFadeAt(75),1)&&farFadeAt(90)>0&&farFadeAt(90)<1,
+              "The retained far fade begins at the existing fraction of authored range");
         barn.softX=barn.softY=0;record=ToRecord(barn,1);
         const auto edgeFade=[&](float x){float t=std::clamp((1-std::abs(x))/(1-record[56]),0.f,1.f);return t*t*(3-2*t);};
         Check(edgeFade(.9f)>0&&edgeFade(.9f)<1&&edgeFade(1)==0&&edgeFade(.8f)==1,
             "Zero-softness fill lights retain a continuous finite feather instead of a hard projected box");
         barn.softX=.6f;Check(Near(ToRecord(barn,1)[56],.4f),"A softer authored fill remains softer than the runtime minimum");
+        {
+            // A rect panel is an area light: it reaches twice its authored half extents and fades over
+            // the outer 60%, so its edge never lands on a wall as a hard line. A barn keeps its cut.
+            Light rect=barn;rect.kind="light_rect";rect.softX=rect.softY=0;
+            const auto rectNdc=[&](Vec3 p){auto m=FixtureProjection(rect);const float w=m[12]*p.x+m[13]*p.y+m[14]*p.z+m[15];return Vec3{(m[0]*p.x+m[1]*p.y+m[2]*p.z+m[3])/w,(m[4]*p.x+m[5]*p.y+m[6]*p.z+m[7])/w,0.f};};
+            Check(Near(rectNdc({40,-4,60}).x,1)&&Near(rectNdc({40,-12,60}).x,.5f),"A rect panel spreads to twice its authored size");
+            Check(Near(ToRecord(rect,1)[56],.4f)&&Near(ToRecord(rect,1)[57],.4f),"A rect panel fades over the outer 60% of its spread");
+            rect.skirtNear=0;Check(ToRecord(rect,1)[38]>0,"A rect panel fades in near its own plane even when its authored skirt is zero");
+            Check(Near(ToRecord(barn,1)[56],.4f)&&Near(ndc({40,-12,60}).x,1),"A barn keeps its authored cut");
+        }
+        {
+            // Fill lights by type and aim: bounce-only lights, uplit fixtures, and the down panel paired
+            // with an uplight. A ceiling panel aiming down on its own stays a lamp.
+            std::vector<Light> set(5);
+            for(auto& l:set){l.kind="light_rect";l.angles={89,0,0};}
+            set[0].angles={-89,0,0};set[0].position={0,0,283};
+            set[1].position={2,1,267};                       // the down half of that pair
+            set[2].position={400,0,283};                     // a ceiling panel on its own
+            set[3].kind="light_omni2";set[3].bounceOnly=true; // bounce only
+            set[4].kind="light_barn";set[4].angles={-40,0,0};set[4].position={800,0,0};
+            MarkFillLights(set);
+            Check(set[0].fill&&set[1].fill&&!set[2].fill&&set[3].fill&&set[4].fill,"Fill lights are picked by type and aim");
+        }
         barn.sourceRadius=AuthoredSourceRadius(barn.sizeX,barn.sizeY);
         const auto projectedShadow=ToShadowedRecord(barn,1,FixtureProjection(barn).data(),0);
         // Depth is zero FixtureShadowClearance in front of the emitter (near 10) and one at range.
@@ -128,7 +168,9 @@ int main() {
         Check(Near(ToRecord(barn,1)[58],.878f),"Fixture preserves fractional authored edge roundness");
         Light tube;tube.kind="light_omni2";tube.shape=1;tube.sizeY=14;tube.range=400;tube.sourceRadius=1;
         const auto shadow=ToShadowedRecord(tube,1,Identity().data(),0);
-        const auto depth=[](float z){return (400.f/399)*(1-1/z);};
+        // Depth through the tube's own shadow start (AuthoredShadowNearClip: outside its housing).
+        const float tubeNear=AuthoredShadowNearClip(tube);
+        const auto depth=[&](float z){return (400.f/(400-tubeNear))*(1-tubeNear/z);};
         const float angular=(depth(80)-depth(20))*shadow[84]*ShadowFaceBlendWidth;
         Check(Near(angular,14.f*(1.f/20-1.f/80)),"Perspective blocker depth produces the physical source-to-receiver penumbra");
         Check(Near((depth(20)-depth(20))*shadow[84],0),"Fixture shadow stays sharp at caster contact");
@@ -246,8 +288,24 @@ int main() {
         Check(Near(AuthoredSourceRadius(5.f, 5.f), 2.5f), "Square barn size_params bound the near field");
         Check(Near(AuthoredSourceRadius(0.f, 0.f), 16.f), "Missing size_params keep the fixture default");
         Light bulb;bulb.kind="light_omni2";bulb.shape=0;bulb.sizeX=2.714437f;bulb.sizeY=24;bulb.range=450;
-        Check(Near(AuthoredShadowNearClip(bulb),2.714437f),"Spherical emitter starts outside its bulb, not at half the inactive planar size");
-        bulb.shape=-1;Check(AuthoredShadowNearClip(bulb)==1,"Unknown emitter shape retains conservative geometry coverage");
+        bulb.hoodedEmitter=true;
+        Check(Near(AuthoredShadowNearClip(bulb),bulb.sizeX),"A spherical bulb keeps nearby hood geometry outside its authored radius");
+        bulb.sizeX=6.77f;Check(Near(AuthoredShadowNearClip(bulb),6.77f),"A larger sphere clears its own radius");
+        bulb.hoodedEmitter=false;bulb.shape=3;Check(Near(AuthoredShadowNearClip(bulb),6.77f*1.5f),"Every omni shape clears its housing, not only spheres");
+        bulb.shape=-1;bulb.sizeX=0;Check(Near(AuthoredShadowNearClip(bulb),OmniHousingClear),"An omni without a size still clears a lantern");
+        bulb.range=16;Check(Near(AuthoredShadowNearClip(bulb),4),"The clearance never passes a quarter of a short light's range");
+        bulb.range=450;bulb.shape=0;bulb.sizeX=2.714437f;
+        {
+            Check(NearShadowProximity(150)==1 && NearShadowProximity(450)==0,
+                  "The lamp is fully shadowed up close and unshadowed beyond the transition");
+            Check(Near(NearShadowProximity(300),.5f),"The midpoint depends on camera distance");
+            Check(NearShadowSize(0)==StaticSize && NearShadowSize(1)==LocalSize,
+                  "The transition spans cached and full face resolution");
+            Check(NearShadowKeep(80,100)==0 && NearShadowKeep(100,80)==0,
+                  "Both lamps match the coarse tier when the budget swaps");
+            Check(NearShadowKeep(80,160)==1 && NearShadowKeep(80,115)>0 && NearShadowKeep(80,115)<1,
+                  "Detail returns smoothly once the resident is closer than its competitor");
+        }
         bulb.shape=0;bulb.kind="light_rect";Check(AuthoredShadowNearClip(bulb)==1,"A planar emitter cannot discard its housing using a sphere radius");
         {
             Vec3 forward{}, right{}, up{};

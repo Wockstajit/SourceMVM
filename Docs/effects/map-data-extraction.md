@@ -22,7 +22,7 @@ port. Its MIT license ships beside them in
 | --- | --- | --- |
 | Authored lights, probes, cubemaps, sky, fog, exposure and other environment entities | every `.vents_c` entity lump | `<sha256>.lights.json` |
 | Opaque collision | `maps/<map>/world_physics` (hulls, meshes, spheres, capsules) | `<sha256>.mvmocclusion` (`MVMOCC01`) |
-| Placed props, world fragments, foliage, cables, light-blocker brushes | every `.vwnod_c` world node, through its models, meshes, materials and textures | `<sha256>.mvmcasters` (`MVMCAST6`) |
+| Placed props, world fragments, foliage, cables, light-blocker brushes and water surfaces | every `.vwnod_c` world node, through its models, meshes, materials and textures | `<sha256>.mvmcasters` (`MVMCAST7`) |
 | 3D skybox casters and `sky_camera` scale/origin | the package named by `skybox_reference` | a second `.mvmcasters` |
 
 By name, the map package is the official `game/csgo/maps/<map>.vpk`, then the newest installed
@@ -60,6 +60,7 @@ Casters follow these rules:
   materials never cast;
 - `F_ALPHA_TEST` materials keep their alpha mask and cutoff (an all-opaque mask is stored as
   plain geometry); `csgo_foliage` sway/flutter parameters drive animated leaves;
+- water shaders contribute world-space triangles to the water height grid. These surfaces keep their native shading and cast no shadow;
 - materials named stained glass also transmit their colour image as sunlight;
 - materials the map authored as letting light through to their back face
   (`F_TRANSMISSIVE_BACKFACE_NDOTL`: cloth tarps, fabric awnings, hanging cloth) stay in the rigid
@@ -132,3 +133,19 @@ install lookup.
 
 The collision cache also supports [interior camera validation](interior-lighting-testing.md) before
 live lighting captures. Collision bounds alone do not establish that a camera is indoors.
+
+### Inspecting authored fill lights
+
+Run [inventory-fill-lights.py](../../Automation/verify/inventory-fill-lights.py) against a
+directory of MapDataTool extractions. The inventory lists local lights, authored direct
+and bounce modes, world coordinates and surface distances. Pass `--nav` a directory
+of navigation GLBs exported by Source2Viewer-CLI with `-e nav -d` to add numbered
+overhead views and identify open air above player navigation.
+
+Direct mode 0 with bounce enabled or left at its default is evidence of an authored
+bounce-only fill. A floating origin is a review flag. A visible fixture can be missing
+from the caster mesh, and an intentional direct emitter can be offset from the object
+it illuminates. The inventory gives each candidate's full identity for a reversible
+in-game `mirv_relight light "<identity>" off` comparison. Light coordinates are origins.
+Check a separate camera position with [camera-clear.py](../../Automation/verify/camera-clear.py)
+before moving there.

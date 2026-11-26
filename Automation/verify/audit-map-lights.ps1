@@ -89,17 +89,25 @@ foreach ($stop in $stops) {
     $pose = @(
         ('setpos {0:f1} {1:f1} {2:f1}' -f $camera[0], $camera[1], ($camera[2] - 64)),
         ('setang {0} {1} 0' -f $angles[0], $angles[1]))
-    [void](Send-Netcon $pose 0.08)
-    Start-Sleep -Milliseconds 1200
-    $actualReply = Send-Netcon @('getpos') .3 'setpos\s+.*;setang'
-    $actual = [regex]::Match($actualReply, 'setpos\s+(-?[0-9.]+)\s+(-?[0-9.]+)\s+(-?[0-9.]+);setang')
-    if (-not $actual.Success) { throw "No actual camera pose for stop $n." }
-    $eye = @(); foreach ($axis in 1..3) { $eye += [double]::Parse($actual.Groups[$axis].Value, [Globalization.CultureInfo]::InvariantCulture) }
-    $errorSquared=0
-    for ($a=0;$a -lt 3;$a++) { $errorSquared += [math]::Pow($eye[$a]-$camera[$a],2) }
-    if ($errorSquared -gt 1) { throw "Camera did not reach stop $n; refusing capture." }
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+        [void](Send-Netcon $pose 0.08)
+        Start-Sleep -Milliseconds 1200
+        $actualReply = Send-Netcon @('getpos') .3 'setpos\s+.*;setang'
+        $actual = [regex]::Matches($actualReply, 'setpos\s+(-?[0-9.]+)\s+(-?[0-9.]+)\s+(-?[0-9.]+);setang') | Select-Object -Last 1
+        if (-not $actual) { throw "No actual camera pose for stop $authoredStop." }
+        $eye = @(foreach ($axis in 1..3) {
+            [double]::Parse($actual.Groups[$axis].Value, [Globalization.CultureInfo]::InvariantCulture)
+        })
+        $errorSquared = 0
+        for ($a=0; $a -lt 3; $a++) { $errorSquared += [math]::Pow($eye[$a]-$camera[$a],2) }
+        if ($errorSquared -le 1) { break }
+    }
+    if ($errorSquared -gt 1) {
+        Write-Warning "Skipping authored stop $authoredStop ($($primary.identity)): engine placed the camera at $eye instead of $camera."
+        continue
+    }
     $validationText = & python (Join-Path $PSScriptRoot 'interior-camera.py') $Map --eye $eye[0] $eye[1] $eye[2]
-    if ($LASTEXITCODE -ne 0) { throw "Actual camera failed interior validation at stop ${n}: $validationText" }
+    if ($LASTEXITCODE -ne 0) { throw "Actual camera failed interior validation at stop ${authoredStop}: $validationText" }
     $validation = $validationText | ConvertFrom-Json
     $shot = Capture-Frame $Map $label $eye $angles 1 1
     $entry = [ordered]@{

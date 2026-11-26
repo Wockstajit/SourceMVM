@@ -899,3 +899,16 @@ add_executable(EventFxMathTests
 )
 target_compile_features(EventFxMathTests PRIVATE cxx_std_17)
 add_test(NAME EventFxMathTests COMMAND EventFxMathTests)
+add_executable(SandTextureMathTests
+    ../Automation/tests/sand-texture-math-tests.cpp
+    Filmmaker/Environment/EnvironmentSandTextureMath.h
+)
+target_compile_features(SandTextureMathTests PRIVATE cxx_std_17)
+add_test(NAME SandTextureMathTests COMMAND SandTextureMathTests)
+
+add_executable(TumbleweedMathTests
+    ../Automation/tests/tumbleweed-math-tests.cpp
+    Filmmaker/Environment/EnvironmentTumbleweedMath.h
+)
+target_compile_features(TumbleweedMathTests PRIVATE cxx_std_17)
+add_test(NAME TumbleweedMathTests COMMAND TumbleweedMathTests)

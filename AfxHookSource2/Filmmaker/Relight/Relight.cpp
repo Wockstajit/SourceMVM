@@ -254,7 +254,10 @@ void Load(const std::string &path, const std::string &map) {
         entry.softX=std::clamp(authored("soft_x",entry.kind=="light_rect"?0.f:.25f),0.f,1.f);
         entry.softY=std::clamp(authored("soft_y",entry.kind=="light_rect"?0.f:.25f),0.f,1.f);
         entry.skirtNear=std::clamp(authored("skirt_near",entry.kind=="light_rect"?0.f:.05f),0.f,1.f);
-        entry.falloff=std::clamp(authored("falloff",1),0.f,1.f);
+        entry.skirtFar=FixtureFarSkirt(authored("skirt",-1),authored("falloff",entry.skirtFar));
+        entry.bounceOnly = number("directLight", 1) == 0;
+        entry.bounceScale = authored("bouncelight", -1) == 0 ? 0.f :
+            (std::max)(0.f, authored("bouncescale", 1));
         float castShadows = 2;
         if (PropertyNumbers(light, "castshadows", &castShadows, 1))
             entry.castShadows = int(castShadows);
@@ -281,9 +284,11 @@ void Load(const std::string &path, const std::string &map) {
         next.lights.push_back(entry);
         if(MvmDebugLog_Active()&&(entry.outerAngle<180||HasFixtureProjection(entry)))
             MvmDebugLog_LinefAlways("relight.authored.shape","identity=%s kind=%s inner=%.3f outer=%.3f size=(%.3f %.3f %.5f) soft=(%.3f %.3f) skirt=%.3f falloff=%.3f faces=%u",
-                entry.identity.c_str(),entry.kind.c_str(),entry.innerAngle,entry.outerAngle,entry.sizeX,entry.sizeY,entry.sizeZ,entry.softX,entry.softY,entry.skirtNear,entry.falloff,FixtureFaces(entry));
+                entry.identity.c_str(),entry.kind.c_str(),entry.innerAngle,entry.outerAngle,entry.sizeX,entry.sizeY,entry.sizeZ,entry.softX,entry.softY,entry.skirtNear,entry.skirtFar,FixtureFaces(entry));
     }
     if (next.lights.empty()) throw std::runtime_error("No usable authored lights for this map");
+    if (next.map == "de_inferno_night") MarkHoodedEmitters(next.lights);
+    MarkFillLights(next.lights);
     next.generation = g_scene.generation + 1;
     next.enabled = g_scene.enabled && g_scene.map == next.map;
     g_scene = next;
@@ -513,12 +518,12 @@ CON_COMMAND(mirv_relight,
                     light.identity.find(filter) == std::string::npos)
                     continue;
                 advancedfx::Message("  [%3u] %-16s %s lumens=%-7g range=%-7g size=%.1f pos=(%.0f %.0f %.0f) "
-                                    "color=(%.2f %.2f %.2f) shadows=%d\n",
+                                    "color=(%.2f %.2f %.2f) shadows=%d bounce=%g%s\n",
                                     i, light.kind.c_str(), light.enabled ? "on " : "off",
                                     light.lumens, light.range, light.sourceRadius,
                                     light.position.x, light.position.y,
                                     light.position.z, light.color.x, light.color.y, light.color.z,
-                                    light.castShadows);
+                                    light.castShadows, light.bounceScale, light.bounceOnly ? " (bounce only)" : "");
                 if (++shown >= 200) {
                     advancedfx::Message("  ... %zu more; pass a filter\n",
                                         g_scene.lights.size() - shown);
@@ -854,6 +859,7 @@ CON_COMMAND(mirv_relight,
                 const float n = Number(args->ArgV(4));
                 if (!(n >= 0) || n > 2) throw std::runtime_error("castshadows is 0, 1 or 2");
                 light.castShadows = int(n);
+                light.runtimeShadows = n != 0;
             } else
                 throw std::runtime_error("mirv_relight light <index|identity> "
                                          "color <r g b>|intensity <n>|range <n>|size <n>|"

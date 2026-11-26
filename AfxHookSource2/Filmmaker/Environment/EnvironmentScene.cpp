@@ -3,6 +3,7 @@
 #include "EnvironmentScene.h"
 #include "EnvironmentGroundFog.h"
 #include "EnvironmentGameTextures.h"
+#include "EnvironmentTumbleweeds.h"
 #include "EnvironmentReflectionProbes.h"
 #include "EnvironmentWindFluid.h"
 #include "EnvironmentWeatherCover.h"
@@ -662,6 +663,8 @@ std::map<std::string,std::vector<double>> CaptureAnimationValues() {
     return out;
 }
 float RunMainThreadFrame() {
+    bool pumpCollisionGrid = false;
+    const float rainWet = [&]() -> float {
     std::lock_guard<std::mutex> lock(g_mutex);
     auto map = CurrentMap();
     // A replacement world placed at an offset (AltEnvironment.h) is not where its map data says it
@@ -733,6 +736,7 @@ float RunMainThreadFrame() {
     Relight::UpdateStainedGlassMaterials((active || authoredLighting.enabled) && authoredLighting.stainedGlass > 0 && RendererReady());
     UpdateNativeWater(animated,map);
     UpdateNativeRain(animated, map, active, g_camera, g_cameraValid);
+    pumpCollisionGrid = active && animated.climate[CL_tumbleweeds] > 0;
     const Weather &weather = animated.weather;
     if (!active || !g_cameraValid || weather.type != kPrecipitationRain || weather.count <= 0) return 0.f;
     const auto layout = PrecipitationLattice(weather.radius, std::clamp(weather.count / 3000.f, 0.f, 1.f),
@@ -745,6 +749,10 @@ float RunMainThreadFrame() {
         if (MapCollisionRaycast(g_camera, upstream, rise / upstream.z, roof)) return 0.f;
     }
     return std::clamp(weather.count / 6000.f, 0.f, 1.f);
+    }();
+    // MapCollisionGrid_Pump calls CollisionGeometrySnapshot which acquires g_mutex; run after unlock.
+    if (pumpCollisionGrid) MapCollisionGrid_Pump();
+    return rainWet;
 }
 bool PositionEditing() { std::lock_guard<std::mutex> lock(g_mutex); return g_editing!=0; }
 bool RenderedCamera(Matrix &worldToClip, Vec3 &eye) {
@@ -1037,8 +1045,8 @@ void CaptureCoatingActors(Frame &f) {
     const auto &c = f.scene.climate;
     // The round heat map leaves the live players' shoes unpainted from the same list, and the ground
     // fog is pushed aside by the same bodies.
-    const bool weatherNeedsActors = f.active && (c[CL_snow] > 0 || c[CL_wet] > 0 ||
-        c[CL_puddles] > 0 || (f.scene.weather.type == 1 && f.scene.weather.count > 0) ||
+    const bool weatherNeedsActors = f.active && (c[CL_snow] > 0 || c[CL_sand] > 0 || c[CL_tumbleweeds] > 0 || c[CL_wet] > 0 ||
+        c[CL_puddles] > 0 || ((f.scene.weather.type == 1 || f.scene.weather.type == 7) && f.scene.weather.count > 0) ||
         c[CL_groundFog] > 0);
     if (!weatherNeedsActors && !Heatmap::Enabled()) return;
     __try {
@@ -1266,11 +1274,13 @@ Frame CaptureFrame(const Matrix &projection, const Matrix &worldToClip) {
     if (f.active)
         CaptureSmokeVolumes(f.smokes);
     f.snowHeat.clear();
-    if (f.active && f.scene.climate[CL_snow] > 0) {
-        // Every flame melts the snow round it, on the floor it burns on. (Melting round the four
-        // light anchors left most of a spread fire on snow, and the anchors sit 24 units up, which
-        // put the melt on another height layer than the ground: the snow never showed it.)
-        for (const auto &flame : CaptureBurningFires()) f.snowHeat.push_back({flame, 60.f, -1.f});
+    const bool snowLies = f.scene.climate[CL_snow] > 0 && f.scene.climate[CL_snow] >= f.scene.climate[CL_sand];
+    const bool sandLies = f.scene.climate[CL_sand] > 0 && f.scene.climate[CL_sand] > f.scene.climate[CL_snow];
+    if (f.active && (snowLies || sandLies)) {
+        // Every flame melts the snow round it, on the floor it burns on (sand does not melt in fire).
+        // Explosions throw both snow and sand clear and leave a shallow crater.
+        if (snowLies)
+            for (const auto &flame : CaptureBurningFires()) f.snowHeat.push_back({flame, 60.f, -1.f});
         for (const auto &b : CaptureVfxBlasts(f.time)) f.snowHeat.push_back({b.position, 150.f, b.age});
     }
     const bool groundFog = f.active && f.scene.climate[CL_groundFog] > 0;
@@ -1636,6 +1646,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                                 g_selected, SerializeScene(LiveScene()).c_str());
             advancedfx::Message("  mapdata: ready=%d status='%s'\n",bool(MapOcclusion()),MapOcclusionStatus().c_str());
             advancedfx::Message("  cs2 textures: %s\n",GameTexturesStatus().c_str());
+            advancedfx::Message("  tumbleweeds: %s\n",TumbleweedsStatus().c_str());
             advancedfx::Message("  %s\n",ReflectionProbes_Status().c_str());
             advancedfx::Message("  %s\n",WeatherCoverStatus().c_str());
             return;
@@ -1652,7 +1663,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             advancedfx::Message(
                 "Environment UI: Looks, Sky, Lighting, Fog, Weather, Scene Objects.\n"
                 "Fog: climate fogDensity|fogStart|fogHeight|fogNoise|lightShafts|scatter; set fogR|fogG|fogB.\n"
-                "Ground: climate rainTexture 0|1 (CS2's water beads). The snow is always CS2's own.\n"
+                "Ground: climate rainTexture 0..2 (how many of CS2's water beads; 0 off). The snow is always CS2's own.\n"
                 "Ground fog: climate groundFog|groundFogHeight|groundFogDetail|groundFogFlow|groundFogRecovery|\n"
                 "  groundFogSwirl|groundFogWind|groundFogWindAngle|groundFogSoftness|groundFogWisps|groundFogWispSize|\n"
                 "  groundFogStreak|groundFogBillowSize|groundFogChurn|groundFogSun|groundFogShade|groundFogShadeR|G|B|groundFogPushSize|groundFogShadows.\n"
@@ -1660,11 +1671,11 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 "mirv_filmmaker environment on|off|status|undo|rescan|folder\n"
                 " environment weather wind <speed> <direction-degrees>\n"
                 " environment reset [all|lighting|sky|atmosphere|weather|props]\n"
-                " environment weather clear|rain|snow|ash|storm|embers|motes|smoke\n"
+                " environment weather clear|rain|snow|ash|sand|sandstorm|storm|embers|motes|smoke\n"
                 " environment rainview on|off|toggle - weather cover view (grey open sky, green reached, blue sheltered)\n"
                 " environment footview on|off|toggle - feet as read (green down, red lifted) and a ring at each footfall\n"
                 " environment coverplan <file.ppm> - the walkable floor from above, coloured by weather cover\n"
-                " environment look clear|storm|winter|sunset|night; climate <field> <value>\n"
+                " environment look clear|storm|winter|sunset|night|sandstorm; climate <field> <value>\n"
                 " environment pass-off <field|weatherType> <neutral> [...] - switch a pass off, keeping its value held\n"
                 " environment surface-center|fog-center|gi-center|reload-geometry\n"
                 " environment weather set "
@@ -2070,25 +2081,44 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     // weather that brings gusts and fog switches it on.
                     if (gusts > 0 || fog > 0) c[CL_enabled] = 1;
                 };
-                // And its ground, replacing the last weather's: rain lifts the snow, snow dries the
-                // street, ash and clear leave it dry. Picking a weather sets the whole of it.
-                auto ground = [&](float snow, float wet, float puddles) {
+                // And its ground, replacing the last weather's: rain lifts the snow/sand, snow and sand
+                // dry the street and replace each other, ash and clear leave it dry. Picking a weather
+                // sets the whole of it.
+                auto ground = [&](float snow, float sand, float wet, float puddles) {
                     auto &c = next.climate;
                     // Pools belong to a map, as `climate puddles` binds them.
                     if (puddles > 0 && !next.map.empty() && next.map != CurrentMap()) puddles = 0;
                     if (puddles > 0) next.map = CurrentMap();
-                    const std::pair<ClimateField, float> keys[] = {{CL_snow, snow}, {CL_wet, wet}, {CL_puddles, puddles}};
+                    const std::pair<ClimateField, float> keys[] = {{CL_snow, snow}, {CL_sand, sand}, {CL_wet, wet}, {CL_puddles, puddles}};
                     for (const auto &[field, value] : keys) {
                         c.values[field] = value;
                         next.held.erase(ClimateSpecs()[field].key);
                     }
-                    if (snow > 0 || wet > 0) c[CL_enabled] = 1;
+                    if (snow > 0 || sand > 0 || wet > 0) c[CL_enabled] = 1;
+                };
+                const bool wasSandstorm = (w.type == 7 && next.climate[CL_groundFog] > 0.f);
+                auto clearSandstormFloorFog = [&]() {
+                    if (!wasSandstorm) return;
+                    const ClimateField fields[] = {
+                        CL_fogStart, CL_groundFog, CL_groundFogCoverage, CL_groundFogHeight, CL_groundFogDetail,
+                        CL_groundFogSoftness, CL_groundFogWisps, CL_groundFogStreak, CL_groundFogChurn,
+                        CL_groundFogWind, CL_groundFogWindAngle, CL_groundFogColorR, CL_groundFogColorG,
+                        CL_groundFogColorB, CL_groundFogShadeR, CL_groundFogShadeG, CL_groundFogShadeB};
+                    for (const ClimateField field : fields) {
+                        next.climate.values[field] = ClimateSpecs()[field].initial;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
                 };
                 if (mode == "clear") {
+                    clearSandstormFloorFog();
                     w.type = 0;
+                    next.fogColor = {.45f, .5f, .6f};
+                    next.climate[CL_tumbleweeds] = 0;
+                    next.held.erase("tumbleweeds");
                     look(0, 0, ClimateSpecs()[CL_fogHeight].initial, ClimateSpecs()[CL_fogNoise].initial, next.fogColor, ClimateSpecs()[CL_haze].initial);
-                    ground(0, 0, 0);
+                    ground(0, 0, 0, 0);
                 } else if (mode == "rain" || mode == "storm") {
+                    clearSandstormFloorFog();
                     w.type = 1;
                     w.speed = mode == "storm" ? 1050.f : 700.f;
                     w.count = mode == "storm" ? 5200 : 3600;
@@ -2099,8 +2129,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     w.windX = mode == "storm" ? 220.f : 110.f;
                     w.windY = mode == "storm" ? 70.f : 35.f;
                     look(mode == "storm" ? .85f : .55f, mode == "storm" ? .3f : .16f, 420, .6f, {.50f, .56f, .64f}, mode == "storm" ? 1.1f : .8f);
-                    ground(0, .6f, .25f);
+                    ground(0, 0, .6f, .25f);
                 } else if (mode == "snow") {
+                    clearSandstormFloorFog();
                     w.type = 2;
                     w.speed = 65;
                     // About as many flakes as a blizzard in the reference pack holds near the camera
@@ -2113,8 +2144,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     w.windX = 55;
                     w.windY = 20;
                     look(.75f, .26f, 520, .7f, {.86f, .88f, .91f}, 1.f);
-                    ground(.6f, 0, 0);
+                    ground(.6f, 0, 0, 0);
                 } else if (mode == "ash") {
+                    clearSandstormFloorFog();
                     w.type = 3;
                     w.speed = 24;
                     w.count = 1500;
@@ -2127,7 +2159,50 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     look(.6f, .3f, 620, .7f, {.54f, .51f, .47f}, 1.2f);
                     // Hold a little more of each low ash bank between the gusts.
                     next.climate[CL_gustWisps] = .68f;
-                    ground(0, 0, 0);
+                    ground(0, 0, 0, 0);
+                } else if (mode == "sand") {
+                    clearSandstormFloorFog();
+                    w.type = 7;
+                    w.speed = 32;
+                    w.count = 1400;
+                    w.size = .52f;
+                    w.color = {.88f, .79f, .60f};
+                    // Desert breeze: warm golden haze, fine wind-driven sand grains in the air,
+                    // low blown-sand drifts sweeping over sandy ground.
+                    w.windX = 165;
+                    w.windY = 42;
+                    look(.78f, .24f, 520, .65f, {.78f, .68f, .50f}, 1.15f);
+                    ground(0, .65f, 0, 0);
+                } else if (mode == "sandstorm") {
+                    w.type = 7;
+                    w.speed = 38;
+                    w.count = 2400;
+                    w.size = .56f;
+                    w.color = {.90f, .76f, .46f};
+                    // Full desert sandstorm: dense dusty yellow height fog + yellow floor fog,
+                    // heavy gusts, driven sand grains, sandy ground and rolling tumbleweeds.
+                    w.windX = 235;
+                    w.windY = 58;
+                    // A storm you can still see through: the low floor fog stays under the eye (40 units) and
+                    // thin, the haze carries the rest. (At 0.75 and 76 units it stood as one opaque
+                    // yellow wall at eye height that hid the sand and the tumbleweeds, 2026-11-23.)
+                    look(.95f, .4f, 900, .72f, {.84f, .67f, .34f}, 1.6f);
+                    const std::pair<ClimateField, float> floorFog[] = {
+                        {CL_fogStart, 40.f},
+                        {CL_groundFog, .3f}, {CL_groundFogCoverage, .7f}, {CL_groundFogHeight, 40.f},
+                        {CL_groundFogDetail, .75f}, {CL_groundFogSoftness, .68f}, {CL_groundFogWisps, .68f},
+                        {CL_groundFogStreak, .80f}, {CL_groundFogChurn, 1.6f},
+                        {CL_groundFogWind, 95.f}, {CL_groundFogWindAngle, 14.f},
+                        {CL_groundFogColorR, .88f}, {CL_groundFogColorG, .72f}, {CL_groundFogColorB, .38f},
+                        {CL_groundFogShadeR, .86f}, {CL_groundFogShadeG, .72f}, {CL_groundFogShadeB, .44f},
+                    };
+                    for (const auto &[field, value] : floorFog) {
+                        next.climate.values[field] = value;
+                        next.held.erase(ClimateSpecs()[field].key);
+                    }
+                    ground(0, .85f, 0, 0);
+                    next.climate[CL_tumbleweeds] = (std::max)(next.climate[CL_tumbleweeds], 5.f);
+                    next.held.erase("tumbleweeds");
                 } else if (mode == "embers" || mode == "motes" || mode == "smoke") {
                     w.count = mode == "smoke" ? 450 : 1200;
                     w.type = mode == "embers" ? 4 : mode == "motes" ? 5 : 6;
@@ -2241,7 +2316,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
             next.held.clear(); // a look is a whole new set of passes
             if (name == "clear")
                 c = Climate{};
-            else if (name == "storm" || name == "winter" || name == "sunset" || name == "night") {
+            else if (name == "storm" || name == "winter" || name == "sunset" || name == "night" || name == "sandstorm") {
                 c = Climate{};
                 next.weather = Weather{};
                 c[CL_enabled] = 1;
@@ -2250,9 +2325,9 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 c[CL_sky] = 1;
                 c[CL_clouds] = 1;
                 c[CL_sunRelight] = .45f;
-                c[CL_sunElevation] = name == "night" ? -12 : name == "sunset" ? 8 : 25;
-                c[CL_coverage] = name == "storm" ? .8f : name == "winter" ? .7f : .45f;
-                c[CL_fogDensity] = name == "storm" ? .25f : .12f;
+                c[CL_sunElevation] = name == "night" ? -12 : name == "sunset" ? 8 : name == "sandstorm" ? 20 : 25;
+                c[CL_coverage] = name == "storm" ? .8f : (name == "winter" || name == "sandstorm") ? .7f : .45f;
+                c[CL_fogDensity] = name == "sandstorm" ? .4f : name == "storm" ? .25f : .12f;
                 c[CL_bloom] = .18f;
                 if (name == "winter") {
                     c[CL_snow] = .8f;
@@ -2260,6 +2335,26 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                     next.weather.speed = 65;
                     next.weather.size = 2;
                     next.weather.color = {.9f, .95f, 1};
+                }
+                if (name == "sandstorm") {
+                    c[CL_haze] = 1.6f;
+                    c[CL_sunColorR] = 1.15f; c[CL_sunColorG] = .95f; c[CL_sunColorB] = .68f;
+                    c[CL_fogStart] = 40.f; c[CL_fogHeight] = 900.f; c[CL_fogNoise] = .72f;
+                    next.fogColor = {.84f, .67f, .34f};
+                    c[CL_groundFog] = .3f; c[CL_groundFogCoverage] = .7f; c[CL_groundFogHeight] = 40.f;
+                    c[CL_groundFogDetail] = .75f; c[CL_groundFogSoftness] = .68f; c[CL_groundFogWisps] = .68f;
+                    c[CL_groundFogStreak] = .80f; c[CL_groundFogChurn] = 1.6f;
+                    c[CL_groundFogWind] = 95.f; c[CL_groundFogWindAngle] = 14.f;
+                    c[CL_groundFogColorR] = .88f; c[CL_groundFogColorG] = .72f; c[CL_groundFogColorB] = .38f;
+                    c[CL_groundFogShadeR] = .86f; c[CL_groundFogShadeG] = .72f; c[CL_groundFogShadeB] = .44f;
+                    c[CL_gusts] = .95f; c[CL_sand] = .85f; c[CL_tumbleweeds] = 5.f;
+                    next.weather.type = 7;
+                    next.weather.speed = 38;
+                    next.weather.count = 2400;
+                    next.weather.size = .56f;
+                    next.weather.color = {.90f, .76f, .46f};
+                    next.weather.windX = 235;
+                    next.weather.windY = 58;
                 }
                 if (name == "storm") {
                     c[CL_storm] = 1;
@@ -2286,7 +2381,7 @@ void RunCommand(advancedfx::ICommandArgs *args) {
                 TimeOfDayFromSun(c);
                 ApplyTimeOfDay(c);
             } else
-                throw std::runtime_error("Use look clear|storm|winter|sunset|night");
+                throw std::runtime_error("Use look clear|storm|winter|sunset|night|sandstorm");
             next.enabled = true;
         } else if (op == "set") {
             required(5);

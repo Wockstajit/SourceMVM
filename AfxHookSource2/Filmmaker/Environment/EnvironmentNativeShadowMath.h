@@ -5,7 +5,7 @@
 #include <map>
 
 namespace Filmmaker::Environment {
-// Five raw blocker depths locate the penumbra. Thirty-two comparisons avoid visible
+// Thirteen raw blocker depths locate the penumbra. Thirty-two comparisons avoid visible
 // steps from sparse sampling near extended emitters. The pattern stays fixed.
 // The previous twelve-comparison disk produced distinct silhouettes beneath lampshades.
 inline constexpr unsigned NativeLampShadowSamples = 32;
@@ -382,6 +382,7 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
         const auto& rectDest=ins[rect].operands[0];
         const unsigned rectMask=((code[rectDest.start]>>2)&3)==0?(code[rectDest.start]>>4)&15:3;
         Emit(out,54,{Dest(faceWeight,3),SourceForMask(words(ins[rect].operands[1]),rectMask)});
+        Emit(out,54,{Dest(plane,12),Temp(faceWeight,0x44)}); // face NDC before overlap weighting
         Emit(out,54,{Dest(faceWeight,8),Literal(1,1,1,1)});
         patches.emplace(ins[rect].at,Patch{ins[rect].at,std::move(out)});out.clear();
         // Capture the rect before the native UV adds overwrite its register.
@@ -495,6 +496,7 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
                 for(const auto& o:{words(refDest),depth,words(ins[refWriter].operands[2])})add.insert(add.end(),o.begin(),o.end());
                 add[0]=(add[0]&~0x7f000000u)|(uint32_t(add.size())<<24);out.insert(out.end(),add.begin(),add.end());
                 Emit(out,50,{words(ins[rect].operands[0]),Temp(blocker,0x44),Temp(cube.rect,0xee),Temp(cube.rect,0x44)});
+                Emit(out,54,{Dest(plane,12),Temp(blocker,0x44)}); // selected cube face NDC
                 Emit(out,54,{Dest(faceWeight,8),Temp(coords,0)});
                 Emit(out,56,{Dest(span,3),Temp(cube.rect,0xee),Cb(3,0,0)});
                 Emit(out,52,{Dest(span,3),Temp(span),negated(Temp(span))});
@@ -530,17 +532,23 @@ inline unsigned SmoothNativeLampKernels(Relight::IrradianceDxbc::Words& code,boo
             Emit(out,1,{Dest(tap,1),Temp(tap,0),Cb(3,0,0)});
             Emit(out,0x4001f,{Temp(tap,0)});
             Emit(out,56,{Dest(coords,12),Temp(source,0xaa),Literal(0,0,1.f/Relight::AtlasWidth,1.f/Relight::AtlasHeight)});
-            // Search the projected source footprint, bounded to this tile's guard.
-            Emit(out,50,{Dest(tap,1),reference,Temp(source,0),Literal(0,0,0)});
-            Words negative=Temp(tap,0);negative[0]|=0x80000000u;negative.insert(negative.begin()+1,0x41u);
-            Emit(out,0,{Dest(tap,1),Temp(source,0x55),negative});
+            // The guard alone is the available filter radius at a face edge. Inside a face,
+            // the disk can also use its distance to the nearest edge of the projected square.
+            Emit(out,52,{Dest(uv,3),Temp(plane,0xee),negated(Temp(plane,0xee))});
+            Emit(out,52,{Dest(tap,1),Temp(uv,0),Temp(uv,0x55)});
+            Emit(out,50|0x2000,{Dest(tap,1),Temp(tap,0),Literal(-1,-1,-1),Literal(1,1,1)});
+            Emit(out,50,{Dest(coords,12),Temp(tap,0),Temp(footprint),Temp(coords)});
+            // Perspective blocker search extends from the receiver to the near plane:
+            // radius * (1/near - 1/receiver). Radius/receiver collapses on distant floors
+            // and misses the lantern bars beside the centre ray.
+            Emit(out,56,{Dest(tap,1),reference,Temp(source,0)});
             Emit(out,56,{Dest(footprint,3),Temp(footprint,0xee),Temp(tap,0)});
             Words negSpan=Temp(footprint);negSpan[0]|=0x80000000u;negSpan.insert(negSpan.begin()+1,0x41u);
             Emit(out,52,{Dest(footprint,3),Temp(footprint),negSpan});
             Emit(out,51,{Dest(footprint,3),Temp(footprint),Temp(coords,0xee)});
             Emit(out,54,{Dest(blocker,3),Literal(0,0,0)});
-            for(unsigned k=0;k<5;++k){
-                const float r=k? .8f:0,a=(k-1)*1.570796327f;
+            for(unsigned k=0;k<13;++k){
+                const float r=std::sqrt(float(k)/13.f),a=k*2.39996323f;
                 Emit(out,50,{Dest(uv,3),Temp(footprint),Literal(r*std::cos(a),r*std::sin(a),0),center});
                 Emit(out,56,{Dest(coords,3),Temp(uv),Literal(float(Relight::AtlasWidth),float(Relight::AtlasHeight),0)});
                 Emit(out,27,{Dest(coords,3),Temp(coords)}); // ftoi texel coordinates

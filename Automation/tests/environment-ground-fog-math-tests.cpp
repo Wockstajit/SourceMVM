@@ -65,6 +65,24 @@ int main() {
         Check(GroundFogFloorBelow(map, 5000, 5000, 0) <= kGroundFogNoFloor * .5f, "outside the map there is no floor");
     }
     {
+        // Water: the surface's height on the pool's own fine grid, up to its edge and not past it, and
+        // nothing where there is no water (BuildWaterGrid).
+        const std::vector<Vec3> pool{{-64, -64, 12}, {64, -64, 12}, {64, 64, 12}, {-64, -64, 12}, {64, 64, 12}, {-64, 64, 12}};
+        const auto water = BuildWaterGrid(pool);
+        const auto at = [&](float x, float y) {
+            const int i = int(std::floor((x - water.originX) / water.cell)), j = int(std::floor((y - water.originY) / water.cell));
+            if (i < 0 || j < 0 || i >= water.width || j >= water.height) return kGroundFogNoFloor;
+            return water.heights[size_t(j) * size_t(water.width) + size_t(i)];
+        };
+        Check(water.Valid() && Near(water.cell, 4, .01f), "a pool gets its own 4-unit water grid");
+        Check(Near(at(0, 0), 12, .01f), "a pool's middle holds its surface height");
+        Check(Near(at(63, 0), 12, .01f) && Near(at(-63, 63), 12, .01f), "the pool reaches its edge");
+        Check(at(72, 0) <= kGroundFogNoFloor * .5f, "the ground two texels past the edge is not water");
+        Check(at(300, 300) <= kGroundFogNoFloor * .5f, "dry ground has no water");
+        const std::vector<Vec3> wall{{0, 0, 0}, {64, 0, 0}, {64, 0, 64}};
+        Check(!BuildWaterGrid(wall).Valid(), "an upright face is not a water surface");
+        Check(!BuildWaterGrid({}).Valid(), "a map without water has no water grid");
+    }    {
         Soup soup;
         soup.Rect(-512, -512, 0, 512, 0);
         soup.Ramp(0, 400, -512, 512, 0, 100);

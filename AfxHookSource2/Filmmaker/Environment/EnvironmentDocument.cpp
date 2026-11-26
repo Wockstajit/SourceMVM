@@ -260,7 +260,7 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
                 if (h.second.type != JsonValue::Type::Number)
                     throw std::runtime_error("Invalid held value: " + h.first);
                 if (h.first == HeldWeatherTypeKey()) {
-                    if (h.second.number < 0 || h.second.number > 6 || std::floor(h.second.number) != h.second.number)
+                    if (h.second.number < 0 || h.second.number > 7 || std::floor(h.second.number) != h.second.number)
                         throw std::runtime_error("Invalid held weather type");
                 } else {
                     int field = -1;
@@ -274,7 +274,7 @@ bool ParseScene(const std::string &json, Scene &out, std::string &error) {
         }
         auto &v = Field(root, "weather", JsonValue::Type::Object);
         auto &w = s.weather;
-        w.type = Integer(v, "type", 0, 6);
+        w.type = Integer(v, "type", 0, 7);
         w.count = Integer(v, "count", 0, 6000);
         w.seed = Integer(v, "seed", 0, 65535);
         w.radius = Number(v, "radius", 64, 4096);

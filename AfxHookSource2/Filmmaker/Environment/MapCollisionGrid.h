@@ -10,13 +10,24 @@
 // map on a worker; until it is ready a ray falls back to the full sweep.
 
 #include "EnvironmentSurfaceMath.h"
+#include <memory>
 
 namespace Filmmaker::Environment {
+
+struct SurfaceRayGrid;
+
+// Immutable collision geometry + acceleration grid pair safe to read on any thread.
+struct MapCollisionSnapshot {
+	std::shared_ptr<const OcclusionMesh> geometry;
+	std::shared_ptr<const SurfaceRayGrid> grid;
+};
 
 // Main thread, every frame (cheap while the map is unchanged): starts or collects the grid build.
 void MapCollisionGrid_Pump();
 const char* MapCollisionGrid_Status();
 bool MapCollisionGrid_Ready();
+// Thread-safe snapshot of the current ready collision grid (empty until MapCollisionGrid_Pump finishes).
+MapCollisionSnapshot MapCollisionGrid_Snapshot();
 // The nearest map-collision hit along the ray. False without map data or without a hit.
 bool MapCollisionRaycast(Vec3 origin, Vec3 direction, float range, SurfaceHit& hit);
 

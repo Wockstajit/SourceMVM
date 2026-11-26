@@ -1,4 +1,5 @@
 #define NOMINMAX
+#include <limits>
 #include "EnvironmentNativeMaterialDetail.h"
 #include "../Relight/RelightLiteGrid.h"
 namespace Filmmaker::Environment {
@@ -286,6 +287,7 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
     state.proofResourcesReady=false;state.clusterMode=0;state.probeBinding={};state.skyboxBinding={};
     std::vector<Relight::LightRecord> localRecords;
     const bool viewmodelPass=viewport.MaxDepth<=.1f+1e-6f;
+    if(!viewmodelPass)state.worldClusterMode=0;
     auto& recordCache=state.proofRecordCache[viewmodelPass?1:0];
     auto& records=relight?recordCache.records:localRecords;
     if(relight){
@@ -298,17 +300,35 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
         // shadowless record is culled only by a box that walls do not interrupt -- which
         // is why the cached tier exists at all.
         const bool localEnergy=Relight::HasLocalRadiance(set);
+        const bool probeBounce=set.gi&&!set.lite&&set.cost==0;
+        const bool fillEnergy=probeBounce&&set.localLights&&std::any_of(set.lights.begin(),set.lights.end(),
+            [](const auto& light) {return light.bounceOnly&&light.enabled&&light.bounceScale>0&&light.lumens>0;});
         const bool sunShadow=set.sunShadows&&Relight::HasRadiance(Relight::SunRadiance(set));
         if(!state.proofPrepared){
             state.proofNearby=Relight::StableShadowBudget(set.lights,state.frame.camera,
                 set.shadows&&localEnergy?Relight::ShadowBudgetLimit:0u,state.proofNearby);
-            state.proofCached=set.shadows&&localEnergy?Relight::StaticShadowSet(set.lights,state.proofNearby,
+            // How far each close lamp is from being swapped out (Relight::NearShadowKeep): the nearest
+            // eligible lamp outside the budget, against each lamp inside it.
+            {
+                const auto ranked=Relight::ShadowBudget(set.lights,state.frame.camera,unsigned(set.lights.size()));
+                const auto distanceTo=[&](unsigned i){const auto d=set.lights[i].position-state.frame.camera;return std::sqrt(Dot(d,d));};
+                float outsider=std::numeric_limits<float>::infinity();
+                for(auto index:ranked)
+                    if(!set.lights[index].transient&&!set.lights[index].sceneObject&&
+                       std::find(state.proofNearby.begin(),state.proofNearby.end(),index)==state.proofNearby.end()){outsider=distanceTo(index);break;}
+                for(unsigned k=0;k<Relight::ShadowBudgetLimit;++k){
+                    const bool steady=k>=state.proofNearby.size()||set.lights[state.proofNearby[k]].transient||set.lights[state.proofNearby[k]].sceneObject;
+                    const float distance=steady?0.f:distanceTo(state.proofNearby[k]);
+                    Relight::NearShadowKeeps[k]=steady?1.f:Relight::NearShadowProximity(distance)*Relight::NearShadowKeep(distance,outsider);
+                }
+            }
+            state.proofCached=set.shadows&&(localEnergy||fillEnergy)?Relight::StaticShadowSet(set.lights,state.proofNearby,
                 (std::min)(set.staticShadows,Relight::StaticShadowLimit)):std::vector<unsigned>{};
             const auto& shadowed=state.proofNearby;const auto& cached=state.proofCached;
             state.proofShadowLights=0;state.proofSunShadowed=false;state.proofStaticLights=0;
             // The pass also draws the sun tile, so it runs whenever shadows are on even
             // if no local light won a slot.
-            if(set.shadows&&(localEnergy||sunShadow)&&mapShadowPass){
+            if(set.shadows&&(localEnergy||fillEnergy||sunShadow)&&mapShadowPass){
                 CompletedSceneCasterScope completedScene;
                 std::vector<Vec3> positions;std::vector<float> ranges;
                 for(auto index:shadowed){positions.push_back(set.lights[index].position);ranges.push_back(set.lights[index].range);}
@@ -357,22 +377,36 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
         // Lit bounds (RelightLitBoundsMath.h) for the world passes' cube records of static-tier lamps.
         // Not with a shadow reach: past it a lamp lights without its shadow map, walls or not.
         auto& litRows=recordCache.litBounds;litRows.clear();
+        auto& bounceRecords=recordCache.bounceRecords;
+        bounceRecords.clear();
+        if(probeBounce)bounceRecords.reserve(records.capacity());
         const bool litBoundsWanted=ShadowLitBounds.load(std::memory_order_relaxed)&&!viewmodelPass&&set.shadows&&set.shadowReach==0;
-        for(unsigned index=0;index<set.lights.size()&&localEnergy;++index){
+        for(unsigned index=0;index<set.lights.size()&&(localEnergy||fillEnergy);++index){
             auto light=set.lights[index];
+            const bool fillOnly=light.bounceOnly;
+            const unsigned first=state.proofFirstTiles[index];
+            // Fills feed the probe transport without entering the direct light list.
+            // With shadows on, omit a fill whose caster tiles are not resident.
+            if(fillOnly&&(!probeBounce||!light.enabled||light.bounceScale<=0||
+                          (set.shadows&&first==~0u)))continue;
+            light.bounceOnly=false;
+            const auto append=[&](const Relight::LightRecord& record) {
+                if(!fillOnly)records.push_back(record);
+                if(probeBounce&&light.bounceScale>0)
+                    bounceRecords.push_back(Relight::ScaleBounceRecord(record,light.bounceScale));
+            };
             if(viewport.MaxDepth<=.1f+1e-6f){light.brightnessScale*=VfxViewmodelEnergy(light);
                 if(light.transient)light.minimumRoughness=1;}
             // The first tile of this light's six faces, or none if it is shadowless. A
             // cached light counts only once all six of its faces have been drawn, because
             // a record pointing at a tile nothing was rendered into samples stale depth.
-            const unsigned first=state.proofFirstTiles[index];
             const bool ownWick=viewport.MaxDepth<=.1f+1e-6f&&(light.identity=="vfx:held"||light.identity=="vfx:bottle");
             // The first-person bottle/hands use a different pose from the world
             // proxy. Its world shadow moving across the hands is a false self shadow.
             // The local muzzle uses the first-person pose, not the world proxy.
             // Other sources retain wall occlusion, including stained glass.
-            if(ownWick||(viewport.MaxDepth<=.1f+1e-6f&&VfxOwnMuzzle(light))){records.push_back(Relight::ToRecord(light,set.intensity));continue;}
-            if(first==~0u){if(!set.shadows||!light.transient)records.push_back(Relight::ToRecord(light,set.intensity));continue;}
+            if(ownWick||(viewport.MaxDepth<=.1f+1e-6f&&VfxOwnMuzzle(light))){append(Relight::ToRecord(light,set.intensity));continue;}
+            if(first==~0u){if(!set.shadows||!light.transient)append(Relight::ToRecord(light,set.intensity));continue;}
             // Shadow reach: receivers past it skip this light's shadow lookup (ShadowReachDepth).
             const float shadowReach=set.shadowRadiance>0&&!Relight::HasFixtureProjection(light)?
                 Relight::LightVisibleReach(Relight::ToRecord(light,set.intensity),light.range,set.shadowRadiance):0.f;
@@ -382,24 +416,26 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
                Relight::ToCubeShadowRecord(light,set.intensity,state.proofMatrices[first].data(),first,cube)){
                 if(shadowReach>0&&shadowReach<light.range)cube[Relight::ShadowReachSlot]=Relight::ShadowReachDepth(cube,shadowReach);
                 if(set.shadowReach<0)cube[Relight::ShadowReachSlot]=1e-7f; // diagnostic: no lookups
-                records.push_back(cube);
+                append(cube);
                 Vec3 litLow{},litHigh{};
-                if(litBoundsWanted&&Relight::IsStaticFaceTile(first)&&
+                if(!fillOnly&&litBoundsWanted&&Relight::IsStaticFaceTile(first)&&
                    StaticLampLitBounds((first-Relight::StaticTile)/Relight::ShadowFaces,set.shadowBias,litLow,litHigh)){
                     litRows.resize(records.size());litRows.back()=Relight::ToLitBoundsRow({litLow,litHigh,true});}
                 continue;
             }
             for(unsigned face=0;face<Relight::FixtureFaces(light);++face){
-                records.push_back(Relight::ToShadowedRecord(light,set.intensity,
-                    state.proofMatrices[first+face].data(),first+face));
+                auto record=Relight::ToShadowedRecord(light,set.intensity,
+                    state.proofMatrices[first+face].data(),first+face);
                 if(shadowReach>0&&shadowReach<light.range)
-                    records.back()[Relight::ShadowReachSlot]=Relight::ShadowReachDepth(records.back(),shadowReach);
-                if(set.shadowReach<0&&!Relight::HasFixtureProjection(light))records.back()[Relight::ShadowReachSlot]=1e-7f; // diagnostic: no lookups
+                    record[Relight::ShadowReachSlot]=Relight::ShadowReachDepth(record,shadowReach);
+                if(set.shadowReach<0&&!Relight::HasFixtureProjection(light))record[Relight::ShadowReachSlot]=1e-7f; // diagnostic: no lookups
+                append(record);
             }
         }
         // The map's sun, as one directional record. Sunlight reaching through a doorway
         // is the shadow map doing its job; what it cannot do is the bounce that fills
         // the rest of the room, which is indirect light and is not implemented.
+        const auto firstDirectionalRecord=records.size();
         if(set.sun>0&&state.frame.occlusion){
             auto low=state.frame.occlusion->low,high=state.frame.occlusion->high;
             if(state.frame.occlusion->visual){const auto& v=*state.frame.occlusion->visual;
@@ -427,6 +463,10 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
         }
         // Zero emitters is a valid blackout. Keep ownership of the native material and
         // its baked-input suppression by binding one inert record instead of falling through.
+        if(probeBounce){
+            bounceRecords.insert(bounceRecords.end(),records.begin()+firstDirectionalRecord,records.end());
+            if(bounceRecords.empty())bounceRecords.emplace_back();
+        }
         if(records.empty())records.emplace_back();
         if(set.cost==2)records.resize(1);
         if(!litRows.empty())litRows.resize(records.size());
@@ -705,6 +745,7 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
             if(now-last>=3000){last=now;MvmDebugLog_LinefAlways("relight.cluster.engine","native=%u records=%u words=%u tiles=%ux%u slices=%u gated=%u",
                 unsigned(engineClustered),recordCount,grid.lights.words,grid.tilesX,grid.tilesY,grid.sliceCount,unsigned(gated));}}
         state.clusterMode=clusterMode;
+        if(!viewmodelPass)state.worldClusterMode=clusterMode;
     }
     if(MvmDebugLog_Active()&&!state.clusterLogged&&!state.clusterReadbackPending&&viewportDesc.ByteWidth>=21*16) {
         auto staging=[&](UINT bytes,ComPtr<ID3D11Buffer>& out) {
@@ -748,7 +789,7 @@ bool ProofResources(ID3D11Device* device,ID3D11DeviceContext* ctx,const D3D11_VI
     state.liteReleasedProbes=relight&&state.frame.relight.lite;
     if(relight&&state.frame.relight.gi&&!state.frame.relight.lite&&(!state.frame.relight.probeCheck||state.frame.relight.probeCheck>=3)&&state.frame.relight.cost==0) {
         const auto traced=Relight::PrepareProbeGi(device,ctx,state.frame.occlusion,state.frame.relight,
-            records,state.proofAtlas.Get(),state.proofComparison.Get(),state.probeFrame,state.proofStaticLights,state.frame.camera,state.glassCookies,
+            recordCache.bounceRecords,state.proofAtlas.Get(),state.proofComparison.Get(),state.probeFrame,state.proofStaticLights,state.frame.camera,state.glassCookies,
             ViewForward(state.frame.angles));
         if(traced.constants){state.probeBinding=traced;state.probeTraced=true;}
         // Diagnostics 5/6: the traced binding with the ambient probe's texture, or with its constants.
@@ -920,7 +961,7 @@ void SetMapLightShadowPass(MapLightShadowPass pass){mapShadowPass=pass;}
 void SetSkyVisibilitySource(SkyVisibilitySource source){skyVisibilitySource=source;}
 void SetViewmodelShadowPass(ViewmodelShadowPass pass){viewmodelShadowPass=pass;}
 void SetGlassBeamShadowPass(GlassBeamShadowPass pass){glassBeamShadowPass=pass;}
-unsigned RelightClusterMode(){return state.frame.relight.enabled?state.clusterMode:0;}
+unsigned RelightClusterMode(){return state.frame.relight.enabled?state.worldClusterMode:0;}
 unsigned BindRelightRecords(ID3D11DeviceContext* ctx){
     // The diagnostic views evaluate the records against reconstructed world
     // positions, so they need the authored copy rather than the camera-relative
@@ -929,8 +970,8 @@ unsigned BindRelightRecords(ID3D11DeviceContext* ctx){
     ID3D11ShaderResourceView* view=ready?state.proofAuthoredSrv.Get():nullptr;
     if(ctx) {
         ctx->PSSetShaderResources(26,1,&view);
-        ID3D11ShaderResourceView* clusterViews[2]{ready&&state.clusterMode?state.proofMaskSrv.Get():nullptr,
-                                              ready&&state.clusterMode?state.clusterRowsSrv.Get():nullptr};
+        ID3D11ShaderResourceView* clusterViews[2]{ready&&state.worldClusterMode?state.proofMaskSrv.Get():nullptr,
+                                              ready&&state.worldClusterMode?state.clusterRowsSrv.Get():nullptr};
         ctx->PSSetShaderResources(27,2,clusterViews);
         auto volume=state.probeBinding.irradiance;auto constants=state.probeBinding.constants;
         auto sampler=state.probeBinding.sampler;

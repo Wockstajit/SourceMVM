@@ -20,7 +20,8 @@ float3 CoatingBaseNormal(float2 pixel,float depth,uint sample,float3 center,floa
         bool left=all(l2>.5)&&all(l2<dimensions.xy-.5),right=all(r2>.5)&&all(r2<dimensions.xy-.5);
         float dl1=left?ReadSampleDepth(l1,sample):0,dl2=left?ReadSampleDepth(l2,sample):0;
         float dr1=right?ReadSampleDepth(r1,sample):0,dr2=right?ReadSampleDepth(r2,sample):0;
-        left=left&&!IsSky(dl1)&&!IsSky(dl2);right=right&&!IsSky(dr1)&&!IsSky(dr2);
+        left=left&&!IsSky(dl1)&&!IsSky(dl2)&&!IsViewmodelSample(l1,sample)&&!IsViewmodelSample(l2,sample);
+        right=right&&!IsSky(dr1)&&!IsSky(dr2)&&!IsViewmodelSample(r1,sample)&&!IsViewmodelSample(r2,sample);
         if(!left&&!right)return fallback;
         float el=left?abs(2*dl1-dl2-depth):1e30,er=right?abs(2*dr1-dr2-depth):1e30;
         tangent[a]=el<er?center-World(l1,dl1):World(r1,dr1)-center;
@@ -33,11 +34,16 @@ float3 CoatingBaseNormal(float2 pixel,float depth,uint sample,float3 center,floa
 float3 CoatingNormal(float2 pixel,float depth,uint sample,float3 centerNormal) {
     float3 center=ReceiverPosition(pixel,depth,sample);
     float worldPerPixel=2*length(center-camera.xyz)/max(1,dimensions.y*length(viewProjection[1].xyz));
-    float radius=clamp(10/max(worldPerPixel,.001),1,10);
-    float worldRadius=max(worldPerPixel*radius,1);
+    // Keep coating normal smoothing tight and corner-preserving: a wide 10px plane fit with a
+    // loose angle gate bent vertical wall bases upward into floors (vertical top-down streaks) and
+    // bent floors/car trunks near edges downward into walls (vanishing sand/snow at grazing angles).
+    float radius=clamp(4/max(worldPerPixel,.001),1,4);
+    float worldRadius=max(worldPerPixel*radius,.5);
     // The hands and weapon keep the shared normal (no coating lies on them).
     float3 base=IsViewmodelSample(pixel,sample)?centerNormal:CoatingBaseNormal(pixel,depth,sample,center,centerNormal);
-    return FilterSurfaceNormal(pixel,depth,sample,false,base,radius,worldRadius*3);
+    float3 filtered=FilterSurfaceNormal(pixel,depth,sample,false,base,radius,worldRadius*1.5);
+    if(dot(filtered,base)<.90||(base.z<.45&&filtered.z>base.z+.06)||(base.z>.82&&filtered.z<.82))return base;
+    return filtered;
 }
 float CoatingDetailFade(float footprint,float frequency) { return 1-smoothstep(.25,1,footprint*frequency); }
 float CoatingCoverage(float amount,float noise,float softness) {

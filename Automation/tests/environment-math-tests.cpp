@@ -27,6 +27,43 @@ int main() {
     Check(ClimateValueValid(CL_bounceSteps,1)&&ClimateValueValid(CL_bounceSteps,3)&&
           !ClimateValueValid(CL_bounceSteps,0)&&!ClimateValueValid(CL_bounceSteps,4)&&
           !ClimateValueValid(CL_bounceSteps,1.5),"Bounce step count accepts only whole values from one to three");
+    Check(ClimateValueValid(CL_sand,0)&&ClimateValueValid(CL_sand,1)&&!ClimateValueValid(CL_sand,-.1)&&!ClimateValueValid(CL_sand,1.1),
+          "Sand coverage stays within zero to one");
+    Check(ClimateValueValid(CL_sandDepth,0)&&ClimateValueValid(CL_sandDepth,1)&&!ClimateValueValid(CL_sandDepth,1.2),
+          "Sand depth stays within zero to one");
+    Check(ClimateValueValid(CL_tumbleweeds,0)&&ClimateValueValid(CL_tumbleweeds,16)&&
+          !ClimateValueValid(CL_tumbleweeds,-1)&&!ClimateValueValid(CL_tumbleweeds,17)&&
+          !ClimateValueValid(CL_tumbleweeds,2.5),"Tumbleweeds accepts only whole counts from zero to sixteen");
+    Check(ClimateValueValid(CL_sandStyle,0)&&ClimateValueValid(CL_sandStyle,3)&&
+          !ClimateValueValid(CL_sandStyle,-1)&&!ClimateValueValid(CL_sandStyle,4)&&
+          !ClimateValueValid(CL_sandStyle,1.5),"Sand texture style accepts whole values zero to three");
+    Check(ClimateValueValid(CL_sandHarmonize,0)&&ClimateValueValid(CL_sandHarmonize,0.5)&&ClimateValueValid(CL_sandHarmonize,1)&&
+          !ClimateValueValid(CL_sandHarmonize,-0.1)&&!ClimateValueValid(CL_sandHarmonize,2),
+          "Sand color harmonize accepts continuous 0..1 values");
+    Check(ClimateValueValid(CL_sandColorR,0)&&ClimateValueValid(CL_sandColorR,1)&&!ClimateValueValid(CL_sandColorR,1.2)&&
+          ClimateValueValid(CL_sandColorG,0)&&ClimateValueValid(CL_sandColorB,1),
+          "Sand color components stay within zero to one");
+    {
+        Climate sandOnly;sandOnly[CL_enabled]=1;sandOnly[CL_sand]=.5f;
+        Climate weedsOnly;weedsOnly[CL_enabled]=1;weedsOnly[CL_tumbleweeds]=4;
+        Check(ClimateSamplesSunShadow(sandOnly,false,false)&&ClimateSamplesSunShadow(weedsOnly,false,false),
+              "Sand coating and tumbleweeds both request sun-shadow visibility");
+        Scene sandScene;sandScene.weather.type=7;sandScene.climate[CL_sand]=.75f;sandScene.climate[CL_sandDepth]=.6f;sandScene.climate[CL_tumbleweeds]=5;
+        sandScene.climate[CL_sandStyle]=2;sandScene.climate[CL_sandHarmonize]=.55f;
+        sandScene.climate[CL_sandColorR]=.72f;sandScene.climate[CL_sandColorG]=.54f;sandScene.climate[CL_sandColorB]=.31f;
+        sandScene.held["weatherType"]=7.f;
+        Scene loaded;std::string err;
+        Check(ParseScene(SerializeScene(sandScene),loaded,err)&&loaded.weather.type==7&&loaded.held["weatherType"]==7.f&&
+              Near(loaded.climate[CL_sand],.75f)&&Near(loaded.climate[CL_sandDepth],.6f)&&loaded.climate[CL_tumbleweeds]==5&&
+              loaded.climate[CL_sandStyle]==2&&Near(loaded.climate[CL_sandHarmonize],.55f)&&
+              Near(loaded.climate[CL_sandColorR],.72f)&&Near(loaded.climate[CL_sandColorG],.54f)&&Near(loaded.climate[CL_sandColorB],.31f),
+              "Sand weather, sand ground, style, harmonize, color and tumbleweeds roundtrip in presets");
+        auto badWeather=SerializeScene(sandScene);
+        const auto pos=badWeather.find("\"type\":7");
+        Check(pos!=std::string::npos,"Serialized sand weather carries type 7");
+        badWeather.replace(pos,8,"\"type\":8");
+        Check(!ParseScene(badWeather,loaded,err),"Unknown weather type above Sand is rejected");
+    }
     {
         std::vector<ShadowRefreshCandidate> faces;
         for(unsigned i=0;i<600;++i)faces.push_back({i,0,i<150?1.f:0.f,i<150,false});
@@ -850,11 +887,12 @@ int main() {
     auto bevel=Primitive("beveledbox");bool rounded=false;for(const auto &v:bevel->vertices)if(std::abs(v.normal.x)>.1f&&std::abs(v.normal.y)>.1f){rounded=true;Check(std::abs(v.position.x)<1&&std::abs(v.position.y)<1,"Beveled edges change the actual silhouette");}Check(rounded,"Beveled primitive has curved edge normals");
     {
         static_assert(sizeof(CasterVertex)==32&&sizeof(CasterAnimation)==32,"Stable caster cache layout");
-        // MVMCAST6 layout: header(8) count(4) flags(4) nv(4) ni(4) | rigid positions, indices,
+        // MVMCAST7 layout: header(8) count(4) flags(4) nv(4) ni(4) | rigid positions, indices,
         // per-triangle albedo | batch: nv ni width height cutoff animation(32) addressU addressV
         // albedo vertices indices alpha | stained glass count, each: nv ni width height,
-        // position+uv vertices, indices, RGBA8 colour. Offsets below follow this fixture.
-        std::ostringstream bytes(std::ios::binary);bytes.write("MVMCAST6",8);
+        // position+uv vertices, indices, RGBA8 colour | water triangle count, three corners each.
+        // Offsets below follow this fixture.
+        std::ostringstream bytes(std::ios::binary);bytes.write("MVMCAST7",8);
         auto u=[&](uint32_t v){bytes.write(reinterpret_cast<char*>(&v),4);};
         u(1);u(1);u(3);u(3);
         const Vec3 rigidVertices[]{{10,20,30},{40,20,30},{10,50,30}};const uint32_t rigidIndices[]{0,1,2};
@@ -868,10 +906,24 @@ int main() {
         bytes.write(reinterpret_cast<char*>(vertices),sizeof(vertices));u(0);u(1);u(2);
         unsigned char alpha[]={0,255,128,240};bytes.write(reinterpret_cast<char*>(alpha),4);
         u(0); // no stained glass
+        u(0); // no water
         auto valid=bytes.str();VisualCasters casters;std::string why;
-        Check(valid.size()==256,"Version 6 fixture layout");
+        Check(valid.size()==260,"Version 7 fixture layout");
         std::istringstream stream(valid,std::ios::binary);
-        Check(ReadVisualCasters(stream,casters,why)&&casters.batches.size()==1&&casters.renderGeometry&&casters.glass.empty(),"Version 6 pack loads");
+        Check(ReadVisualCasters(stream,casters,why)&&casters.batches.size()==1&&casters.renderGeometry&&casters.glass.empty()&&casters.water.empty(),"Version 7 pack loads");
+        {
+            // One water triangle: its corners survive the pack, and a count past the limit is refused.
+            auto waterPack=valid.substr(0,256);const uint32_t one=1;
+            waterPack.append(reinterpret_cast<const char*>(&one),4);
+            const Vec3 pool[]{{0,0,12},{64,0,12},{0,64,12}};
+            waterPack.append(reinterpret_cast<const char*>(pool),sizeof(pool));
+            VisualCasters withWater;std::istringstream waterStream(waterPack,std::ios::binary);
+            Check(ReadVisualCasters(waterStream,withWater,why)&&withWater.water.size()==3&&withWater.water[1].x==64&&withWater.water[2].z==12,
+                  "Water surface triangles survive the pack");
+            auto tooMany=waterPack;const uint32_t many=Filmmaker::MapData::kWaterTrianglesMax+1;std::memcpy(tooMany.data()+256,&many,4);
+            std::istringstream badWater(tooMany,std::ios::binary);
+            Check(!ReadVisualCasters(badWater,withWater,why),"A water triangle count past the limit is refused");
+        }
         {
             // One stained glass pane: its triangle, UVs and a 1x2 colour image survive the pack.
             auto glassPack=valid.substr(0,252);const uint32_t header[]{1,3,3,1,2};
@@ -881,6 +933,7 @@ int main() {
             glassPack.append(reinterpret_cast<const char*>(pane),sizeof(pane));
             glassPack.append(reinterpret_cast<const char*>(order),sizeof(order));
             glassPack.append(reinterpret_cast<const char*>(rgba),sizeof(rgba));
+            const uint32_t noWater=0;glassPack.append(reinterpret_cast<const char*>(&noWater),4);
             VisualCasters withGlass;std::istringstream glassStream(glassPack,std::ios::binary);
             Check(ReadVisualCasters(glassStream,withGlass,why)&&withGlass.glass.size()==1&&withGlass.glass[0].vertices[1].position.x==40&&
                   withGlass.glass[0].vertices[2].v==1&&withGlass.glass[0].rgba[4]==20&&withGlass.glass[0].height==2,"Stained glass geometry and colour survive the pack");

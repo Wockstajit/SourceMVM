@@ -186,9 +186,9 @@ R"CFJS(
     }
     var MATERIAL_FIELDS = ['roughness', 'metallic', 'coat', 'coatRoughness', 'anisotropy',
                            'emission', 'normalStrength', 'uvScale'];
-    var WEATHER_WORD = ['Clear', 'Rain', 'Snow', 'Ash', 'Embers', 'Motes', 'Smoke'];
+    var WEATHER_WORD = ['Clear', 'Rain', 'Snow', 'Ash', 'Embers', 'Motes', 'Smoke', 'Sand'];
     // WEATHER_WORD is also the mode key (lowercased); this is what the card summary shows.
-    var WEATHER_SHOWN = [T('Clear##weather'), T('Rain'), T('Snow'), T('Ash'), T('Embers'), T('Motes'), T('Smoke')];
+    var WEATHER_SHOWN = [T('Clear##weather'), T('Rain'), T('Snow'), T('Ash'), T('Embers'), T('Motes'), T('Smoke'), T('Sand')];
 
     renderHooks.push(function (st) {
       var s = envState();
@@ -197,7 +197,9 @@ R"CFJS(
       // ---- PRECIPITATION -------------------------------------------------------------------
       var ready = !!st.envOcclusionReady;
       envWeatherPill.set(envWeatherOn());
-      envWeatherModes.sync(WEATHER_WORD[s.weather.type ? s.weather.type : 0].toLowerCase());
+      var cl = s.climate || {};
+      var isSandstorm = s.weather.type === 7 && cl.enabled && cl.groundFog > 0.15 && cl.fogDensity > 0.35;
+      envWeatherModes.sync(isSandstorm ? 'sandstorm' : WEATHER_WORD[s.weather.type ? s.weather.type : 0].toLowerCase());
       var wind = s.weather;
       var speed = Math.sqrt(wind.windX * wind.windX + wind.windY * wind.windY);
       if (speed > 0.01) envWindDirection = (Math.atan2(wind.windY, wind.windX) * 180 / Math.PI + 360) % 360;
@@ -206,16 +208,17 @@ R"CFJS(
         var weatherKey = envWeatherControls[w][1];
         envWeatherControls[w][0].sync(s.weather[weatherKey] / (weatherKey === 'count' ? 60 : 1));
       }
-      var cl = s.climate || {};
       var lightning = (cl.enabled && cl.storm)
         ? (cl.stormHold ? T('held strike') : T('lightning every {0}s', cl.stormInterval || 9)) : '';
       var surfaces = [];
       if (cl.enabled && cl.wet > 0) surfaces.push('wet ground');
       if (cl.enabled && cl.puddles > 0) surfaces.push('puddles');
       if (cl.enabled && cl.snow > 0) surfaces.push('snow cover');
+      if (cl.enabled && cl.sand > 0) surfaces.push('sand cover');
       var parts = [];
-      if (s.weather.type) parts.push((WEATHER_SHOWN[s.weather.type] || WEATHER_WORD[s.weather.type]) + ' · ' + Math.round(s.weather.count / 60) + '%');
+      if (s.weather.type) parts.push((isSandstorm ? T('Sandstorm') : (WEATHER_SHOWN[s.weather.type] || WEATHER_WORD[s.weather.type])) + ' · ' + Math.round(s.weather.count / 60) + '%');
       if (surfaces.length) parts.push(T('ground response'));
+      if (cl.enabled && cl.tumbleweeds > 0) parts.push(TN(Math.round(cl.tumbleweeds), '{0} tumbleweed', '{0} tumbleweeds'));
       if (lightning) parts.push(lightning);
       envWeatherSec.__note(parts.length ? parts.join(' · ') : T('Off'));
 
