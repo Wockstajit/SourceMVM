@@ -4271,7 +4271,6 @@ void STDMETHODCALLTYPE New_PSSetShader(ID3D11DeviceContext* This,
     _In_reads_opt_(NumClassInstances)  ID3D11ClassInstance* const* ppClassInstances,
     UINT NumClassInstances) {
 
-    Filmmaker::SkyGpuRotation_NotePixelShaderSet(This);
     if (
         This->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE
         && g_RenderCommands.CurrentThreadIsRenderThread()

@@ -24,11 +24,6 @@ struct SkyGpuRotationScope {
 void SkyGpuRotation_NoteMap(ID3D11Resource* resource, void* data);
 void SkyGpuRotation_NoteUnmap(ID3D11Resource* resource);
 
-// From the PSSetShader hook, before the engine call: a bound pixel shader changed on `context`.
-// BeginDraw re-reads the bound shaders only after one of these (or a new frame), instead of on
-// every draw.
-void SkyGpuRotation_NotePixelShaderSet(ID3D11DeviceContext* context);
-
 // Call immediately around an engine draw. Begin returns an empty scope unless the draw is sky.vfx
 // and the sky material's slot-0 transform upload is cached. The rotated copy is bound only to the
 // vertex stage's slot 0: that is the $Globals cbuffer containing g_matSkyWsToOs in sky_pc_50_vs.

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <cctype>
 #include <cstring>
 #include <mutex>
@@ -155,21 +156,9 @@ unsigned char ShaderTags(ID3D11DeviceChild* shader) {
 	return tags;
 }
 
-// Bumped by the PSSetShader hook on this thread; BoundShaderTags reuses its last answer while the
-// pixel shader on the same context has not been set again in the same frame, so consecutive draws
-// with one material skip the two shader getters (each goes through ReShade's d3d11.dll wrapper
-// when it is loaded).
-thread_local ID3D11DeviceContext* t_psContext = nullptr;
-thread_local unsigned long long t_psGeneration = 0;
-
+// The tags of the shaders bound right now. Both stages are read on every call: nothing hooks
+// VSSetShader, so a cached answer could not notice a vertex-shader change.
 unsigned char BoundShaderTags(ID3D11DeviceContext* context) {
-	thread_local ID3D11DeviceContext* s_context = nullptr;
-	thread_local unsigned long long s_generation = 0, s_frame = 0;
-	thread_local unsigned char s_tags = 0;
-	const unsigned long long frame = RenderCompletedPresents() + 1;
-	const bool tracked = t_psGeneration != 0; // the hook has fired: generations are meaningful
-	if (tracked && context == s_context && context == t_psContext && s_generation == t_psGeneration && s_frame == frame)
-		return s_tags;
 	ID3D11VertexShader* vs = nullptr;
 	ID3D11PixelShader* ps = nullptr;
 	context->VSGetShader(&vs, nullptr, nullptr);
@@ -177,10 +166,6 @@ unsigned char BoundShaderTags(ID3D11DeviceContext* context) {
 	const unsigned char tags = ShaderTags(vs) | ShaderTags(ps);
 	if (vs) vs->Release();
 	if (ps) ps->Release();
-	s_context = context;
-	s_generation = t_psGeneration;
-	s_frame = frame;
-	s_tags = tags;
 	return tags;
 }
 
@@ -323,13 +308,38 @@ struct BoostProbe {
 };
 std::unordered_map<ID3D11Buffer*, BoostProbe> s_boostProbes;
 std::mutex s_boostMutex;
+ID3D11Device* s_boostDevice = nullptr;          // owns a reference while probes exist, so its address cannot be reused
+std::atomic<bool> s_boostProbesHeld{ false };   // anything to release; read without the lock
+
+void ReleaseBoostProbes_NoLock() {
+	for (auto& entry : s_boostProbes) if (entry.second.staging) entry.second.staging->Release();
+	s_boostProbes.clear();
+	if (s_boostDevice) s_boostDevice->Release();
+	s_boostDevice = nullptr;
+	s_boostProbesHeld.store(false, std::memory_order_relaxed);
+}
+
+// The staging copies are only for a rotated sun: once it is back to normal they are released, so
+// they hold no VRAM or device reference while the feature is off.
+void ReleaseBoostProbesIfHeld() {
+	if (!s_boostProbesHeld.load(std::memory_order_relaxed)) return;
+	std::lock_guard<std::mutex> lock(s_boostMutex);
+	ReleaseBoostProbes_NoLock();
+}
 
 float AsyncColorBoost(ID3D11DeviceContext* context, ID3D11Buffer* source, unsigned bytes) {
 	if (context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) return NAN;
+	ID3D11Device* device = nullptr;
+	context->GetDevice(&device);
+	if (!device) return NAN;
 	std::lock_guard<std::mutex> lock(s_boostMutex);
-	if (s_boostProbes.size() >= 512 && !s_boostProbes.count(source)) {
-		for (auto& entry : s_boostProbes) if (entry.second.staging) entry.second.staging->Release();
-		s_boostProbes.clear();
+	// A new device (or too many buffers seen): every staging copy belongs to the old set.
+	if (device != s_boostDevice || (s_boostProbes.size() >= 512 && !s_boostProbes.count(source)))
+		ReleaseBoostProbes_NoLock();
+	if (!s_boostDevice) {
+		s_boostDevice = device;
+		device->AddRef();
+		s_boostProbesHeld.store(true, std::memory_order_relaxed);
 	}
 	BoostProbe& probe = s_boostProbes[source];
 	if (probe.staging && probe.bytes != bytes) { // a freed buffer's address reused at another size
@@ -337,18 +347,18 @@ float AsyncColorBoost(ID3D11DeviceContext* context, ID3D11Buffer* source, unsign
 		probe = {};
 	}
 	if (!probe.staging) {
-		ID3D11Device* device = nullptr;
-		context->GetDevice(&device);
-		if (!device) return NAN;
 		D3D11_BUFFER_DESC sd = {};
 		sd.ByteWidth = bytes;
 		sd.Usage = D3D11_USAGE_STAGING;
 		sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-		const HRESULT created = device->CreateBuffer(&sd, nullptr, &probe.staging);
-		device->Release();
-		if (FAILED(created)) { probe.staging = nullptr; return NAN; }
+		if (FAILED(device->CreateBuffer(&sd, nullptr, &probe.staging))) {
+			probe.staging = nullptr;
+			device->Release();
+			return NAN;
+		}
 		probe.bytes = bytes;
 	}
+	device->Release(); // GetDevice's reference; s_boostDevice holds its own
 	if (probe.pending) {
 		D3D11_MAPPED_SUBRESOURCE mapped = {};
 		if (context->Map(probe.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped) == S_OK) {
@@ -634,7 +644,9 @@ void SkyGpuRotation_NoteUnmap(ID3D11Resource* resource) {
 
 SkyGpuRotationScope SkyGpuRotation_BeginDraw(ID3D11DeviceContext* context) {
 	SkyGpuRotationScope scope;
-	if (!context || (!HasSkyOrientationOverride() && !HasSunOrientationOverride())) return scope;
+	if (!context) return scope;
+	if (!HasSunOrientationOverride()) ReleaseBoostProbesIfHeld();
+	if (!HasSkyOrientationOverride() && !HasSunOrientationOverride()) return scope;
 	const unsigned char tags = BoundShaderTags(context);
 	if (!(tags & kTagSky)) {
 		// Neither the sky nor a possible sun sprite (the common case), or a sky-only rotation: the
@@ -736,11 +748,6 @@ SkyGpuRotationScope SkyGpuRotation_BeginDraw(ID3D11DeviceContext* context) {
 		s_loggedApplied = false;
 	}
 	return scope;
-}
-
-void SkyGpuRotation_NotePixelShaderSet(ID3D11DeviceContext* context) {
-	t_psContext = context;
-	++t_psGeneration;
 }
 
 void SkyGpuRotation_EndDraw(ID3D11DeviceContext* context, SkyGpuRotationScope& scope) {
