@@ -202,9 +202,13 @@ void SkyOrient_RunFrame() {
 		const int top = GetHighestEntityIndex();
 		for (int i = 0; i <= top; ++i) {
 			CEntityInstance* ent = (CEntityInstance*)g_GetEntityFromIndex(*g_pEntityList, i);
-			if (!ent || !SceneNodeOf(ent)) continue;
-			if (WorldEntity_Matches(ent, kSkyClasses, sizeof(kSkyClasses) / sizeof(kSkyClasses[0]))) ++skies;
-			else if (WorldEntity_Matches(ent, kFogClasses, sizeof(kFogClasses) / sizeof(kFogClasses[0]))) ++fogs;
+			if (!ent) continue;
+			const bool isSky = WorldEntity_Matches(ent, kSkyClasses, sizeof(kSkyClasses) / sizeof(kSkyClasses[0]));
+			const bool isFog = !isSky && WorldEntity_Matches(ent, kFogClasses, sizeof(kFogClasses) / sizeof(kFogClasses[0]));
+			if (!isSky && !isFog) continue;
+			if (!SceneNodeOf(ent)) continue;
+			if (isSky) ++skies;
+			else ++fogs;
 		}
 		g_skyCount = skies;
 		g_fogCount = fogs;
