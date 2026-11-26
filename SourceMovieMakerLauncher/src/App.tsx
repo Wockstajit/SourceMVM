@@ -308,12 +308,12 @@ export default function App() {
     () => document.hasFocus() && document.visibilityState === 'visible');
   useEffect(() => {
     const update = () => setWindowActive(document.hasFocus() && document.visibilityState === 'visible');
-    window.addEventListener('focus', update);
-    window.addEventListener('blur', update);
+    // Input means the window is in use even if no focus event arrived for it.
+    const events = ['focus', 'blur', 'pointerdown', 'keydown'];
+    for (const name of events) window.addEventListener(name, update);
     document.addEventListener('visibilitychange', update);
     return () => {
-      window.removeEventListener('focus', update);
-      window.removeEventListener('blur', update);
+      for (const name of events) window.removeEventListener(name, update);
       document.removeEventListener('visibilitychange', update);
     };
   }, []);
@@ -324,7 +324,8 @@ export default function App() {
     if (!video) return;
     if (quiet) video.pause();
     else void video.play().catch(() => {});
-  }, [quiet]);
+    // `ready`: the video only mounts once initialization finishes, possibly while already quiet.
+  }, [quiet, ready]);
 
   useEffect(() => {
     let active = true;

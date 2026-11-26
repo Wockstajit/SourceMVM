@@ -62,6 +62,8 @@ test('the launcher holds its looping video and title sweep while CS2 runs or it 
   const css = read('src/styles.css');
   assert.match(app, /const quiet = started \|\| advanced \|\| !windowActive;/);
   assert.match(app, /if \(quiet\) video\.pause\(\);/);
+  assert.match(app, /\}, \[quiet, ready\]\);/, 'runs again once the video mounts after initialization');
+  assert.match(css, /\.intro \{[^}]*pointer-events: auto;/, 'the intro takes the click that skips it');
   assert.match(app, /ref=\{linemapRef\}/);
   assert.match(app, /className=\{`launcher \$\{introDone \? 'is-ready' : ''\} \$\{quiet \? 'is-quiet' : ''\}`\}/);
   assert.match(css, /\.launcher\.is-quiet \.wm-title,\s*\.launcher\.is-quiet \.wm-trail,\s*\.launcher\.is-quiet \.wm-ghost \{\s*animation-play-state: paused;/);
