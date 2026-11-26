@@ -109,7 +109,13 @@ export function changedFileNames(rawDiff) {
     .split("\n")
     .filter((line) => line.startsWith(":"))
     .filter((line) => line.split(/\s+/)[1] !== "160000")
-    .map((line) => line.split("\t").slice(1).join("\t"))
+    .map((line) => {
+      const fields = line.split("\t");
+      // A rename or copy ("R100" / "C075") lists the old path, then the new one: the new path is
+      // the file the change adds.
+      const status = fields[0].split(/\s+/)[4] ?? "";
+      return /^[RC]\d*$/.test(status) ? fields[fields.length - 1] : fields.slice(1).join("\t");
+    })
     .filter(Boolean);
 }
 

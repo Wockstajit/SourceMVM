@@ -93,6 +93,15 @@ test("parseAllowlist rejects malformed entries", () => {
   assert.throws(() => parseAllowlist("scan Resources/x.txt"));
 });
 
+test("changedFileNames takes the new path of a rename or copy", () => {
+  const raw = [
+    ":100644 100644 aaaa bbbb R100\tautomation/tests/a-tests.cpp\tAutomation/tests/a-tests.cpp",
+    ":100644 100644 aaaa cccc C075\tDocs/old.md\tDocs/new name.md",
+    ":100644 100644 aaaa dddd M\tAfxHookSource2/b.h",
+  ].join("\n");
+  assert.deepEqual(changedFileNames(raw), ["Automation/tests/a-tests.cpp", "Docs/new name.md", "AfxHookSource2/b.h"]);
+});
+
 test("changedFileNames skips submodule pointers and keeps paths with spaces", () => {
   const raw = [
     ":100644 100644 aaaa bbbb M\tDocs/my doc.md",
