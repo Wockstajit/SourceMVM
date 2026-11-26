@@ -477,6 +477,7 @@ void CameraPath::PlaceMarker() {
 	for (int i = 0; i < m_data.Count(); ++i) {
 		CamMarker& existing = m_data.At(i);
 		if (existing.tick != m.tick) continue;
+		PushCurveUndo(); // re-posing is an edit like any other: Ctrl+Z puts the old pose back
 		existing.x = m.x; existing.y = m.y; existing.z = m.z;
 		existing.pitch = m.pitch; existing.yaw = m.yaw; existing.roll = m.roll; existing.fov = m.fov;
 		m_data.SetSelected(i);
@@ -488,6 +489,7 @@ void CameraPath::PlaceMarker() {
 	}
 
 	const bool curves = AnyCurve(m_data);
+	PushCurveUndo();
 	int idx = m_data.Add(m);
 	// On a path that follows the graph's curves, a new Smooth marker gets the graph's Smooth
 	// handles too, so it joins the curve instead of making a corner. Its neighbours keep theirs.
@@ -507,6 +509,7 @@ int CameraPath::PlaceMarkerAt(int tick, double x, double y, double z, double pit
 	m.time = tick * (double)g_MirvTime.interval_per_tick_get();
 	m.speedMul = 1.0f; m.ease = Ease::None;
 
+	PushCurveUndo();
 	int idx = m_data.Add(m);
 	RebuildCamPath();
 	EnsureDrawState();
@@ -521,6 +524,7 @@ void CameraPath::DeleteIndex(int index) {
 		advancedfx::Message("[campath] delete: no marker #%d.\n", index);
 		return;
 	}
+	PushCurveUndo();
 	m_data.DeleteIndex(index);
 	if (m_data.Empty()) m_menuOpen = false;
 	RebuildCamPath();
@@ -535,6 +539,7 @@ void CameraPath::DeleteAll(bool confirmed) {
 		return;
 	}
 	int c = Count();
+	if (c > 0) PushCurveUndo(); // a cleared path can be brought back with Ctrl+Z
 	m_data.DeleteAll();
 	m_menuOpen = false;
 	m_play.Stop();
@@ -657,6 +662,8 @@ void CameraPath::SetSelectedSpeedMul(float mul) {
 		return;
 	}
 	if (mul < 0.2f) mul = 0.2f; else if (mul > 1.0f) mul = 1.0f;
+	if (m_data.At(sel).speedMul == mul) return;
+	PushCurveUndo();
 	m_data.At(sel).speedMul = mul;
 	RebuildCamPath();
 	MarkDirty();
@@ -1200,6 +1207,8 @@ void CameraPath::ReplaceMarkersFromGraph(const std::vector<CamMarker>& markers, 
 
 void CameraPath::SetEaseIndex(int index, Ease e) {
 	if (!m_data.ValidIndex(index)) return;
+	if (m_data.At(index).ease == e) return;
+	PushCurveUndo();
 	m_data.At(index).ease = e;
 	MarkDirty(); // easing is applied at eval time; no geometry rebuild needed
 	advancedfx::Message("[campath] marker #%d ease -> %d.\n", index, (int)e);
@@ -1212,6 +1221,8 @@ void CameraPath::SetSpeedMulIndex(int index, float mul) {
 		return;
 	}
 	if (mul < 0.2f) mul = 0.2f; else if (mul > 1.0f) mul = 1.0f;
+	if (m_data.At(index).speedMul == mul) return;
+	PushCurveUndo();
 	m_data.At(index).speedMul = mul;
 	RebuildCamPath();
 	MarkDirty();

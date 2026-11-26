@@ -1074,10 +1074,18 @@ R"EDJS(
       if (preview3d) applyPreview();
       return previewState();
     };
+    var lastStateRaw = null, lastCatalogRaw = null, sceneCatalog = [];
     api.render = function () {
       var raw = root.GetAttributeString('state', '');
       if (!raw) { root.visible = false; return; }
-      try { st = JSON.parse(raw); } catch (e) { return; }
+      if (raw !== lastStateRaw) { try { st = JSON.parse(raw); lastStateRaw = raw; } catch (e) { return; } }
+      // The scene-key catalog arrives on its own attribute (CameraEditorHud.cpp) and is parsed only
+      // when it changes; skCatalog() still reads it from st.sceneKeys.catalog.
+      var catalogRaw = root.GetAttributeString('skcatalog', '');
+      if (catalogRaw !== lastCatalogRaw) {
+        try { sceneCatalog = catalogRaw ? JSON.parse(catalogRaw) : []; lastCatalogRaw = catalogRaw; } catch (e2) {}
+      }
+      if (st.sceneKeys) st.sceneKeys.catalog = sceneCatalog;
       // Track the operator's column width before anything lays out against it this frame. While
       // the grip is being dragged it owns the value and the stored one is stale by a frame.
       if (!edGripBusy && typeof st.inspW === 'number' && st.inspW > 0) edInspW = Math.floor(st.inspW);

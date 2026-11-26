@@ -100,7 +100,7 @@ export function decideScope({ event, ref = "", baseRef = "", files }) {
 
 // Which aggregated jobs must pass for this scope. Jobs not listed here may pass or be skipped.
 export function requiredJobs(scope, event) {
-  const required = new Set(["changes", "docs-integrity", "security-license-scan"]);
+  const required = new Set(["changes", "docs-integrity", "source-tests", "security-license-scan"]);
   if (event === "pull_request") required.add("changed-file-policy");
   if (scope.launcher === "true") required.add("launcher-build");
   if (scope.panorama === "true") required.add("panorama-tests");

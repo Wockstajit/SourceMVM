@@ -309,9 +309,13 @@ void SceneKeys_RunFrame() {
 int SceneKeys_Revision() { return g_track.revision; }
 int SceneKeys_ArmedCount() { return (int)g_track.data.armed.size(); }
 int SceneKeys_KeyCount() { int n = 0; for (const auto& f : g_track.data.fields) n += (int)f.second.size(); return n; }
-std::string SceneKeys_StateJson() {
+std::string SceneKeys_CatalogJson() {
+    JsonBuilder j; CatalogJson(j); return j.Str();
+}
+
+std::string SceneKeys_StateJson(bool withCatalog) {
     JsonBuilder j; j.BeginObject(); const auto base = Baselines(); const double tick = TimelinePlayhead_Tick();
-    j.Key("catalog"); CatalogJson(j);
+    if (withCatalog) { j.Key("catalog"); CatalogJson(j); }
     j.Key("armed"); j.BeginObject(); for (const auto& id : g_track.data.armed) j.BoolField(id.c_str(),true); j.EndObject();
     j.Key("resolved"); j.BeginObject(); for (const auto& s : Catalog()) { j.Key(s.id.c_str()); WriteValue(j,Resolved(s,tick,base),s.type==ChannelType::SkyId); } j.EndObject();
     j.Key("byField"); j.BeginObject();

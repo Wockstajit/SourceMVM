@@ -1,4 +1,5 @@
 #include "../Takes/ActorAnimations.h"
+#include "PanoramaPerfProbe.h"
 #include "ConfigHud.h"
 #include "../Localization/Localization.h"
 #include "../Takes/Takes.h"
@@ -607,8 +608,10 @@ void ConfigHud::RunFrame() {
 		return;
 	}
 
-	std::string state = BuildStateJson();
+	std::string state;
+	{ PanoramaPerf_Scope _p("confighud.state"); state = BuildStateJson(); }
 	if (state != m_lastState) {
+		PanoramaPerf_Scope _p("confighud.push");
 		m_bridge.SetAttributeString(m_root, m_symState, state.c_str());
 		m_lastState = state;
 	}
@@ -624,7 +627,7 @@ void ConfigHud::RunFrame() {
 	if (!IsLive())
 		TimelineDock_Claim(DockHost::Config);
 	TimelineDock_Apply(DockHost::Config);
-	m_bridge.RunScriptCached("$.ConfigHud && $.ConfigHud.render();", "mvm/confighud.render");
+	{ PanoramaPerf_Scope _p("confighud.js"); m_bridge.RunScriptCached("$.ConfigHud && $.ConfigHud.render();", "mvm/confighud.render"); }
 	// Where the MODULAR window is ('' in the WORKSPACE layout), for the click router.
 	UiLayout_SetPanelRectString(UiPanel::Config, m_bridge.GetAttributeString(m_root, m_symWinRect, "").c_str());
 	if (m_bridge.GetAttributeString(m_root, m_symWinFront, "0") == "1") UiLayout_SetFrontWindow(UiPanel::Config);

@@ -168,6 +168,7 @@ const outputs = (overrides = {}) => ({
 const needsFor = (scope, results) => ({
   changes: { result: "success", outputs: scope },
   "docs-integrity": { result: "success" },
+  "source-tests": { result: "success" },
   "panorama-tests": { result: "skipped" },
   "launcher-build": { result: "skipped" },
   "native-build-windows": { result: "skipped" },
@@ -225,7 +226,7 @@ test("the gate fails when the scope job failed or reported nonsense", () => {
 test("required jobs follow the scope", () => {
   assert.deepEqual(
     [...requiredJobs(outputs({ native: "all", launcher: "true" }), "push")].sort(),
-    ["changes", "docs-integrity", "launcher-build", "native-build-windows", "security-license-scan"],
+    ["changes", "docs-integrity", "launcher-build", "native-build-windows", "security-license-scan", "source-tests"],
   );
 });
 

@@ -19,7 +19,10 @@ void SceneKeys_ApplyCaptureTick(double tick);
 void SceneKeys_AppendTimelineState(std::ostringstream& out);
 bool SceneKeys_KeySpan(double& lo, double& hi);
 void SceneKeys_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);
-std::string SceneKeys_StateJson();
+// `withCatalog` = false leaves out "catalog" (the property list, ~35 KB, which only changes with
+// the language or the map's options): the Camera Editor sends that separately and only on change.
+std::string SceneKeys_StateJson(bool withCatalog = true);
+std::string SceneKeys_CatalogJson();
 std::string SceneKeys_MarkerStateJson();
 std::string SceneKeys_ChannelsJson();
 int SceneKeys_Revision();

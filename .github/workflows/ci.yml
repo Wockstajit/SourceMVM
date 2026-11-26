@@ -64,6 +64,27 @@ jobs:
       - name: Documentation integrity
         run: node --test Automation/tests/documentation-integrity-tests.mjs
 
+  # Every static regression test in Automation/tests (they read the sources, no game needed). Cheap,
+  # so every change runs it. The skipped files need game-extracted UI assets that are not in git.
+  source-tests:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          check-latest: true
+      - name: Static source tests
+        run: |
+          $skip = @('ui-mockup-menu-fixture-tests.mjs', 'ui-source-sync-tests.mjs')
+          $failed = @()
+          foreach ($test in Get-ChildItem Automation/tests -Filter '*-tests.mjs' | Sort-Object Name) {
+            if ($skip -contains $test.Name) { Write-Host "skipped $($test.Name) (needs extracted CS2 UI assets)"; continue }
+            node --test $test.FullName
+            if ($LASTEXITCODE -ne 0) { $failed += $test.Name }
+          }
+          if ($failed.Count) { Write-Host "Failed: $($failed -join ', ')"; exit 1 }
+
   panorama-tests:
     needs: changes
     if: needs.changes.outputs.panorama == 'true'
@@ -382,6 +403,7 @@ jobs:
     needs:
       - changes
       - docs-integrity
+      - source-tests
       - panorama-tests
       - launcher-build
       - native-build-windows

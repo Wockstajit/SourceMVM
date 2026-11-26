@@ -30,6 +30,10 @@ is the source of truth for the path rules. In short:
 | Anything else (docs, website, FX tools, scripts, legacy HLAE trees) | `none` | |
 
 `docs-integrity` and `security-license-scan` scan every tracked file, so every run includes them.
+`source-tests` runs every `Automation/tests/*-tests.mjs` file on every run. They read the sources
+and need no game, so a change anywhere is checked against all of them. The UI mockup fixture and
+source-sync tests are skipped there because they need CS2 UI assets that are extracted locally and
+not in git.
 `changed-file-policy` runs on pull requests. The legacy HLAE build runs nightly in
 [`legacy-native.yml`](../../.github/workflows/legacy-native.yml). When the changed files cannot be
 listed (a new branch, a forced update, an unknown event), every job runs.
