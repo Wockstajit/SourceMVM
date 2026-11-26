@@ -16,6 +16,8 @@
 
 #include <Windows.h>
 
+unsigned long long RenderCompletedPresents(); // RenderSystemDX11Hooks.cpp
+
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -174,6 +176,9 @@ std::atomic<unsigned long long> g_rotationRestores{ 0 };
 std::atomic<unsigned long long> g_rotationForeign{ 0 };
 std::mutex g_rotationObjectMutex;
 std::unordered_map<void*, TrackedLightDirection> g_rotationObjectBases;
+// Mirrors g_rotationObjectBases.size() (written under g_rotationObjectMutex): the submit hook runs
+// once per light per frame and skips the lock outright while nothing is tracked.
+std::atomic<size_t> g_rotationTracked{ 0 };
 
 std::atomic<float> g_yaw{ 0.0f }, g_pitch{ 0.0f };
 std::atomic<float> g_referenceX{ 0.0f }, g_referenceY{ 0.0f }, g_referenceZ{ 0.0f };
@@ -192,8 +197,21 @@ bool AnyColorOverride() {
 }
 bool AnyRotation() { return float(WorldTransient::Number("lightDirection", g_yaw.load(), 0)) != 0.0f || float(WorldTransient::Number("lightDirection", g_pitch.load(), 1)) != 0.0f; }
 bool AnyOverride() { return AnyColorOverride() || AnyRotation(); }
+// The submit hook asks this once per light: six string-keyed WorldTransient lookups each time.
+// The answer only changes when a setting does, so it is worked out once per presented frame.
+bool AnyOverrideThisFrame() {
+	static std::atomic<unsigned long long> s_frame{ ~0ull };
+	static std::atomic<bool> s_value{ false };
+	const unsigned long long frame = RenderCompletedPresents();
+	if (s_frame.load(std::memory_order_acquire) != frame) {
+		s_value.store(AnyOverride(), std::memory_order_relaxed);
+		s_frame.store(frame, std::memory_order_release);
+	}
+	return s_value.load(std::memory_order_relaxed);
+}
 
 bool RotationObjectTracked(void* object) {
+	if (g_rotationTracked.load(std::memory_order_relaxed) == 0) return false;
 	std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
 	return g_rotationObjectBases.find(object) != g_rotationObjectBases.end();
 }
@@ -371,9 +389,11 @@ static bool RotateSubmittedDirection(void* object, float yaw, float pitch,
 	std::lock_guard<std::mutex> lock(g_rotationObjectMutex);
 	if (!wrote) {
 		g_rotationObjectBases.erase(object);
+		g_rotationTracked.store(g_rotationObjectBases.size(), std::memory_order_relaxed);
 		return false;
 	}
 	g_rotationObjectBases[object] = { base, rotated, true };
+	g_rotationTracked.store(g_rotationObjectBases.size(), std::memory_order_relaxed);
 	return true;
 }
 
@@ -387,6 +407,7 @@ static bool RestoreSubmittedDirection(void* object) {
 		if (found == g_rotationObjectBases.end()) return false;
 		entry = found->second;
 		g_rotationObjectBases.erase(found);
+		g_rotationTracked.store(g_rotationObjectBases.size(), std::memory_order_relaxed);
 	}
 	SunRotationMath::Vec3 current{};
 	if (!ReadUnitDirection(object, &current)) return false;
@@ -433,7 +454,7 @@ void* __fastcall new_LightSubmit(void* a1, void* lightObject, void* a3) {
         }
     }
 	const bool rotationTracked = RotationObjectTracked(lightObject);
-	if (!AnyOverride() && !rotationTracked) return g_original(a1, lightObject, a3);
+	if (!AnyOverrideThisFrame() && !rotationTracked) return g_original(a1, lightObject, a3);
 
 	const float amount = float(WorldTransient::Number("lightAmount", g_amount.load(std::memory_order_relaxed), 0));
 	const int tintR = float(WorldTransient::Number("lightColor", g_tintR.load(std::memory_order_relaxed), 0));
@@ -740,7 +761,7 @@ static void ReleaseRotationCvar() {
 }
 void LightFx_OnLevelInit() {
     // Scene objects are level-owned. Never reuse a prior map's pointer snapshot.
-    {std::lock_guard<std::mutex> lock(g_rotationObjectMutex);g_rotationObjectBases.clear();}
+    {std::lock_guard<std::mutex> lock(g_rotationObjectMutex);g_rotationObjectBases.clear();g_rotationTracked.store(0, std::memory_order_relaxed);}
     g_trackedLightsFull.store(false, std::memory_order_relaxed);
     ReleaseRotationCvar();
     g_referenceValid.store(false, std::memory_order_relaxed); // the new map publishes its own sun

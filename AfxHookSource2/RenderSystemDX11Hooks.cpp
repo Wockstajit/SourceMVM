@@ -8988,6 +8988,15 @@ namespace AfxViewportScaler {
         // serve request outlives the presents the engine re-shows without a scene.
         const bool haveIdentity = blitRan && s_PresentFrameValid;
         if (haveIdentity) s_LastFrame = s_PresentFrame;
+        // Idle VRAM: the held preview and the scaler's temp copy are each a whole backbuffer
+        // (~13 MB at 1080p). Once the scaled preview has been off for a couple of seconds, free them;
+        // reopening a workspace allocates them again on its first present.
+        static unsigned s_InactivePresents = 0;
+        if (active) s_InactivePresents = 0;
+        else if (s_InactivePresents < 0xFFFFFFFFu && ++s_InactivePresents == 120) {
+            ReleaseHeld();
+            g_ViewportScaler.ReleaseTemp();
+        }
         if (!active || recording || !g_pSwapChain || !g_pDevice) {
             s_HeldValid = false;
             std::lock_guard<std::mutex> lock(s_CacheMutex);

@@ -11,10 +11,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <cctype>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
+#include <memory>
 #include <vector>
+
+unsigned long long RenderCompletedPresents(); // RenderSystemDX11Hooks.cpp
 
 namespace Filmmaker {
 
@@ -36,9 +41,14 @@ struct ActiveMap {
 	const unsigned char* data = nullptr;
 };
 
+// Last upload per small dynamic buffer. A 64-slot ring used to hold these, but CS2 rewrites
+// hundreds of constant buffers a frame, so the effect's colour boost was usually evicted before
+// its draw and every small effects quad fell back to a GPU readback (~2 ms a frame with the sun
+// rotated). One slot per buffer, reused on each upload; cleared wholesale if it ever grows past
+// the cap (level changes free and reallocate buffers).
 std::mutex s_uploadsMutex;
-CachedUpload s_uploads[64] = {};
-unsigned s_nextUpload = 0;
+std::unordered_map<ID3D11Resource*, std::unique_ptr<CachedUpload>> s_uploads;
+constexpr size_t kMaxCachedUploads = 4096;
 thread_local ActiveMap s_activeMap;
 ID3D11Buffer* s_rotatedConstants = nullptr;
 bool s_loggedSkyBuffers = false;
@@ -126,28 +136,43 @@ bool ShaderNameContains(ID3D11DeviceChild* shader, const char* needle) {
 	return false;
 }
 
-bool IsSkyDraw(ID3D11DeviceContext* context) {
+// Which of the names this file looks for a shader carries. Reading a debug name is a
+// GetPrivateData lookup inside the D3D runtime, and every draw asked four times (sky + effects,
+// VS + PS) while a sky or sun rotation was set. A shader's name never changes, so each one is read
+// once per frame: the per-thread table is keyed by shader pointer and expires with the frame, so a
+// pointer the engine frees and reuses cannot keep an old shader's tags past that frame.
+enum : unsigned char { kTagSky = 1, kTagEffects = 2 };
+unsigned char ShaderTags(ID3D11DeviceChild* shader) {
+	if (!shader) return 0;
+	struct Slot { ID3D11DeviceChild* key; unsigned long long frame; unsigned char tags; };
+	thread_local Slot s_slots[512] = {};
+	const unsigned long long frame = RenderCompletedPresents() + 1; // 0 marks an empty slot
+	Slot& slot = s_slots[(reinterpret_cast<uintptr_t>(shader) >> 4) & 511];
+	if (slot.key == shader && slot.frame == frame) return slot.tags;
+	unsigned char tags = 0;
+	if (ShaderNameContains(shader, "sky")) tags |= kTagSky;
+	if (ShaderNameContains(shader, "effects")) tags |= kTagEffects;
+	slot = { shader, frame, tags };
+	return tags;
+}
+
+// The tags of the shaders bound right now. Both stages are read on every call: nothing hooks
+// VSSetShader, so a cached answer could not notice a vertex-shader change.
+unsigned char BoundShaderTags(ID3D11DeviceContext* context) {
 	ID3D11VertexShader* vs = nullptr;
 	ID3D11PixelShader* ps = nullptr;
 	context->VSGetShader(&vs, nullptr, nullptr);
 	context->PSGetShader(&ps, nullptr, nullptr);
-	const bool result = ShaderNameContains(vs, "sky") || ShaderNameContains(ps, "sky");
+	const unsigned char tags = ShaderTags(vs) | ShaderTags(ps);
 	if (vs) vs->Release();
 	if (ps) ps->Release();
-	return result;
+	return tags;
 }
 
 bool IsSunSpriteCandidate(ID3D11DeviceContext* context, ID3D11Buffer** outVertexBuffer,
 	unsigned* outStride, unsigned* outOffset) {
 	if (!context) return false;
-	ID3D11VertexShader* vs = nullptr;
-	ID3D11PixelShader* ps = nullptr;
-	context->VSGetShader(&vs, nullptr, nullptr);
-	context->PSGetShader(&ps, nullptr, nullptr);
-	const bool effect = ShaderNameContains(vs, "effects") || ShaderNameContains(ps, "effects");
-	if (vs) vs->Release();
-	if (ps) ps->Release();
-	if (!effect) return false;
+	if (!(BoundShaderTags(context) & kTagEffects)) return false;
 	ID3D11Buffer* vb = nullptr;
 	UINT stride = 0, offset = 0;
 	context->IAGetVertexBuffers(0, 1, &vb, &stride, &offset);
@@ -179,13 +204,10 @@ bool IsSunSpriteCandidate(ID3D11DeviceContext* context, ID3D11Buffer** outVertex
 bool FindUpload(ID3D11Resource* resource, CachedUpload& out) {
 	if (!resource) return false;
 	std::lock_guard<std::mutex> lock(s_uploadsMutex);
-	for (const CachedUpload& upload : s_uploads) {
-		if (upload.resource == resource) {
-			out = upload;
-			return true;
-		}
-	}
-	return false;
+	const auto it = s_uploads.find(resource);
+	if (it == s_uploads.end()) return false;
+	out = *it->second;
+	return true;
 }
 
 // g_matSkyWsToOs is already Z-up: the engine's own matrix is a pure rotation about its third axis
@@ -272,6 +294,88 @@ bool ReadBufferToCpu(ID3D11DeviceContext* context, ID3D11Buffer* source,
 	return result;
 }
 
+// The effect material's constants are not a dynamic upload the Map hook sees, and reading them
+// back synchronously stalled the CPU on the GPU for ~0.5 ms per small effects quad (several per
+// frame) whenever the sun was rotated. Instead each buffer gets its own staging copy, read with
+// DO_NOT_WAIT a frame or more later and refreshed every 30 frames: the sun's material constants
+// are static, so the value is at most a frame late when the sun first comes into view.
+struct BoostProbe {
+	ID3D11Buffer* staging = nullptr;
+	unsigned bytes = 0;
+	bool pending = false;
+	float value = NAN;
+	unsigned long long issued = 0;
+};
+std::unordered_map<ID3D11Buffer*, BoostProbe> s_boostProbes;
+std::mutex s_boostMutex;
+ID3D11Device* s_boostDevice = nullptr;          // owns a reference while probes exist, so its address cannot be reused
+std::atomic<bool> s_boostProbesHeld{ false };   // anything to release; read without the lock
+
+void ReleaseBoostProbes_NoLock() {
+	for (auto& entry : s_boostProbes) if (entry.second.staging) entry.second.staging->Release();
+	s_boostProbes.clear();
+	if (s_boostDevice) s_boostDevice->Release();
+	s_boostDevice = nullptr;
+	s_boostProbesHeld.store(false, std::memory_order_relaxed);
+}
+
+// The staging copies are only for a rotated sun: once it is back to normal they are released, so
+// they hold no VRAM or device reference while the feature is off.
+void ReleaseBoostProbesIfHeld() {
+	if (!s_boostProbesHeld.load(std::memory_order_relaxed)) return;
+	std::lock_guard<std::mutex> lock(s_boostMutex);
+	ReleaseBoostProbes_NoLock();
+}
+
+float AsyncColorBoost(ID3D11DeviceContext* context, ID3D11Buffer* source, unsigned bytes) {
+	if (context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) return NAN;
+	ID3D11Device* device = nullptr;
+	context->GetDevice(&device);
+	if (!device) return NAN;
+	std::lock_guard<std::mutex> lock(s_boostMutex);
+	// A new device (or too many buffers seen): every staging copy belongs to the old set.
+	if (device != s_boostDevice || (s_boostProbes.size() >= 512 && !s_boostProbes.count(source)))
+		ReleaseBoostProbes_NoLock();
+	if (!s_boostDevice) {
+		s_boostDevice = device;
+		device->AddRef();
+		s_boostProbesHeld.store(true, std::memory_order_relaxed);
+	}
+	BoostProbe& probe = s_boostProbes[source];
+	if (probe.staging && probe.bytes != bytes) { // a freed buffer's address reused at another size
+		probe.staging->Release();
+		probe = {};
+	}
+	if (!probe.staging) {
+		D3D11_BUFFER_DESC sd = {};
+		sd.ByteWidth = bytes;
+		sd.Usage = D3D11_USAGE_STAGING;
+		sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		if (FAILED(device->CreateBuffer(&sd, nullptr, &probe.staging))) {
+			probe.staging = nullptr;
+			device->Release();
+			return NAN;
+		}
+		probe.bytes = bytes;
+	}
+	device->Release(); // GetDevice's reference; s_boostDevice holds its own
+	if (probe.pending) {
+		D3D11_MAPPED_SUBRESOURCE mapped = {};
+		if (context->Map(probe.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped) == S_OK) {
+			if (mapped.pData) probe.value = *reinterpret_cast<const float*>(static_cast<const unsigned char*>(mapped.pData) + 108);
+			context->Unmap(probe.staging, 0);
+			probe.pending = false;
+		}
+	}
+	const unsigned long long frame = RenderCompletedPresents() + 1;
+	if (!probe.pending && (probe.issued == 0 || frame - probe.issued >= 30)) {
+		context->CopyResource(probe.staging, source);
+		probe.pending = true;
+		probe.issued = frame;
+	}
+	return probe.value;
+}
+
 float ReadEffectColorBoost(ID3D11DeviceContext* context) {
 	if (!context) return NAN;
 	ID3D11Buffer* pixelConstants = nullptr;
@@ -280,14 +384,15 @@ float ReadEffectColorBoost(ID3D11DeviceContext* context) {
 
 	D3D11_BUFFER_DESC desc = {};
 	pixelConstants->GetDesc(&desc);
-	std::vector<unsigned char> bytes;
 	float colorBoost = NAN;
-	if (desc.ByteWidth >= 112 && desc.ByteWidth <= 4096
-		&& ReadBufferToCpu(context, pixelConstants, bytes, desc.ByteWidth)) {
+	CachedUpload cached{};
+	if (desc.ByteWidth >= 112 && FindUpload(pixelConstants, cached) && cached.bytesUsed >= 112) {
+		colorBoost = *reinterpret_cast<const float*>(cached.bytes + 108); // no GPU readback
+	} else if (desc.ByteWidth >= 112 && desc.ByteWidth <= 4096) {
 		// Measured from csgo_effects.vfx_ps: g_flColorBoost is float offset 108. The compact
 		// disc uses a very high value; the broad companion glow deliberately uses the normal 1.0
 		// value and is therefore identified from its bounds relative to that disc below.
-		colorBoost = *reinterpret_cast<const float*>(bytes.data() + 108);
+		colorBoost = AsyncColorBoost(context, pixelConstants, desc.ByteWidth);
 	}
 	pixelConstants->Release();
 	return colorBoost;
@@ -339,12 +444,46 @@ bool ApplySunVertexRotation(ID3D11DeviceContext* context, SkyGpuRotationScope& s
 	if (!context || !source || stride < 12) return false;
 	D3D11_BUFFER_DESC sourceDesc = {};
 	source->GetDesc(&sourceDesc);
+	// Reject before touching vertex data. Every small effects quad reaches this point, and reading
+	// its vertices can mean a GPU readback; the colour boost and the camera come from CPU copies.
+	// Only the disc (high boost) or a normal-boost quad drawn after the disc from the same camera
+	// can be the sun.
+	const float colorBoost = ReadEffectColorBoost(context);
+	const bool boostDisc = std::isfinite(colorBoost) && colorBoost > 4.0f;
+	const bool boostGlowBand = std::isfinite(colorBoost) && colorBoost >= 0.5f && colorBoost <= 2.0f;
+	float camera[3] = {};
+	if (!ReadCameraPosition(context, camera)) return false;
+	const bool camMatch = s_sunDrawAnchor.valid
+		&& s_sunDrawAnchor.camera[0] == camera[0]
+		&& s_sunDrawAnchor.camera[1] == camera[1]
+		&& s_sunDrawAnchor.camera[2] == camera[2];
+	if (!boostDisc && !(boostGlowBand && camMatch)) return false;
 	SunVertexCache* cache = GetSunVertexCache(context, source, sourceDesc.ByteWidth, stride);
 	if (!cache || !cache->clone) return false;
 	// Always refresh from the live VB. Never write transformed verts back into source: a prior
 	// cull-proxy experiment did that and turned the sun into sky-sized white triangles.
-	if (!ReadBufferToCpu(context, source, cache->original, sourceDesc.ByteWidth)
-		|| cache->original.size() < sourceDesc.ByteWidth) return false;
+	// The live contents, without stalling on the GPU where possible: an immutable buffer cannot
+	// have changed since the clone read it; a dynamic one was captured on its last Unmap. Only a
+	// default-usage buffer (or a dynamic one not yet seen) still needs the synchronous readback.
+	CachedUpload cachedVertices{};
+	static unsigned s_served[4] = {}; // immutable, dynamic copy, readback (dynamic), readback (other)
+	static ULONGLONG s_servedLog = 0;
+	if (sourceDesc.Usage == D3D11_USAGE_IMMUTABLE && cache->original.size() >= sourceDesc.ByteWidth) {
+		++s_served[0];
+	} else if (sourceDesc.Usage == D3D11_USAGE_DYNAMIC && FindUpload(source, cachedVertices)
+		&& cachedVertices.bytesUsed >= sourceDesc.ByteWidth) {
+		++s_served[1];
+		cache->original.assign(cachedVertices.bytes, cachedVertices.bytes + sourceDesc.ByteWidth);
+	} else {
+		++s_served[sourceDesc.Usage == D3D11_USAGE_DYNAMIC ? 2 : 3];
+		if (!ReadBufferToCpu(context, source, cache->original, sourceDesc.ByteWidth)
+			|| cache->original.size() < sourceDesc.ByteWidth) return false;
+	}
+	if (MvmDebugLog_Active() && GetTickCount64() - s_servedLog > 2000) {
+		s_servedLog = GetTickCount64();
+		MvmDebugLog_LinefAlways("world.skygpu.sun", "vertex reads: immutable=%u cached=%u readbackDynamic=%u readbackDefault=%u boost=%.2f",
+			s_served[0], s_served[1], s_served[2], s_served[3], colorBoost);
+	}
 	const float yaw = LightFx_SunYaw();
 	const float pitch = LightFx_SunPitch();
 	// The sliders turn about the map's own sun (LightFx.h); before it is known, about this disc.
@@ -352,8 +491,6 @@ bool ApplySunVertexRotation(ID3D11DeviceContext* context, SkyGpuRotationScope& s
 	const bool haveReference = LightFx_SunReference(referenceSun);
 	const float glowSize = SunFx_GlowSize();
 	const bool mirror = false;
-	float camera[3] = {};
-	if (!ReadCameraPosition(context, camera)) return false;
 	const unsigned count = sourceDesc.ByteWidth / stride;
 	SunRotationMath::Vec3 center{};
 	SunRotationMath::Vec3 minimum{ INFINITY, INFINITY, INFINITY };
@@ -370,14 +507,7 @@ bool ApplySunVertexRotation(ID3D11DeviceContext* context, SkyGpuRotationScope& s
 	}
 	const float invCount = 1.0f / (float)count;
 	center.x *= invCount; center.y *= invCount; center.z *= invCount;
-	const float colorBoost = ReadEffectColorBoost(context);
 	SunDrawKind kind = SunDrawKind::None;
-	const bool boostDisc = std::isfinite(colorBoost) && colorBoost > 4.0f;
-	const bool boostGlowBand = std::isfinite(colorBoost) && colorBoost >= 0.5f && colorBoost <= 2.0f;
-	const bool camMatch = s_sunDrawAnchor.valid
-		&& s_sunDrawAnchor.camera[0] == camera[0]
-		&& s_sunDrawAnchor.camera[1] == camera[1]
-		&& s_sunDrawAnchor.camera[2] == camera[2];
 	const SunRotationMath::Vec3 pairAnchor = s_sunDrawAnchor.hasStableCenter
 		? s_sunDrawAnchor.stableCenter
 		: s_sunDrawAnchor.authoredCenter;
@@ -474,8 +604,14 @@ void SkyGpuRotation_NoteMap(ID3D11Resource* resource, void* data) {
 	D3D11_BUFFER_DESC desc = {};
 	buffer->GetDesc(&desc);
 	buffer->Release();
+	// Small dynamic constant buffers (the sky matrix, the effect's colour boost) and, while the sun
+	// is overridden, small dynamic vertex buffers (the sun sprite's quad): the CPU copy is what the
+	// draw-time code reads instead of a GPU readback.
+	const bool constants = (desc.BindFlags & D3D11_BIND_CONSTANT_BUFFER) != 0;
+	const bool sunVertices = (desc.BindFlags & D3D11_BIND_VERTEX_BUFFER) != 0 && desc.ByteWidth <= 1024
+		&& HasSunOrientationOverride();
 	if (desc.ByteWidth == 0 || desc.ByteWidth > kSkyUploadBytes || desc.Usage != D3D11_USAGE_DYNAMIC
-		|| !(desc.BindFlags & D3D11_BIND_CONSTANT_BUFFER)) return;
+		|| !(constants || sunVertices)) return;
 	s_activeMap = { resource, static_cast<const unsigned char*>(data) };
 }
 
@@ -495,7 +631,10 @@ void SkyGpuRotation_NoteUnmap(ID3D11Resource* resource) {
 	}
 	{
 		std::lock_guard<std::mutex> lock(s_uploadsMutex);
-		CachedUpload& upload = s_uploads[s_nextUpload++ % (sizeof(s_uploads) / sizeof(s_uploads[0]))];
+		if (s_uploads.size() >= kMaxCachedUploads && !s_uploads.count(resource)) s_uploads.clear();
+		std::unique_ptr<CachedUpload>& slot = s_uploads[resource];
+		if (!slot) slot = std::make_unique<CachedUpload>();
+		CachedUpload& upload = *slot;
 		upload.resource = resource;
 		upload.bytesUsed = desc.ByteWidth;
 		std::memcpy(upload.bytes, s_activeMap.data, upload.bytesUsed);
@@ -505,8 +644,14 @@ void SkyGpuRotation_NoteUnmap(ID3D11Resource* resource) {
 
 SkyGpuRotationScope SkyGpuRotation_BeginDraw(ID3D11DeviceContext* context) {
 	SkyGpuRotationScope scope;
-	if (!context || (!HasSkyOrientationOverride() && !HasSunOrientationOverride())) return scope;
-	if (!IsSkyDraw(context)) {
+	if (!context) return scope;
+	if (!HasSunOrientationOverride()) ReleaseBoostProbesIfHeld();
+	if (!HasSkyOrientationOverride() && !HasSunOrientationOverride()) return scope;
+	const unsigned char tags = BoundShaderTags(context);
+	if (!(tags & kTagSky)) {
+		// Neither the sky nor a possible sun sprite (the common case), or a sky-only rotation: the
+		// sun path reads buffers back from the GPU, so it runs only when the sun itself is changed.
+		if (!(tags & kTagEffects) || !HasSunOrientationOverride()) return scope;
 		ID3D11Buffer* sunVertexBuffer = nullptr;
 		unsigned sunStride = 0, sunOffset = 0;
 		if (IsSunSpriteCandidate(context, &sunVertexBuffer, &sunStride, &sunOffset)) {
