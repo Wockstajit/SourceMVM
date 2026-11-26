@@ -34,7 +34,7 @@ void WriteAtomic(const fs::path &path, const void *data, size_t size) {
         out.write(static_cast<const char *>(data), std::streamsize(size));
         if (!out) throw MapDataError("cannot write " + tmp.u8string());
     }
-    if (!MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    if (!MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) // a rebuildable cache: no disk sync on the extraction thread
         throw MapDataError("cannot publish " + path.u8string());
 }
 

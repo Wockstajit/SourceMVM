@@ -50,8 +50,10 @@ public:
 		return m_LastBlitRan;
 	}
 
-private:
+	// Frees the full-backbuffer temp copy while scaling is off (the preview closed). Render thread.
 	void ReleaseTemp();
+
+private:
 	// viewFormat is the TYPED format used for the temp texture + SRV (the backbuffer itself may
 	// be TYPELESS, which cannot back an SRV); it comes from the render-target view's format.
 	bool EnsureTemp(const D3D11_TEXTURE2D_DESC& backbufferDesc, DXGI_FORMAT viewFormat);

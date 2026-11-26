@@ -16,7 +16,10 @@ namespace Filmmaker {
 // intact and removes its own temporary file. Unique CREATE_NEW names avoid sharing another
 // writer's temporary file or following an existing temporary-file link.
 // Returns a Win32 error (ERROR_SUCCESS on completion). The parent directory must already exist.
-inline DWORD WriteFileAtomic(const std::wstring& path, const std::string& bytes) {
+// `durable` = false skips the disk sync (FlushFileBuffers + write-through rename): the swap is still
+// all-or-nothing for a crashed process, but a power loss may keep the older file. Use it for small
+// state written on the main thread that is cheap to lose (hint timers, caches), never user projects.
+inline DWORD WriteFileAtomic(const std::wstring& path, const std::string& bytes, bool durable = true) {
 	if (bytes.size() > MAXDWORD) return ERROR_FILE_TOO_LARGE;
 	static std::atomic<unsigned long long> sequence{ 0 };
 	std::wstring temporary;
@@ -35,14 +38,14 @@ inline DWORD WriteFileAtomic(const std::wstring& path, const std::string& bytes)
 	DWORD error = ERROR_SUCCESS;
 	if (!WriteFile(file, bytes.data(), (DWORD)bytes.size(), &written, nullptr)) error = GetLastError();
 	else if (written != bytes.size()) error = ERROR_WRITE_FAULT;
-	else if (!FlushFileBuffers(file)) error = GetLastError();
+	else if (durable && !FlushFileBuffers(file)) error = GetLastError();
 	if (!CloseHandle(file) && error == ERROR_SUCCESS) error = GetLastError();
 	if (error == ERROR_SUCCESS) {
 		// A just-closed reader or another replacing writer can briefly deny a rename. Retry only
 		// access/sharing failures, with a small bounded delay; a persistent lock still fails closed.
 		for (int attempt = 0; attempt < 8; ++attempt) {
 			if (MoveFileExW(temporary.c_str(), path.c_str(),
-				MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) { error = ERROR_SUCCESS; break; }
+				MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0))) { error = ERROR_SUCCESS; break; }
 			error = GetLastError();
 			if ((error != ERROR_ACCESS_DENIED && error != ERROR_SHARING_VIOLATION) || attempt == 7) break;
 			Sleep(1);

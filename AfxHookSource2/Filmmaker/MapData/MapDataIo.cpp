@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -74,7 +75,16 @@ const Kv3 &NullValue() {
 // ==========================================================================================
 // VPK
 
-Vpk::Vpk(const std::filesystem::path &path) : m_path(path) {
+struct Vpk::FileHandles {
+    std::mutex mutex;
+    std::unordered_map<std::wstring, HANDLE> open;
+    ~FileHandles() {
+        for (auto &entry : open)
+            if (entry.second != INVALID_HANDLE_VALUE) CloseHandle(entry.second);
+    }
+};
+
+Vpk::Vpk(const std::filesystem::path &path) : m_path(path), m_files(std::make_shared<FileHandles>()) {
     if (m_onFileRead) m_onFileRead(path);
     std::ifstream in(path, std::ios::binary | std::ios::ate);
     if (!in) Fail("cannot open package " + path.u8string());
@@ -164,6 +174,36 @@ uint64_t Vpk::Size(const std::string &path) const {
     return it == m_entries.end() ? 0 : uint64_t(it->second.preloadBytes) + it->second.length;
 }
 
+// Positional reads (OVERLAPPED offset) on a cached handle: no seek state, so concurrent readers of
+// one package do not need to serialize anything but the handle lookup.
+bool Vpk::ReadRange(const std::filesystem::path &file, uint64_t offset, uint64_t size, uint8_t *out) const {
+    if (!m_files) return ReadFileRange(file, offset, size, out);
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    {
+        std::lock_guard<std::mutex> lock(m_files->mutex);
+        auto it = m_files->open.find(file.native());
+        if (it == m_files->open.end()) {
+            HANDLE opened = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, nullptr);
+            it = m_files->open.emplace(file.native(), opened).first;
+        }
+        handle = it->second;
+    }
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    while (size > 0) {
+        const DWORD chunk = DWORD(std::min<uint64_t>(size, 1u << 30));
+        OVERLAPPED at{};
+        at.Offset = DWORD(offset & 0xFFFFFFFFull);
+        at.OffsetHigh = DWORD(offset >> 32);
+        DWORD got = 0;
+        if (!ReadFile(handle, out, chunk, &got, &at) || got != chunk) return false;
+        offset += chunk;
+        out += chunk;
+        size -= chunk;
+    }
+    return true;
+}
+
 bool Vpk::Read(const std::string &path, std::vector<uint8_t> &out) const {
     const auto it = m_entries.find(Lower(path));
     if (it == m_entries.end()) return false;
@@ -175,7 +215,7 @@ bool Vpk::Read(const std::string &path, std::vector<uint8_t> &out) const {
             return;
         }
         if (m_onFileRead) m_onFileRead(file);
-        if (!ReadFileRange(file, offset, size, dst)) Fail("cannot read VPK entry " + path);
+        if (!ReadRange(file, offset, size, dst)) Fail("cannot read VPK entry " + path);
     };
     out.resize(size_t(e.preloadBytes) + e.length);
     // Preload bytes always live in the directory file itself, right after the entry record.
