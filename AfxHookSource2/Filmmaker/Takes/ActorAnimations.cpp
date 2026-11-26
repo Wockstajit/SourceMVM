@@ -3,6 +3,7 @@
 
 #include "../Movie/ModelPoseAccess.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../Platform/AtomicFile.h"
 #include "../Platform/JsonBuilder.h"
 #include "../../ClientEntitySystem.h"
 #include "../../MirvTime.h"
@@ -958,13 +959,12 @@ bool SaveCompanionForDemo(const std::string &demoName, const CompanionSequence &
 	std::filesystem::create_directories(dir, ec);
 	const auto path = dir / (stem + ".mvmanimseq");
 	const auto bytes = SerializeCompanion(seq);
-	std::ofstream f(path, std::ios::binary | std::ios::trunc);
-	if (!f) return false;
-	f.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
-	if (MvmDebugLog_Active())
+	const std::string payload(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+	const bool saved = WriteFileAtomic(path.wstring(), payload) == ERROR_SUCCESS;
+	if (saved && MvmDebugLog_Active())
 		MvmDebugLog_LinefAlways("actoranim", "saved demo companion %s (%zu actors, startTick=%d)",
 		                        path.string().c_str(), seq.actors.size(), seq.demoStartTick);
-	return bool(f);
+	return saved;
 }
 
 bool LoadCompanionForDemo(const std::string &demoName) {

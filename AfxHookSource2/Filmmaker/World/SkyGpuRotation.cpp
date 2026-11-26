@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cctype>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 namespace Filmmaker {
@@ -35,6 +36,7 @@ struct ActiveMap {
 	const unsigned char* data = nullptr;
 };
 
+std::mutex s_uploadsMutex;
 CachedUpload s_uploads[64] = {};
 unsigned s_nextUpload = 0;
 thread_local ActiveMap s_activeMap;
@@ -174,10 +176,16 @@ bool IsSunSpriteCandidate(ID3D11DeviceContext* context, ID3D11Buffer** outVertex
 	return true;
 }
 
-const CachedUpload* FindUpload(ID3D11Resource* resource) {
-	for (const CachedUpload& upload : s_uploads)
-		if (upload.resource == resource) return &upload;
-	return nullptr;
+bool FindUpload(ID3D11Resource* resource, CachedUpload& out) {
+	if (!resource) return false;
+	std::lock_guard<std::mutex> lock(s_uploadsMutex);
+	for (const CachedUpload& upload : s_uploads) {
+		if (upload.resource == resource) {
+			out = upload;
+			return true;
+		}
+	}
+	return false;
 }
 
 // g_matSkyWsToOs is already Z-up: the engine's own matrix is a pure rotation about its third axis
@@ -226,10 +234,11 @@ bool ReadCameraPosition(ID3D11DeviceContext* context, float out[3]) {
 	if (!context || !out) return false;
 	ID3D11Buffer* buffer = nullptr;
 	context->VSGetConstantBuffers(1, 1, &buffer);
-	const CachedUpload* upload = FindUpload(buffer);
+	CachedUpload upload{};
+	const bool haveUpload = FindUpload(buffer, upload);
 	if (buffer) buffer->Release();
-	if (!upload || upload->bytesUsed < 428) return false;
-	const float* values = reinterpret_cast<const float*>(upload->bytes + 416);
+	if (!haveUpload || upload.bytesUsed < 428) return false;
+	const float* values = reinterpret_cast<const float*>(upload.bytes + 416);
 	if (!std::isfinite(values[0]) || !std::isfinite(values[1]) || !std::isfinite(values[2])) return false;
 	out[0] = values[0]; out[1] = values[1]; out[2] = values[2];
 	return true;
@@ -472,8 +481,6 @@ void SkyGpuRotation_NoteMap(ID3D11Resource* resource, void* data) {
 
 void SkyGpuRotation_NoteUnmap(ID3D11Resource* resource) {
 	if (!resource || s_activeMap.resource != resource || !s_activeMap.data) return;
-	CachedUpload& upload = s_uploads[s_nextUpload++ % (sizeof(s_uploads) / sizeof(s_uploads[0]))];
-	upload.resource = resource;
 	ID3D11Buffer* buffer = nullptr;
 	if (FAILED(resource->QueryInterface(__uuidof(ID3D11Buffer), (void**)&buffer)) || !buffer) {
 		s_activeMap = {};
@@ -486,8 +493,13 @@ void SkyGpuRotation_NoteUnmap(ID3D11Resource* resource) {
 		s_activeMap = {};
 		return;
 	}
-	upload.bytesUsed = desc.ByteWidth;
-	std::memcpy(upload.bytes, s_activeMap.data, upload.bytesUsed);
+	{
+		std::lock_guard<std::mutex> lock(s_uploadsMutex);
+		CachedUpload& upload = s_uploads[s_nextUpload++ % (sizeof(s_uploads) / sizeof(s_uploads[0]))];
+		upload.resource = resource;
+		upload.bytesUsed = desc.ByteWidth;
+		std::memcpy(upload.bytes, s_activeMap.data, upload.bytesUsed);
+	}
 	s_activeMap = {};
 }
 
@@ -507,7 +519,8 @@ SkyGpuRotationScope SkyGpuRotation_BeginDraw(ID3D11DeviceContext* context) {
 
 	ID3D11Buffer* originalVs = nullptr;
 	context->VSGetConstantBuffers(0, 1, &originalVs);
-	const CachedUpload* vsUpload = FindUpload(originalVs);
+	CachedUpload vsUpload{};
+	const bool haveVsUpload = FindUpload(originalVs, vsUpload);
 	if (!s_loggedSkyBuffers && MvmDebugLog_Active()) {
 		s_loggedSkyBuffers = true;
 		ID3D11VertexShader* shaderVs = nullptr;
@@ -524,15 +537,16 @@ SkyGpuRotationScope SkyGpuRotation_BeginDraw(ID3D11DeviceContext* context) {
 			else context->PSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, buffers);
 			for (unsigned slot = 0; slot < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; ++slot) {
 				if (!buffers[slot]) continue;
-				const CachedUpload* upload = FindUpload(buffers[slot]);
+				CachedUpload upload{};
+				const bool haveSlotUpload = FindUpload(buffers[slot], upload);
 				D3D11_BUFFER_DESC desc = {};
 				buffers[slot]->GetDesc(&desc);
 				MvmDebugLog_LinefAlways("world.skygpu.rotation", "candidate stage=%s slot=%u buffer=%p bytes=%u cached=%d",
-					stage == 0 ? "VS" : "PS", slot, (void*)buffers[slot], desc.ByteWidth, upload ? 1 : 0);
-				if (upload && upload->bytesUsed >= 64) {
-					const unsigned matrixCount = (upload->bytesUsed / 64) < 16 ? upload->bytesUsed / 64 : 16;
+					stage == 0 ? "VS" : "PS", slot, (void*)buffers[slot], desc.ByteWidth, haveSlotUpload ? 1 : 0);
+				if (haveSlotUpload && upload.bytesUsed >= 64) {
+					const unsigned matrixCount = (upload.bytesUsed / 64) < 16 ? upload.bytesUsed / 64 : 16;
 					for (unsigned matrix = 0; matrix < matrixCount; ++matrix) {
-						const float* m = reinterpret_cast<const float*>(upload->bytes + matrix * 64);
+						const float* m = reinterpret_cast<const float*>(upload.bytes + matrix * 64);
 						MvmDebugLog_LinefAlways("world.skygpu.rotation", "candidate stage=%s slot=%u matrix=%u [%.7g %.7g %.7g %.7g] [%.7g %.7g %.7g %.7g] [%.7g %.7g %.7g %.7g] [%.7g %.7g %.7g %.7g]",
 							stage == 0 ? "VS" : "PS", slot, matrix,
 							m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
@@ -543,7 +557,7 @@ SkyGpuRotationScope SkyGpuRotation_BeginDraw(ID3D11DeviceContext* context) {
 			}
 		}
 	}
-	if (!originalVs || !vsUpload || vsUpload->bytesUsed < 64) {
+	if (!originalVs || !haveVsUpload || vsUpload.bytesUsed < 64) {
 		if (originalVs) originalVs->Release();
 		return scope;
 	}
@@ -553,7 +567,7 @@ SkyGpuRotationScope SkyGpuRotation_BeginDraw(ID3D11DeviceContext* context) {
 	}
 
 	unsigned char rotated[128] = {};
-	std::memcpy(rotated, vsUpload->bytes, sizeof(rotated));
+	std::memcpy(rotated, vsUpload.bytes, sizeof(rotated));
 	// sky_pc_50_vs declares g_matSkyWsToOs in $Globals at cb0 offset 0. Compose the requested
 	// orientation into that matrix while leaving PerViewConstantBuffer_t (cb1) untouched, so the
 	// sky cube remains full-screen and only the cubemap lookup direction moves.

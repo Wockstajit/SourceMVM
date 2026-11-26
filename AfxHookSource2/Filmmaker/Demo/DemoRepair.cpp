@@ -27,6 +27,8 @@ std::wstring g_activeDemo;   // demo currently being checked/repaired
 std::wstring g_resolved;     // playable path once known
 std::thread g_worker;
 std::atomic<bool> g_busy{ false };
+std::atomic<bool> g_cancel{ false };
+HANDLE g_activeJob = nullptr; // guarded by g_mx while RunHelper waits
 
 constexpr int kDecalBugFixedFromProtocol = 14172;
 constexpr int kRejectedAtOrBelowProtocol = 14141;
@@ -197,8 +199,9 @@ void SetState(RepairState s, const std::string& text) {
 	g_status = text;
 }
 
-// Runs the helper and waits. Returns its exit code, or -1 if it could not be started.
+// Runs the helper and waits. Returns its exit code, or -1 if it could not be started or was cancelled.
 int RunHelper(const std::wstring& exe, const std::wstring& args) {
+	if (g_cancel.load()) return -1;
 	std::wstring cmd = L"\"" + exe + L"\" " + args;
 	std::vector<wchar_t> buf(cmd.begin(), cmd.end());
 	buf.push_back(L'\0');
@@ -209,14 +212,44 @@ int RunHelper(const std::wstring& exe, const std::wstring& args) {
 	si.wShowWindow = SW_HIDE;
 	PROCESS_INFORMATION pi{};
 	if (!CreateProcessW(exe.c_str(), buf.data(), nullptr, nullptr, FALSE,
-			CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+			CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS | CREATE_SUSPENDED,
+			nullptr, nullptr, &si, &pi))
 		return -1;
+	HANDLE job = CreateJobObjectW(nullptr, nullptr);
+	if (job) {
+		JOBOBJECT_EXTENDED_LIMIT_INFORMATION limit{};
+		limit.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+		if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limit, sizeof(limit))
+			|| !AssignProcessToJobObject(job, pi.hProcess)) {
+			CloseHandle(job);
+			job = nullptr;
+		}
+	}
+	bool cancelled = false;
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		cancelled = g_cancel.load();
+		if (!cancelled) g_activeJob = job ? job : pi.hProcess;
+	}
+	if (cancelled) {
+		if (job) { TerminateJobObject(job, 1); CloseHandle(job); }
+		else TerminateProcess(pi.hProcess, 1);
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+		return -1;
+	}
+	ResumeThread(pi.hThread);
 	WaitForSingleObject(pi.hProcess, INFINITE);
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		g_activeJob = nullptr;
+	}
 	DWORD code = 1;
 	GetExitCodeProcess(pi.hProcess, &code);
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);
-	return (int)code;
+	if (job) CloseHandle(job);
+	return g_cancel.load() ? -1 : (int)code;
 }
 
 } // namespace
@@ -247,9 +280,18 @@ DemoRepairCacheState DemoRepair_CacheState(const std::wstring& demoPath) {
 
 void DemoRepair_Reset() {
     // The worker executes code and touches globals owned by this DLL. Detaching here allows it
-    // to outlive module shutdown and resume inside unloaded code. Join outside g_mx: the worker's
-    // final state commit takes that mutex before it exits.
+    // to outlive module shutdown and resume inside unloaded code. Terminate any active helper so
+    // shutdown does not wait on a long repair pass, then join outside g_mx.
+    g_cancel.store(true);
+    {
+        std::lock_guard<std::mutex> lock(g_mx);
+        if (g_activeJob) {
+            if (!TerminateJobObject(g_activeJob, 1))
+                TerminateProcess(g_activeJob, 1);
+        }
+    }
     if (g_worker.joinable()) g_worker.join();
+    g_cancel.store(false);
     g_busy.store(false);
     std::lock_guard<std::mutex> lock(g_mx);
     ClearStateLocked();

@@ -41,6 +41,22 @@ bool IsCsmAtlasTexture(ID3D11Texture2D* tex, D3D11_TEXTURE2D_DESC* outDesc = nul
 	return true;
 }
 
+void ReleaseTrackedAtlas_NoLock() {
+	if (g_trackedAtlas) {
+		g_trackedAtlas->Release();
+		g_trackedAtlas = nullptr;
+	}
+}
+
+void SetTrackedAtlas_NoLock(ID3D11Texture2D* tex) {
+	if (tex == g_trackedAtlas) return;
+	ReleaseTrackedAtlas_NoLock();
+	if (tex) {
+		tex->AddRef();
+		g_trackedAtlas = tex;
+	}
+}
+
 void ReleaseCopy_NoLock() {
 	if (g_atlasClearDsv) { g_atlasClearDsv->Release(); g_atlasClearDsv = nullptr; }
 	if (g_atlasSrv) { g_atlasSrv->Release(); g_atlasSrv = nullptr; }
@@ -104,7 +120,7 @@ void CaptureAndSuppress(
 		context->ClearDepthStencilView(atlasDsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
 	}
 
-	g_trackedAtlas = atlasTex;
+	SetTrackedAtlas_NoLock(atlasTex);
 	const unsigned long long n = g_captures.fetch_add(1, std::memory_order_relaxed) + 1;
 	if (MvmDebugLog_Active() && (n <= 3ull || (n % 120ull) == 0ull)) {
 		MvmDebugLog_LinefAlways("world.customshadow.atlas",
@@ -120,6 +136,7 @@ void CustomShadowAtlas_SetActive(bool active) {
 	if (!active) {
 		std::lock_guard<std::mutex> lock(g_mutex);
 		g_boundToAtlas = false;
+		ReleaseTrackedAtlas_NoLock();
 	}
 }
 
@@ -140,7 +157,7 @@ void CustomShadowAtlas_BeginDevice(ID3D11Device* device) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	ReleaseCopy_NoLock();
 	if (g_device) { g_device->Release(); g_device = nullptr; }
-	g_trackedAtlas = nullptr;
+	ReleaseTrackedAtlas_NoLock();
 	g_boundToAtlas = false;
 	if (device) {
 		device->AddRef();
@@ -152,7 +169,7 @@ void CustomShadowAtlas_EndDevice() {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	ReleaseCopy_NoLock();
 	if (g_device) { g_device->Release(); g_device = nullptr; }
-	g_trackedAtlas = nullptr;
+	ReleaseTrackedAtlas_NoLock();
 	g_boundToAtlas = false;
 }
 
@@ -187,11 +204,13 @@ void CustomShadowAtlas_NoteRenderTargets(
 		std::lock_guard<std::mutex> lock(g_mutex);
 		wasBound = g_boundToAtlas;
 		prev = g_trackedAtlas;
+		if (prev) prev->AddRef();
 		if (isAtlas) {
 			g_boundToAtlas = true;
-			g_trackedAtlas = dsvTex;
+			SetTrackedAtlas_NoLock(dsvTex);
 		} else if (g_boundToAtlas) {
 			g_boundToAtlas = false;
+			ReleaseTrackedAtlas_NoLock();
 		}
 	}
 
@@ -213,6 +232,7 @@ void CustomShadowAtlas_NoteRenderTargets(
 		}
 	}
 
+	if (prev) prev->Release();
 	if (dsvTex) dsvTex->Release();
 }
 

@@ -134,9 +134,14 @@ void DemoLibrary::Init() {
 }
 
 void DemoLibrary::Shutdown() {
-	m_cancel.store(true);
-	if (m_worker.joinable())
-		m_worker.join();
+	std::thread workerToJoin;
+	{
+		std::lock_guard<std::mutex> lock(m_workerMutex);
+		m_cancel.store(true);
+		workerToJoin = std::move(m_worker);
+	}
+	if (workerToJoin.joinable())
+		workerToJoin.join();
 	m_cancel.store(false);
 
 	{
@@ -154,6 +159,7 @@ std::wstring DemoLibrary::InstallRoot() const {
 }
 
 void DemoLibrary::StartScan() {
+	std::lock_guard<std::mutex> lock(m_workerMutex);
 	// Stop a previous scan before starting a new one.
 	m_cancel.store(true);
 	if (m_worker.joinable())
@@ -161,6 +167,18 @@ void DemoLibrary::StartScan() {
 	m_cancel.store(false);
 	m_scanning.store(true);
 	m_worker = std::thread(&DemoLibrary::ScanWorker, this);
+}
+
+bool DemoLibrary::TryStartScan() {
+	std::lock_guard<std::mutex> lock(m_workerMutex);
+	if (m_scanning.load())
+		return false;
+	if (m_worker.joinable())
+		m_worker.join();
+	m_cancel.store(false);
+	m_scanning.store(true);
+	m_worker = std::thread(&DemoLibrary::ScanWorker, this);
+	return true;
 }
 
 void DemoLibrary::ScanWorker() {

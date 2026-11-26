@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 
 namespace Filmmaker {
 namespace {
@@ -17,7 +18,7 @@ using namespace KeybindsMath;
 
 // The live table, read on the window-procedure thread.
 std::atomic<int> g_bound[kActionCount];
-std::atomic<bool> g_ready{ false };
+std::once_flag g_readyOnce;
 std::atomic<int> g_capture{ -1 };          // action waiting for a key, or -1
 // A key pressed during capture, handed from the window-procedure thread to the main thread
 // (which owns the settings store): the action in the high half, the key in the low half.
@@ -31,9 +32,9 @@ unsigned g_frames = 0;
 std::string SettingKey(size_t index) { return std::string("bind.") + kActions[index].id; }
 
 void EnsureReady() {
-	if (g_ready.load(std::memory_order_acquire)) return;
-	for (size_t i = 0; i < kActionCount; ++i) g_bound[i].store(kActions[i].defaultKey, std::memory_order_relaxed);
-	g_ready.store(true, std::memory_order_release);
+	std::call_once(g_readyOnce, []() {
+		for (size_t i = 0; i < kActionCount; ++i) g_bound[i].store(kActions[i].defaultKey, std::memory_order_relaxed);
+	});
 }
 
 // Reads the stored binds into the live table. A stored key that is reserved, or that an earlier

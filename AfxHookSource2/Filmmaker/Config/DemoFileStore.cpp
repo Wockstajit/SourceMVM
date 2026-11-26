@@ -1,11 +1,13 @@
 #include "DemoFileStore.h"
 
+#include "../Platform/AtomicFile.h"
 #include "../Platform/TextEncoding.h"
 #include "../../hlaeFolder.h"
 
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
+#include <sstream>
 
 namespace Filmmaker {
 
@@ -50,12 +52,13 @@ void DemoFileStore::Load() {
 }
 
 bool DemoFileStore::Save() const {
-	std::ofstream f(std::filesystem::path(FilePath()), std::ios::binary | std::ios::trunc);
-	if (!f.is_open())
-		return false;
+	const std::filesystem::path file(FilePath());
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+	std::ostringstream out;
 	for (const auto& path : m_files)
-		f << WideToUtf8(path) << "\n";
-	return true;
+		out << WideToUtf8(path) << "\n";
+	return WriteFileAtomic(file.wstring(), out.str()) == ERROR_SUCCESS;
 }
 
 bool DemoFileStore::Rename(const std::wstring& oldPath, const std::wstring& newPath) {

@@ -9,6 +9,7 @@
 
 #include "../Filmmaker.h"
 #include "../Render/RenderSessionDriver.h"
+#include "../Platform/AtomicFile.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
 #include "../Debug/MvmDebugLog.h"
@@ -28,6 +29,7 @@
 #include <cctype>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <random>
@@ -261,8 +263,10 @@ void Save() {
 	j.EndArray();
 	j.EndObject();
 	j.EndObject();
-	std::ofstream f(StatePath(), std::ios::binary | std::ios::trunc);
-	if (f) f << j.Str();
+	const std::filesystem::path file(StatePath());
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+	WriteFileAtomic(file.wstring(), j.Str());
 	g_dirty = false;
 	g_lastSaveMs = NowMs();
 }

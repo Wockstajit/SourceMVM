@@ -10,6 +10,7 @@
 #include "../Environment/MapCollisionGrid.h"
 #include "../Movie/CameraBridge.h"
 #include "../Panorama/PanoramaBridge.h"
+#include "../Platform/AtomicFile.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Props/ClientEntitySpawn.h"
 #include "../Props/Props.h"
@@ -33,6 +34,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -142,10 +144,12 @@ const char *FollowName(FollowMode m) { return m == FollowMode::On ? "on" : m == 
 void SaveSettings() {
 	if (PracticeSession_Active()) return;
 	std::error_code ec;
-	std::filesystem::create_directories(SettingsFile().parent_path(), ec);
-	std::ofstream out(SettingsFile(), std::ios::trunc);
+	const std::filesystem::path file = SettingsFile();
+	std::filesystem::create_directories(file.parent_path(), ec);
+	std::ostringstream out;
 	out << "loop " << (g.loop ? 1 : 0) << "\nfollow " << FollowName(g.follow)
 	    << "\nnospread " << (g.noSpread ? 1 : 0) << "\nrecoilrandom " << g.recoilRandom << "\n";
+	WriteFileAtomic(file.wstring(), out.str());
 }
 
 void LoadSettings() {
@@ -369,10 +373,8 @@ bool SaveScene(const std::string &name) {
 	std::filesystem::create_directories(folder, ec);
 	const std::filesystem::path file = folder / std::filesystem::u8path(SafeFileName(name) + ".mvmtakes");
 	const std::vector<uint8_t> bytes = SerializeScene(g.scene);
-	std::ofstream out(file, std::ios::binary | std::ios::trunc);
-	if (!out) return false;
-	out.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
-	return bool(out);
+	const std::string payload(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+	return WriteFileAtomic(file.wstring(), payload) == ERROR_SUCCESS;
 }
 
 bool LoadScene(const std::string &name, Scene &scene) {

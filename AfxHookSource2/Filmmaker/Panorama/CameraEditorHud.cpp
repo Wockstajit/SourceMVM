@@ -410,6 +410,10 @@ void CameraEditorHud::RunFrame() {
 
 	// Demo not playing (or HUD gone): force-exit editor mode cleanly so we never leave
 	// the gameplay HUD hidden or the timeline orphaned.
+	unsigned char* liveHud = AfxHookSource2_GetPanoramaHudPanel();
+	if (!liveHud || liveHud != m_hudPanel) {
+		m_bridge.SetContextPanel(nullptr);
+	}
 	if (!hud) {
 		if (m_wasEnabled) { m_enabled = false; OnExit(); m_wasEnabled = false; }
 		else WorkspacePreviewRef().Release(WorkspacePreview::Owner::CameraEditor);

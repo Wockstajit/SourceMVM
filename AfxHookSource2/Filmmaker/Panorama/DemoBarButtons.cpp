@@ -65,7 +65,7 @@ void DemoBarButtons::RunFrame() {
 	bool playingDemo = false;
 	if (g_pEngineToClient) {
 		if (auto pDemo = g_pEngineToClient->GetDemoFile())
-			playingDemo = pDemo->IsPlayingDemo();
+			playingDemo = pDemo->IsPlayingDemo() || pDemo->IsDemoPaused();
 	}
 	if (!playingDemo) {
 		// Demo gone -> the native bar is destroyed with the HUD; just drop state

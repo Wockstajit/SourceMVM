@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 const require = createRequire(import.meta.url);
-const { SAVE_EPOCH, EPOCH_FILE, parseEpoch, planReset, resetSavesIfNeeded } =
+const { SAVE_EPOCH, EPOCH_FILE, parseEpoch, planReset, publishExclusiveFile, resetSavesIfNeeded } =
   require('../../SourceMovieMakerLauncher/electron/save-reset.cjs');
 
 function hlaeFixture() {
@@ -109,4 +109,34 @@ test('reset keeps all saves on a native sidecar directory collision', async () =
     assert.equal(fs.existsSync(path.join(root, 'filmmaker_settings.json')), true);
     assert.equal(fs.existsSync(path.join(root, EPOCH_FILE)), false);
   } finally { fs.rmSync(root, {recursive: true, force: true}); }
+});
+
+test('publishExclusiveFile falls back to an atomic rename on EPERM/ENOTSUP/EXDEV', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'smvm-save-reset-fallback-'));
+  try {
+    for (const code of ['EPERM', 'ENOTSUP', 'EXDEV']) {
+      const tmp = path.join(root, `src-${code}.tmp`);
+      const dst = path.join(root, `dst-${code}.info`);
+      fs.writeFileSync(tmp, `payload-${code}`);
+      const fakeFs = {
+        async link() {
+          const err = new Error(`hardlink unsupported: ${code}`);
+          err.code = code;
+          throw err;
+        },
+        stat: fs.promises.stat,
+        rename: fs.promises.rename,
+      };
+      await publishExclusiveFile(tmp, dst, fakeFs);
+      assert.equal(fs.readFileSync(dst, 'utf8'), `payload-${code}`);
+      assert.equal(fs.existsSync(tmp), false, 'the complete temporary is renamed, never copied in place');
+
+      // Existing file must win with EEXIST instead of overwriting.
+      fs.writeFileSync(tmp, 'overwrite-attempt');
+      await assert.rejects(publishExclusiveFile(tmp, dst, fakeFs), (err) => err.code === 'EEXIST');
+      assert.equal(fs.readFileSync(dst, 'utf8'), `payload-${code}`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

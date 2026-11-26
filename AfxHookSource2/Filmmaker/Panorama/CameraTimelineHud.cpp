@@ -395,7 +395,11 @@ void CameraTimelineHud::RunFrame() {
 	m_bridge.Init();
 
 	m_demoActive = PlayingDemo();
-	unsigned char* hud = m_demoActive ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
+	unsigned char* liveHud = AfxHookSource2_GetPanoramaHudPanel();
+	if (!liveHud || liveHud != m_hudPanel) {
+		m_bridge.SetContextPanel(nullptr);
+	}
+	unsigned char* hud = m_demoActive ? liveHud : nullptr;
 	if (!hud) { Teardown(); return; }
 	if (hud != m_hudPanel) { m_hudPanel = hud; m_built = false; }
 	// A language change rebuilds the script, which is what re-reads its text (Localization.h).

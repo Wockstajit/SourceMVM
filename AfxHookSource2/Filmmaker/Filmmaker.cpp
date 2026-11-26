@@ -854,9 +854,8 @@ void RunFrame() {
 	// Start a (re)scan on the render thread so scan lifetime is single-threaded.
 	bool wantScan = true;
 	if (g_rescanRequested.compare_exchange_strong(wantScan, false)) {
-		if (!g_library.IsScanning()) {
+		if (g_library.TryStartScan()) {
 			g_scansStarted.fetch_add(1, std::memory_order_relaxed);
-			g_library.StartScan();
 		}
 		else
 			g_rescanRequested.store(true); // retry next frame
@@ -933,9 +932,8 @@ void RunMainThreadFrame() {
 	{
 		bool wantScan = true;
 		if (g_rescanRequested.compare_exchange_strong(wantScan, false)) {
-			if (!g_library.IsScanning()) {
+			if (g_library.TryStartScan()) {
 				g_scansStarted.fetch_add(1, std::memory_order_relaxed);
-				g_library.StartScan();
 			} else {
 				g_rescanRequested.store(true);
 			}

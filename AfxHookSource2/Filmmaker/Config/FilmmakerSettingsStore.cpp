@@ -30,6 +30,7 @@
 #include "../World/AutoExposure.h"
 #include "../World/SkyOrient.h"
 #include "../World/SunFx.h"
+#include "../Platform/AtomicFile.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/TextEncoding.h"
 #include "../Render/RenderOutput.h" // the render workspace's last output folder
@@ -397,10 +398,10 @@ std::string BuildSnapshot() {
 }
 
 bool SaveSnapshot(const std::string& snapshot) {
-	std::ofstream file{ std::filesystem::path(SettingsPath()), std::ios::trunc };
-	if (!file.is_open()) return false;
-	file << snapshot;
-	return file.good();
+	const std::filesystem::path file(SettingsPath());
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+	return WriteFileAtomic(file.wstring(), snapshot) == ERROR_SUCCESS;
 }
 
 void LoadViewFx(const JsonValue* object) {
@@ -916,16 +917,9 @@ void ReadPresets() {
 	std::sort(g_presets.begin(), g_presets.end(), [](const std::string& a, const std::string& b) { return _stricmp(a.c_str(), b.c_str()) < 0; });
 }
 bool WriteText(const std::filesystem::path& path, const std::string& text) {
-	const auto temporary = std::filesystem::path(path).concat(L".tmp");
-	{
-		std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-		if (!file.is_open()) return false;
-		file << text;
-		if (!file.good()) return false;
-	}
 	std::error_code ec;
-	std::filesystem::rename(temporary, path, ec);
-	return !ec;
+	std::filesystem::create_directories(path.parent_path(), ec);
+	return WriteFileAtomic(path.wstring(), text) == ERROR_SUCCESS;
 }
 bool ReadText(const std::filesystem::path& path, std::string& text) {
 	std::error_code ec;

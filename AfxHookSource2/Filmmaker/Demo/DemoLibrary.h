@@ -32,6 +32,8 @@ public:
 
 	// Kicks off a background (re)scan of the install root + saved folders.
 	void StartScan();
+	// Thread-safe try-start for callers shared across render and main threads.
+	bool TryStartScan();
 
 	bool IsScanning() const { return m_scanning.load(); }
 
@@ -103,6 +105,7 @@ private:
 	DemoFileStore m_fileStore;
 	HiddenDemoStore m_hiddenStore;
 
+	std::mutex m_workerMutex;
 	std::thread m_worker;
 	std::atomic<bool> m_scanning{ false };
 	std::atomic<bool> m_cancel{ false };

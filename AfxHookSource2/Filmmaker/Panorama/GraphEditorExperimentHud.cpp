@@ -536,7 +536,11 @@ std::string GraphEditorExperimentHud::BuildStateJson() {
 void GraphEditorExperimentHud::RunFrame() {
 	m_bridge.Init();
 
-	unsigned char* hud = PlayingDemo() ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
+	unsigned char* liveHud = AfxHookSource2_GetPanoramaHudPanel();
+	if (!liveHud || liveHud != m_hudPanel) {
+		m_bridge.SetContextPanel(nullptr);
+	}
+	unsigned char* hud = PlayingDemo() ? liveHud : nullptr;
 	if (!hud) {
 		if (m_wasEnabled) { m_enabled = false; OnExit(); m_wasEnabled = false; }
 		// Demo gone: drop the model so the NEXT demo/session seeds fresh instead of reconciling

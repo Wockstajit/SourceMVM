@@ -30,6 +30,8 @@ std::string g_status;
 std::wstring g_activeDemo;
 std::thread g_worker;
 std::atomic<bool> g_busy{ false };
+std::atomic<bool> g_cancel{ false };
+HANDLE g_activeJob = nullptr; // guarded by g_mx while RunHelper waits
 // The file the engine is playing, as DemoKeyframes_RunFrame last saw it (under g_mx). CS2 opens a
 // demo with FILE_SHARE_DELETE, so deleting the copy it plays SUCCEEDS: the copy's .src went with
 // it, the playing file no longer resolved to its demo (ResolveDemoProjectPath), the camera path
@@ -182,6 +184,7 @@ std::vector<wchar_t> EnvironmentWith(const std::wstring& name, const std::wstrin
 // before it reaches the cap; a runtime hotfix that ships only the hook still runs the old helper.
 int RunHelper(const std::wstring& exe, const std::wstring& args, const std::wstring& logPath,
 	unsigned long long capBytes, unsigned long long softLimitMB) {
+	if (g_cancel.load()) return -1;
 	std::vector<wchar_t> environment = EnvironmentWith(L"GOMEMLIMIT", std::to_wstring(softLimitMB) + L"MiB");
 	std::wstring cmd = L"\"" + exe + L"\" " + args;
 	std::vector<wchar_t> buf(cmd.begin(), cmd.end());
@@ -228,14 +231,31 @@ int RunHelper(const std::wstring& exe, const std::wstring& args, const std::wstr
 			job = nullptr;
 		}
 	}
+	bool cancelled = false;
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		cancelled = g_cancel.load();
+		if (!cancelled) g_activeJob = job ? job : pi.hProcess;
+	}
+	if (cancelled) {
+		if (job) { TerminateJobObject(job, 1); CloseHandle(job); }
+		else TerminateProcess(pi.hProcess, 1);
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+		return -1;
+	}
 	ResumeThread(pi.hThread);
 	WaitForSingleObject(pi.hProcess, INFINITE);
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		g_activeJob = nullptr;
+	}
 	DWORD code = 1;
 	GetExitCodeProcess(pi.hProcess, &code);
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);
 	if (job) CloseHandle(job);
-	return (int)code;
+	return g_cancel.load() ? -1 : (int)code;
 }
 
 // The last non-empty line of the helper's log, shortened for a console line: "" when there is none.
@@ -608,7 +628,16 @@ std::string DemoKeyframes_StatusText() {
 }
 
 void DemoKeyframes_Reset() {
+	g_cancel.store(true);
+	{
+		std::lock_guard<std::mutex> lock(g_mx);
+		if (g_activeJob) {
+			if (!TerminateJobObject(g_activeJob, 1))
+				TerminateProcess(g_activeJob, 1);
+		}
+	}
 	if (g_worker.joinable()) g_worker.join();
+	g_cancel.store(false);
 	g_busy.store(false);
 	std::lock_guard<std::mutex> lock(g_mx);
 	g_state = KeyframeState::Idle;

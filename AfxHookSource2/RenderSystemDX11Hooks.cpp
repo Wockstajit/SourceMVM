@@ -1505,20 +1505,24 @@ public:
 
                     if(m_pSmokeDepthTexture)
                     {
+                        ID3D11RenderTargetView* pCurrentRtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
                         ID3D11DepthStencilView* pCurrentDepthStencilView = nullptr;
-                        ID3D11DepthStencilView* pNullDepthStencilView = nullptr;
-                        pContext->OMGetRenderTargets(0, nullptr, &pCurrentDepthStencilView);
+                        pContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, pCurrentRtvs, &pCurrentDepthStencilView);
 
-                        if (pCurrentDepthStencilView == pDepthStencilView) {
-                            pContext->OMGetRenderTargets(0, nullptr, &pNullDepthStencilView);
+                        const bool wasBound = (pCurrentDepthStencilView == pDepthStencilView);
+                        if (wasBound) {
+                            pContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, pCurrentRtvs, nullptr);
                         }
 
                         pContext->CopyResource(m_pSmokeDepthTexture, pTexture);
 
-                        if (pCurrentDepthStencilView == pDepthStencilView) {
-                            pContext->OMGetRenderTargets(0, nullptr, &pCurrentDepthStencilView);
+                        if (wasBound) {
+                            pContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, pCurrentRtvs, pCurrentDepthStencilView);
                         }
 
+                        for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
+                            if (pCurrentRtvs[i]) pCurrentRtvs[i]->Release();
+                        }
                         if (pCurrentDepthStencilView) pCurrentDepthStencilView->Release();
 
                         m_HasSmokeDepth = true;
@@ -1602,20 +1606,24 @@ public:
                         UINT numViewPorts = 1;
                         pContext->RSGetViewports(&numViewPorts, &m_NormalViewPort);
 
+                        ID3D11RenderTargetView* pCurrentRtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
                         ID3D11DepthStencilView* pCurrentDepthStencilView = nullptr;
-                        ID3D11DepthStencilView* pNullDepthStencilView = nullptr;
-                        pContext->OMGetRenderTargets(0, nullptr, &pCurrentDepthStencilView);
+                        pContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, pCurrentRtvs, &pCurrentDepthStencilView);
 
-                        if (pCurrentDepthStencilView == pDepthStencilView) {
-                            pContext->OMGetRenderTargets(0, nullptr, &pNullDepthStencilView);
+                        const bool wasBound = (pCurrentDepthStencilView == pDepthStencilView);
+                        if (wasBound) {
+                            pContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, pCurrentRtvs, nullptr);
                         }
 
                         pContext->CopyResource(m_pNormalDepthTexture, pTexture);
 
-                        if (pCurrentDepthStencilView == pDepthStencilView) {
-                            pContext->OMGetRenderTargets(0, nullptr, &pCurrentDepthStencilView);
+                        if (wasBound) {
+                            pContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, pCurrentRtvs, pCurrentDepthStencilView);
                         }
 
+                        for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
+                            if (pCurrentRtvs[i]) pCurrentRtvs[i]->Release();
+                        }
                         if (pCurrentDepthStencilView) pCurrentDepthStencilView->Release();
                     }
 
@@ -1918,7 +1926,9 @@ bool g_BeforeUiFiredThisPresent = false;
 // Set once the Environment composite ran this present, cleared at Present. Render-thread state only.
 bool g_EnvironmentCompositedThisPresent = false;
 bool g_NativeScopeDrawnThisPresent = false;
-bool g_bInOwnDraw = false;
+thread_local bool g_bInOwnDraw = false;
+static void ResetScopeCompositeTarget();
+static void ResetSmokeAbsorbance();
 bool g_bDetectSmoke = false;
 bool g_bDetectSmoke2 = false;
 bool g_bDetectedSmoke = false;
@@ -2194,6 +2204,8 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                     if (environmentDeviceChanged)
                         Filmmaker::Environment::EndDevice();
                     Filmmaker::CustomShadowAtlas_EndDevice();
+                    ResetScopeCompositeTarget();
+                    ResetSmokeAbsorbance();
                     g_pDevice->Release();
                     g_pDevice = nullptr;
                 }
@@ -3251,6 +3263,11 @@ private:
     bool m_has = false;
 } g_SmokeAbsorbance;
 
+static void ResetSmokeAbsorbance() {
+    g_SmokeAbsorbance.OnEndFrame();
+    g_SmokeAbsorbance.Reset();
+}
+
 static void EnvironmentSmokeHandoff() {
     UINT width = 0, height = 0;
     ID3D11ShaderResourceView* view = g_SmokeAbsorbance.Get(width, height);
@@ -4178,6 +4195,20 @@ static void AfxCompositeEnvironmentBeforeOverlay(ID3D11DeviceContext* ctx) {
     target->Release();
 }
 
+static ID3D11Resource* g_pScopeCompositeSource = nullptr;
+static ID3D11RenderTargetView* g_pScopeCompositeTarget = nullptr;
+
+static void ResetScopeCompositeTarget() {
+    if (g_pScopeCompositeTarget) {
+        g_pScopeCompositeTarget->Release();
+        g_pScopeCompositeTarget = nullptr;
+    }
+    if (g_pScopeCompositeSource) {
+        g_pScopeCompositeSource->Release();
+        g_pScopeCompositeSource = nullptr;
+    }
+}
+
 // CS2's sniper scope pass: a Draw(4) with legacy_sniper_scope.vfx_ps, reading the tonemapped scene
 // from t0 and writing the back buffer. Composites the Environment into that source before it runs.
 static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT vertexCount) {
@@ -4207,14 +4238,10 @@ static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT ve
     sourceView->Release();
     if (!source) return;
 
-    static ID3D11Resource* s_source = nullptr;
-    static ID3D11RenderTargetView* s_target = nullptr;
-    if (source != s_source) {
-        if (s_target) s_target->Release();
-        if (s_source) s_source->Release();
-        s_target = nullptr;
-        s_source = source;
-        s_source->AddRef();
+    if (source != g_pScopeCompositeSource) {
+        ResetScopeCompositeTarget();
+        g_pScopeCompositeSource = source;
+        g_pScopeCompositeSource->AddRef();
         if (sourceDesc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D) {
             D3D11_RENDER_TARGET_VIEW_DESC targetDesc = {};
             targetDesc.Format = sourceDesc.Format;
@@ -4223,18 +4250,18 @@ static void AfxCompositeEnvironmentBeforeScope(ID3D11DeviceContext* ctx, UINT ve
             ID3D11Device* device = nullptr;
             ctx->GetDevice(&device);
             if (device) {
-                if (FAILED(device->CreateRenderTargetView(source, &targetDesc, &s_target))) s_target = nullptr;
+                if (FAILED(device->CreateRenderTargetView(source, &targetDesc, &g_pScopeCompositeTarget))) g_pScopeCompositeTarget = nullptr;
                 device->Release();
             }
         }
         Filmmaker::MvmDebugLog_LinefAlways("environment.scope",
             "scope pass source=%p format=%d dimension=%d target=%p",
-            (void*)source, int(sourceDesc.Format), int(sourceDesc.ViewDimension), (void*)s_target);
+            (void*)source, int(sourceDesc.Format), int(sourceDesc.ViewDimension), (void*)g_pScopeCompositeTarget);
     }
     source->Release();
-    if (!s_target) return;
+    if (!g_pScopeCompositeTarget) return;
     QpcScope environmentCost(g_hookCostAccum.environmentTotal);
-    AfxRenderEnvironmentComposite(ctx, s_target);
+    AfxRenderEnvironmentComposite(ctx, g_pScopeCompositeTarget);
 }
 
 void STDMETHODCALLTYPE New_PSSetShader(ID3D11DeviceContext* This,

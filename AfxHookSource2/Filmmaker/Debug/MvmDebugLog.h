@@ -54,10 +54,6 @@ void MvmDebugLog_Linef(const char* category, const char* fmt, ...);
 // payload repeats an earlier one; the normal dedup would hide repeat clicks until the log is stopped.
 void MvmDebugLog_LinefAlways(const char* category, const char* fmt, ...);
 
-// Cursor/agent NDJSON hook (see MvmAgentLog in MvmDebugLog.cpp). dataJson must be a JSON object
-// fragment like "\"key\":1" or empty/null for {}.
-void MvmAgentLog(const char* hypothesisId, const char* location, const char* message, const char* dataJson);
-
 // Crash breadcrumb: a vectored exception handler (registered while a log is open) logs first-chance
 // ACCESS VIOLATIONS -- faulting module+offset, access type, thread, and the last knife swap context --
 // but ONLY during the short window after MvmCrashWatch_Arm() is called. The step breadcrumbs only
