@@ -199,6 +199,7 @@ add_custom_command(OUTPUT "${ENVIRONMENT_SHADER_BUNDLE}/ready.stamp"
     COMMAND $<TARGET_FILE:EnvironmentShaderBuilder> "${ENVIRONMENT_SHADER_BUNDLE}"
     DEPENDS EnvironmentShaderBuilder
     COMMENT "Preparing environment shader bundle"
+    USES_TERMINAL
     VERBATIM)
 add_custom_target(EnvironmentShaderBundle DEPENDS "${ENVIRONMENT_SHADER_BUNDLE}/ready.stamp")
 add_dependencies(${PROJECT_NAME} EnvironmentShaderBundle)
