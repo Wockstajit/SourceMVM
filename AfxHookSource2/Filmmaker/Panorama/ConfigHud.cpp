@@ -1,3 +1,4 @@
+#include "../Takes/ActorAnimations.h"
 #include "ConfigHud.h"
 #include "../Localization/Localization.h"
 #include "../Takes/Takes.h"
@@ -175,6 +176,7 @@ void ConfigHud::Teardown() {
 			// Close the death-animation picker FIRST: it holds a CaptureMouse deny-input handle that
 			// would otherwise outlive its panel and keep the mouse away from the game.
 			"(function(){if($.ConfigHudDap) try{$.ConfigHudDap.close();}catch(x){}"
+			"if($.ConfigHudAap) try{$.ConfigHudAap.close();}catch(x){}"
 			" var e=$('#ConfigHudRoot'); if(e) e.DeleteAsync(0);"
 			// The Editor Settings fly-out is a TOP-LEVEL child of the context panel, so it does not
 			// go with ConfigHudRoot. Same by-id teardown CameraEditorHud does for its own copy.
@@ -563,6 +565,8 @@ void ConfigHud::RunFrame() {
 	{
 		std::string js;
 		if (DeathAnimations_TakeScript(js)) m_bridge.RunScript(js);
+		js.clear();
+		if (ActorAnim::TakeScript(js)) m_bridge.RunScript(js);
 	}
 
 	// THE TWO PANELS ARE SEPARATE: a panel opened in one context does not survive into the

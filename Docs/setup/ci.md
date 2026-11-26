@@ -171,4 +171,7 @@ and sccache entries.
 The bundle has grown since these measurements. In November 2026, a run that reused only 22 of 98
 programs (the first run after the compile key changed to the source each entry point reaches)
 spent 63 minutes on the shader bundle, and its tests started 74 minutes into the job. The native
-job's timeout is 120 minutes so that such a run, and the first push to `main` after it, can finish.
+job's timeout is 180 minutes so that such a run, and the first push to `main` after it, can finish.
+It was 120 until a pull request that edited the climate shader header on top of an uncached `main`
+spent over 105 minutes on the bundle and was cancelled before its build ended. A cancelled job saves
+no bundle, so the next run started cold again.

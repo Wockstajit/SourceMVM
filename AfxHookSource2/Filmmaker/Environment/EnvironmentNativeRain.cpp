@@ -419,13 +419,14 @@ int g_frostHeldAt = kFrostReleased;
 // reset (seen after Reset weather and after the Environment tab's reset). A level that frosts people
 // by itself is left alone, because this is only set once our own snow has run.
 bool g_frostMade = false;
+bool g_frostTouched = false;
 void ApplyFrost(int target, bool hide = false) {
     ResolveFrost();
     const bool on = target == 1;
     if (on) g_frostMade = true;
     // The game's own frost, as it draws it, while our snow wants it; none of it otherwise, and none
-    // at all while our rain falls (`hide`).
-    const float strength = !hide && (on || !g_frostMade) ? 1.f : 0.f;
+    // at all while our rain falls or after Environment reset (`hide`).
+    const float strength = on ? 1.f : (hide ? 0.f : (!g_frostMade ? 1.f : 0.f));
     if (strength != g_frostStrength.load(std::memory_order_relaxed))
         g_frostStrength.store(strength, std::memory_order_relaxed);
     if (!g_frostCvar || target == g_frostHeldAt)
@@ -483,7 +484,11 @@ void UpdateNativeRain(const Scene &scene, const std::string &map, bool active, V
     // by itself on any map, so frost came back on the gloves the moment the rain stopped. With the
     // Environment off the game's own frost and wet are left as they are.
     const bool frostWanted = NativeFrostWanted(scene, active);
-    ApplyFrost(frostWanted ? 1 : (raining || g_frostMade) ? 0 : kFrostReleased, active && !frostWanted);
+    if (active) g_frostTouched = true;
+    // Since Valve's Nov 2026 update removed r_csgo_frost_force and frosts players outdoors on any map,
+    // keep frost hidden whenever snow is not active (including after Reset!) so frost never sticks on characters.
+    const bool hideFrost = !frostWanted && (active || g_frostMade || g_frostTouched || !g_frostCvar);
+    ApplyFrost(frostWanted ? 1 : (raining || g_frostMade) ? 0 : kFrostReleased, hideFrost);
     g_waterStrength.store(!active || raining ? 1.f : 0.f, std::memory_order_relaxed);
     // Valve's storm particle stays OFF: it culls every drop against the map's baked precipitation
     // ray-trace data, which only maps built for weather (de_train) ship -- on de_mirage it drew a
@@ -577,6 +582,7 @@ void ResetNativeRain() {
     g_running.store(false);
     g_status = "off";
     g_frostMade = false; // a new level: its own frost, if it has any, is its own again
+    g_frostTouched = false;
 }
 
 bool NativeRainActive() { return g_running.load(); }

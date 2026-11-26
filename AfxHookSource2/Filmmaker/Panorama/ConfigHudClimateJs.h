@@ -74,13 +74,15 @@ R"CFJS(
     var envFogPage = envFogSec.__page(T('Fog'));
     var envGroundFogPage = envFogSec.__page(T('Ground fog'));
     subHead(envFogPage, T('Height fog'));
-    cs(envFogPage, 'fogDensity'); cs(envFogPage, 'fogStart');
+    cw(envFogPage, T('Half-Life: Alyx fog'), 'alyxFog', T('Switches height fog to Half-Life: Alyx volumetric fog with near clarity fade-in, counter-drifting 3D air currents, forward scatter and sky bounce. Weather presets also use this fog while enabled.'));
+    cs(envFogPage, 'fogDensity'); cs(envFogPage, 'fogStart'); cs(envFogPage, 'fogRange');
     cs(envFogPage, 'fogHeight'); cs(envFogPage, 'fogNoise');
     colorField(envFogPage, T('Height fog color'), function () { var s=envState(); return s && {rgb:s.fogColor}; }, function (rgb) {
       ['fogR','fogG','fogB'].forEach(function (key,i) { envCommand('set '+key+' '+rgb[i]); });
     });
     subHead(envFogPage, T('Light'));
     cw(envFogPage, T('Light shafts'), 'lightShafts', T('Sunlight through gaps in the map draws rays in the height fog, and buildings shade it. Uses the map’s own sun unless the Sky card moves it. Ground fog has its own Shadows slider.'));
+    cs(envFogPage, 'fogLightIntensity'); cs(envFogPage, 'scatter');
     // A look is only a starting point: every value it sets is a slider below, free to change from there.
     var GROUND_FOG_LOOKS = {
       mist: { climate: { fogDensity: 0.02, fogStart: 0, fogHeight: 500, fogNoise: 0.5, lightShafts: 1,
@@ -156,7 +158,7 @@ R"CFJS(
       // whole: weather or fog alone keep the map's own lighting.
       envLightSec.__note(s.enabled && c.enabled && c.relighting ? (c.contactShadows ? T('Dynamic lighting · shadows on') : T('Dynamic lighting · shadows off')) : T('Map lighting'));
       var fogParts = [];
-      if (c.enabled && c.fogDensity > 0) fogParts.push(T('Height {0}', c.fogDensity.toFixed(2)));
+      if (c.enabled && c.fogDensity > 0) fogParts.push(c.alyxFog ? T('Alyx {0}', c.fogDensity.toFixed(2)) : T('Height {0}', c.fogDensity.toFixed(2)));
       if (c.enabled && c.groundFog > 0) fogParts.push(T('ground {0}', c.groundFog.toFixed(2)));
       if (fogParts.length && c.lightShafts) fogParts.push(T('shafts'));
       envFogSec.__note(fogParts.length ? fogParts.join(' · ') : T('Off'));

@@ -133,6 +133,12 @@ install(
 # Death Animations clip library (FX/tools/extract-death-anims.py): one file holding every source.
 # Its donor animations are third-party, so a checkout may not carry it: the hook then reports
 # "ragdoll animation file missing" and Death Animations has no clips.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../FX/actor-animations/actor_animations.mvmanim")
+    install(FILES ../FX/actor-animations/actor_animations.mvmanim
+        DESTINATION "bin/resources/animations" COMPONENT x64-source2)
+else()
+    message(STATUS "FX/actor-animations/actor_animations.mvmanim not present: Actor Animations ships without clips.")
+endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../FX/death-animations/ragdoll_animations.mvmanim")
     install(FILES ../FX/death-animations/ragdoll_animations.mvmanim
         DESTINATION "bin/resources/ragdoll" COMPONENT x64-source2)
@@ -436,6 +442,17 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Takes/TakesHud.cpp
     Filmmaker/Takes/TakesHud.h
     Filmmaker/Takes/TakesMath.h
+    Filmmaker/Takes/ActorAnimations.cpp
+    Filmmaker/Takes/ActorAnimations.h
+    Filmmaker/Takes/ActorAnimationsMath.h
+    Filmmaker/SceneEditor/SceneEditor.cpp
+    Filmmaker/SceneEditor/SceneEditor.h
+    Filmmaker/SceneEditor/SceneEditorMath.h
+    Filmmaker/SceneEditor/SceneEditorHud.cpp
+    Filmmaker/SceneEditor/SceneEditorHud.h
+    Filmmaker/SceneEditor/SceneEditorJs.h
+    Filmmaker/SceneEditor/SceneEditorGizmoJs.h
+    Filmmaker/SceneEditor/SceneEditorTimelineJs.h
     Filmmaker/Props/ClientEntitySpawn.cpp
     Filmmaker/Props/Props.cpp
     Filmmaker/Props/PropPreview.cpp
@@ -451,6 +468,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     Filmmaker/Environment/EnvironmentReflectionProbeMath.h
     Filmmaker/Environment/EnvironmentNativeRain.cpp
     Filmmaker/Environment/EnvironmentNativeRain.h
+    Filmmaker/Environment/EnvironmentNativeFog.cpp
+    Filmmaker/Environment/EnvironmentNativeFog.h
     Filmmaker/Relight/RelightScreenGi.cpp Filmmaker/Relight/RelightProbes.cpp Filmmaker/Relight/RelightLiteGrid.cpp Filmmaker/Relight/RelightProbeGi.cpp Filmmaker/Relight/RelightReflectionFilter.cpp Filmmaker/Relight/RelightStainedGlass.cpp Filmmaker/Relight/RelightLightEditor.cpp Filmmaker/Relight/RelightLightmap.cpp
     Filmmaker/Relight/Relight.cpp Filmmaker/Relight/RelightNativeCluster.cpp
     Filmmaker/Relight/Relight.h

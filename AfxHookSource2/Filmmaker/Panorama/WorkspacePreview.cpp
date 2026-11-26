@@ -16,6 +16,7 @@ WorkspacePreview& WorkspacePreviewRef() {
 
 const char* WorkspacePreview::OwnerName(Owner owner) {
 	switch (owner) {
+	case Owner::SceneEditor: return "SceneEditor";
 	case Owner::CameraEditor: return "CameraEditor";
 	case Owner::Config: return "Config";
 	default: return "none";

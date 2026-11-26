@@ -10,6 +10,8 @@
 // (the field numbers below are read from the descriptors inside server.dll), while the C++ layout
 // of the generated message is not, so a saved take survives an update that moves those fields.
 
+#include "ActorAnimationsMath.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -197,7 +199,16 @@ struct CmdRewrite {
 	bool hasEye = false;          // shots leave from here instead of the recorded eye
 	float eye[3] = {0, 0, 0};
 	bool stripAttack = false;     // "bot_dont_shoot" for one take: the buttons survive, attacks do not
+	float yawOffset = 0.f;        // spatial yaw rotation (degrees) applied in Scene Editor
 };
+
+inline float WrapAngleDeg(float deg) {
+	if (!std::isfinite(deg)) return 0.f;
+	float x = std::fmod(deg, 360.f);
+	if (x > 180.f) x -= 360.f;
+	if (x < -180.f) x += 360.f;
+	return x;
+}
 
 constexpr uint64_t kInAttack = 1ull << 0, kInAttack2 = 1ull << 11;
 
@@ -247,6 +258,23 @@ inline std::vector<uint8_t> RewriteBase(const uint8_t *data, size_t size, const 
 		case Field::kConsumedAngleChanges:
 		case Field::kExecutionNotes:
 			return;
+		case Field::kViewAngles:
+			if (std::fabs(r.yawOffset) > 1e-4f) {
+				std::vector<uint8_t> inner;
+				bool wroteYaw = false;
+				ForEachField(f.data, f.size, [&](const WireField &a) {
+					if (a.number == 2 && a.type == WireFixed32) {
+						WriteFloatField(inner, 2, WrapAngleDeg(FixedToFloat(a.fixed32) + r.yawOffset));
+						wroteYaw = true;
+					} else {
+						inner.insert(inner.end(), a.rawBegin, a.rawEnd);
+					}
+				});
+				if (!wroteYaw) WriteFloatField(inner, 2, WrapAngleDeg(r.yawOffset));
+				WriteBytesField(out, f.number, inner.data(), inner.size());
+				return;
+			}
+			break;
 		case Field::kButtons:
 			if (r.stripAttack) {
 				std::vector<uint8_t> inner;
@@ -382,7 +410,43 @@ struct Track {
 	// Changes made after the take was recorded: the performance stays, the player changes.
 	std::string agentModel;              // characters/models/.../....vmdl; "" keeps the bot's own
 	std::vector<WeaponSwap> weaponSwaps;
+	bool placedActor = false;            // placed stationary actor (no manual movement recording)
+	std::vector<ActorAnim::Cue> animCues; // custom actor animation cues synced to take ticks
+	float offsetPos[3] = {0.f, 0.f, 0.f}; // world translation offset from Scene Editor
+	float offsetYaw = 0.f;                // world yaw offset (degrees around tick[0]) from Scene Editor
 };
+
+inline bool HasSpatialOffset(const Track &t) {
+	return std::fabs(t.offsetPos[0]) > 1e-3f || std::fabs(t.offsetPos[1]) > 1e-3f ||
+	       std::fabs(t.offsetPos[2]) > 1e-3f || std::fabs(t.offsetYaw) > 1e-3f;
+}
+
+inline void TransformPointYaw(const float inPos[3], const float anchor[3], const float offsetPos[3],
+                              float offsetYawDeg, float outPos[3]) {
+	const float dx = inPos[0] - anchor[0];
+	const float dy = inPos[1] - anchor[1];
+	const float rad = offsetYawDeg * 0.017453292519943295f;
+	const float cs = std::cos(rad), sn = std::sin(rad);
+	outPos[0] = anchor[0] + dx * cs - dy * sn + offsetPos[0];
+	outPos[1] = anchor[1] + dx * sn + dy * cs + offsetPos[1];
+	outPos[2] = inPos[2] + offsetPos[2];
+}
+
+inline void TransformVecYaw(const float inVel[3], float offsetYawDeg, float outVel[3]) {
+	const float rad = offsetYawDeg * 0.017453292519943295f;
+	const float cs = std::cos(rad), sn = std::sin(rad);
+	outVel[0] = inVel[0] * cs - inVel[1] * sn;
+	outVel[1] = inVel[0] * sn + inVel[1] * cs;
+	outVel[2] = inVel[2];
+}
+
+inline void TransformTrackSample(const Track &t, const TickSample &s, float outPos[3], float outVel[3], float &outYaw) {
+	const float zero[3] = {0.f, 0.f, 0.f};
+	const float *anchor = t.ticks.empty() ? zero : t.ticks[0].pos;
+	TransformPointYaw(s.pos, anchor, t.offsetPos, t.offsetYaw, outPos);
+	TransformVecYaw(s.vel, t.offsetYaw, outVel);
+	outYaw = WrapAngleDeg(s.yaw + t.offsetYaw);
+}
 
 inline uint16_t InternName(std::vector<std::string> &names, const std::string &name) {
 	for (size_t i = 0; i < names.size(); ++i)
@@ -491,7 +555,7 @@ inline std::string SafeFileName(const std::string &name) {
 // -- The file ----------------------------------------------------------------------------------------
 
 constexpr uint32_t kSceneMagic = 0x4b545653; // "SVTK"
-constexpr uint32_t kSceneVersion = 2;
+constexpr uint32_t kSceneVersion = 4;
 
 class ByteWriter {
 public:
@@ -583,6 +647,20 @@ inline std::vector<uint8_t> SerializeScene(const Scene &s) {
 			w.Str(x.from);
 			w.Str(x.to);
 		}
+		w.Pod(uint8_t(t.placedActor));
+		w.Pod(uint32_t(t.animCues.size()));
+		for (const ActorAnim::Cue &c : t.animCues) {
+			w.Pod(c.startTick);
+			w.Str(c.clip);
+			w.Pod(c.speed);
+			w.Pod(uint8_t((c.loop ? 1 : 0) | (c.upperBodyOnly ? 2 : 0)));
+			w.Pod(c.startTime);
+			w.Pod(c.duration);
+			w.Pod(c.blendIn);
+			w.Pod(c.blendOut);
+		}
+		w.Raw(t.offsetPos, sizeof(t.offsetPos));
+		w.Pod(t.offsetYaw);
 	}
 	w.Pod(uint32_t(s.objects.size()));
 	for (const SceneObject &o : s.objects) {
@@ -599,7 +677,9 @@ inline std::vector<uint8_t> SerializeScene(const Scene &s) {
 // False on anything but a complete scene this version wrote; `out` is then left as it was.
 inline bool ParseScene(const uint8_t *data, size_t size, Scene &out) {
 	ByteReader r(data, size);
-	if (r.Pod<uint32_t>() != kSceneMagic || r.Pod<uint32_t>() != kSceneVersion) return false;
+	if (r.Pod<uint32_t>() != kSceneMagic) return false;
+	const uint32_t ver = r.Pod<uint32_t>();
+	if (ver != 3 && ver != kSceneVersion) return false;
 	Scene s;
 	s.map = r.Str();
 	s.tickRate = r.Pod<float>();
@@ -648,6 +728,27 @@ inline bool ParseScene(const uint8_t *data, size_t size, Scene &out) {
 			x.from = r.Str();
 			x.to = r.Str();
 			t.weaponSwaps.push_back(x);
+		}
+		t.placedActor = r.Pod<uint8_t>() != 0;
+		const uint32_t cues = r.Pod<uint32_t>();
+		if (!r.ok || cues > 4096) return false;
+		for (uint32_t n = 0; n < cues && r.ok; ++n) {
+			ActorAnim::Cue c;
+			c.startTick = r.Pod<int32_t>();
+			c.clip = r.Str();
+			c.speed = r.Pod<float>();
+			const uint8_t cueFlags = r.Pod<uint8_t>();
+			c.loop = (cueFlags & 1) != 0;
+			c.upperBodyOnly = (cueFlags & 2) != 0;
+			c.startTime = r.Pod<float>();
+			c.duration = r.Pod<float>();
+			c.blendIn = r.Pod<float>();
+			c.blendOut = r.Pod<float>();
+			t.animCues.push_back(std::move(c));
+		}
+		if (ver >= 4) {
+			r.Raw(t.offsetPos, sizeof(t.offsetPos));
+			t.offsetYaw = r.Pod<float>();
 		}
 		s.tracks.push_back(std::move(t));
 	}

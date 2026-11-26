@@ -63,6 +63,7 @@ namespace {
 	constexpr int kVK_K = 0x4B;     // place a camera marker
 	constexpr int kVK_L = 0x4C;     // delete the aimed-at marker
 	constexpr int kVK_F = 0x46;     // edit the aimed-at marker
+	constexpr int kVK_G = 0x47;     // toggle cursor in Scene Editor
 	constexpr int kVK_C = 0x43;     // Config open: Ctrl+C copies the selected scene object
 	constexpr int kVK_D = 0x44;     // Config open: Ctrl+D duplicates the selected scene object
 	constexpr int kVK_V = 0x56;     // Config open: Ctrl+V pastes it under the mouse
@@ -176,6 +177,20 @@ bool MovieMode::OnMouseWheel(int delta, bool shiftDown, bool ctrlDown, int x, in
 			return true;
 		}
 		return false; // cursor handed back to the game: the wheel is the player's again
+	}
+	if (SceneEditor_Enabled()) {
+		if (!SceneEditor_WantsCursor() && CameraBridge_GetFreeCamEnabled()) {
+			if (delta != 0) {
+				if (ctrlDown || m_controlDown) CameraBridge_AdjustFreeCamFov(delta > 0 ? +1 : -1);
+				else CameraBridge_AdjustFreeCamSpeed(delta > 0 ? +1 : -1);
+			}
+			return true;
+		}
+		if (SceneEditor_WantsCursor()) {
+			if (delta != 0) SceneEditor_PushWheel(delta > 0 ? +1 : -1);
+			return true;
+		}
+		return false;
 	}
 	if (!IsDemoActive())
 		return false;
@@ -494,6 +509,27 @@ bool MovieMode::OnMouseButton(int button, bool down, int x, int y) {
 	//
 	// (The branch this replaces gated on the since-removed TestHud panel,
 	// so it never ran for the panel Insert actually opens.)
+	if (SceneEditor_Enabled()) {
+		if (button == 1) {
+			if (down && SceneEditor_WantsCursor()) {
+				const UiClick::Input in = ClickInput(x, y);
+				const bool insidePreview = !in.preview.valid
+					|| ((float)x >= in.preview.x0 && (float)x < in.preview.x1
+						&& (float)y >= in.preview.y0 && (float)y < in.preview.y1);
+				if (!insidePreview) return true;
+				m_sceneEditorRmbLook.store(true, std::memory_order_relaxed);
+				SceneEditor_SetCursor(false);
+				MouseCapture_TakeForCamera("sceneeditor rmb fly");
+				return true;
+			}
+			if (!down && m_sceneEditorRmbLook.exchange(false, std::memory_order_relaxed)) {
+				SceneEditor_SetCursor(true);
+				MouseCapture_ReleaseForUi("sceneeditor rmb fly end");
+				return true;
+			}
+		}
+		return false;
+	}
 	if (ConfigHud_IsLive())
 		return false;
 	// While OUR free cam owns the view (camera editor, camera paths, follow camera), swallow
@@ -611,6 +647,36 @@ bool MovieMode::OnKey(int vkey, bool down) {
 
 	if (ConfigHud_TextCaptureActive())
 		return true;
+	if (SceneEditor_TextCaptureActive())
+		return true;
+	static bool sceneEditorEscapeHeld = false;
+	if (vkey == kVK_ESC && (sceneEditorEscapeHeld || SceneEditor_Enabled())) {
+		if (down && !sceneEditorEscapeHeld) {
+			if (SceneEditor_BusyEditing()) EnqueueCmd("mirv_filmmaker sceneeditor cancel");
+			else EnqueueCmd("mirv_filmmaker sceneeditor off");
+		}
+		sceneEditorEscapeHeld = down;
+		return true;
+	}
+	if (vkey == kVK_G && SceneEditor_Enabled() && !IsDemoActive()) {
+		static bool sceneEditorGHeld = false;
+		if (down && !sceneEditorGHeld) {
+			const bool nextCursor = !SceneEditor_WantsCursor();
+			EnqueueCmd(nextCursor ? "mirv_filmmaker sceneeditor cursor on" : "mirv_filmmaker sceneeditor cursor off");
+			if (nextCursor) MouseCapture_ReleaseForUi("sceneeditor G cursor on");
+			else MouseCapture_TakeForCamera("sceneeditor G fly on");
+		}
+		sceneEditorGHeld = down;
+		return true;
+	}
+	// While Scene Editor Fly Cam is armed in cursor mode (no RMB held), swallow movement/action keys
+	// so WASD/Space do not walk the local player body while hovering UI controls.
+	if (SceneEditor_Enabled() && SceneEditor_FlyCam() && SceneEditor_WantsCursor() && !m_sceneEditorRmbLook.load()) {
+		if (vkey == 0x57 || vkey == 0x41 || vkey == 0x53 || vkey == 0x44 ||
+		    vkey == 0x51 || vkey == 0x45 || vkey == 0x52 || vkey == kVK_F || vkey == kVK_SPACE) {
+			return true;
+		}
+	}
 	// So does a typed field in the Camera Editor (the Render workspace's number boxes too) or the
 	// TIMELINE dock: the digits arrive as WM_CHAR for the JS, and the same physical key must not
 	// also run a director binding (it paused the demo on every "6" typed into an fps box). Ahead of

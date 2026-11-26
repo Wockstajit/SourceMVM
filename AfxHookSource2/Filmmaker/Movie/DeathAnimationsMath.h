@@ -25,7 +25,7 @@ inline constexpr int kThighLeft = 0;
 inline constexpr int kThighRight = 2;
 
 // Which donor family a clip came from, an explicit field in the baked file.
-enum class Source : int { Mw2019 = 0, Classic, Extra, Count };
+enum class Source : int { Mw2019 = 0, Classic, Extra, Alyx, Count };
 
 // Ids match CATEGORY_IDS in the pack builder. Moving keeps its id but is never baked or picked any
 // more: speed is the Running stance, and a running death is filed by where the hit landed. Melee is

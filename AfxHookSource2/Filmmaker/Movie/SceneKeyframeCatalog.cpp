@@ -64,7 +64,8 @@ const std::map<std::string, std::string>& Names() {
         // CONFIG > ENVIRONMENT > FOG
         {"env.fogDensity", "Fog density"}, {"env.fogColor", "Fog colour"}, {"env.fogStart", "Fog start distance"},
         {"env.fogHeight", "Fog height"}, {"env.fogNoise", "Fog variation"}, {"env.fogBase", "Fog base height"},
-        {"env.fogRange", "Fog ray distance"}, {"env.scatter", "Fog forward scatter"}, {"env.lightShafts", "Light shafts"},
+        {"env.fogRange", "Fog ray distance"}, {"env.fogLightIntensity", "Fog light intensity"}, {"env.scatter", "Fog forward scatter"}, {"env.lightShafts", "Light shafts"},
+        {"env.alyxFog", "Half-Life: Alyx fog"},
         {"env.localFogRadius", "Local fog radius"},
         {"env.fogX", "Local fog centre X"}, {"env.fogY", "Local fog centre Y"}, {"env.fogZ", "Local fog centre Z"},
         {"env.groundFog", "Ground fog density"}, {"env.groundFogCoverage", "Ground fog coverage"}, {"env.groundFogHeight", "Ground fog depth"},
@@ -125,7 +126,7 @@ const EnvGroup kEnvGroups[] = {
     {"sky", "Sky", "sky timeOfDay sunPath sunHeight sunAzimuth sunElevation sunPower haze stars sunColor moon moonPhase moonSize moonColor clouds hideMapClouds coverage density cloudBase cloudDepth cloudScale windSpeed cloudRain"},
     // CONFIG's Light, Shadows and Exposure groups, then the values with no control.
     {"lighting", "Lighting", "enabled mapLightPower ambient playerFill bounce sunAngle lampAngle shadowSoftness exposureBias sunRelight bakedFill"},
-    {"fog", "Fog", "fogDensity fogStart fogHeight fogNoise fogColor lightShafts groundFog groundFogCoverage groundFogHeight groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogDetail groundFogBillowSize groundFogColor groundFogSun groundFogShade groundFogShadows groundFogShadeColor groundFogFlow groundFogPushSize groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogChurn fogBase fogRange scatter localFogRadius fogX fogY fogZ"},
+    {"fog", "Fog", "alyxFog fogDensity fogStart fogRange fogHeight fogNoise fogColor lightShafts fogLightIntensity scatter groundFog groundFogCoverage groundFogHeight groundFogSoftness groundFogWisps groundFogWispSize groundFogStreak groundFogDetail groundFogBillowSize groundFogColor groundFogSun groundFogShade groundFogShadows groundFogShadeColor groundFogFlow groundFogPushSize groundFogRecovery groundFogSwirl groundFogWind groundFogWindAngle groundFogChurn fogBase localFogRadius fogX fogY fogZ"},
     {"weather", "Weather", "weather.type weather.count weather.speed weather.windSpeed weather.windDirection gusts foliageWind gustDensity gustHeight gustWisps gustFloor weather.size weather.color turbulence particleOpacity softness streak particleLight"},
     {"ground", "Ground", "wet puddles snow snowDepth sand sandDepth sandHarmonize sandColor tumbleweeds puddleHeight puddleDepth surfaceRadius surfaceX surfaceY maskScale ripple reflectionRoughness"},
     {"lightning", "Lightning", "storm stormStrength stormInterval stormRadius"},

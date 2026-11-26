@@ -238,6 +238,7 @@ Automation/config/discord-reports.local.json
 /FX/sources/
 /FX/compiled/
 /FX/death-animations/
+/FX/actor-animations/
 
 # Third-party media that is not ours to redistribute in the source tree. The osu! beatmaps and songs
 # are other people's (and commercial artists') work; the launcher fonts are Valve's Stratum2 and the

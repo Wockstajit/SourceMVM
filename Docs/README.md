@@ -25,6 +25,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Follow / Attach camera | [`follow-camera/README.md`](follow-camera/README.md) |
 | Config and camera effects | [`filmmaker_config_panel.md`](features/filmmaker_config_panel.md), [`filmmaker_camera_shake.md`](features/filmmaker_camera_shake.md) |
 | Death animations (clip-exact, then ragdoll) | [`filmmaker_death_animations.md`](features/filmmaker_death_animations.md) |
+| Actor animations (Half-Life: Alyx clips on CS2 players) | [`filmmaker_actor_animations.md`](features/filmmaker_actor_animations.md) |
 | Nervous System (post-death reactions: reach for the wound, breathe, writhe, twitch) | [`filmmaker_nervous_system.md`](features/filmmaker_nervous_system.md) |
 | Lens: depth of field, bokeh iris, lens flare | [`filmmaker_lens.md`](features/filmmaker_lens.md) |
 | Cosmetics / Customize | [`cosmetics-overview.md`](cosmetics/cosmetics-overview.md), [`customize-feature.md`](features/customize-feature.md) |

@@ -211,6 +211,28 @@ void initSchemaSystemOffsets()
 		getOffset(&m.m_flEnvWetnessDryingAmount, "client.dll", cls, "m_flEnvWetnessDryingAmount");
 	}
 
+	// Non-fatal: native map gradient fog (EnvironmentWorld HL:A fog bridge).
+	for (const char* cls : {"C_GradientFog", "C_EnvGradientFog"}) {
+		auto& gf = g_clientDllOffsets.C_GradientFog;
+		if (!gf.m_bFogEnable) getOffset(&gf.m_bFogEnable, "client.dll", cls, "m_bIsEnabled");
+		if (!gf.m_bFogEnable) getOffset(&gf.m_bFogEnable, "client.dll", cls, "m_bFogEnable");
+		if (!gf.m_bStartDisabled) getOffset(&gf.m_bStartDisabled, "client.dll", cls, "m_bStartDisabled");
+		if (!gf.m_bHeightFogEnabled) getOffset(&gf.m_bHeightFogEnabled, "client.dll", cls, "m_bHeightFogEnabled");
+		if (!gf.m_bGradientFogNeedsTextures) getOffset(&gf.m_bGradientFogNeedsTextures, "client.dll", cls, "m_bGradientFogNeedsTextures");
+		if (!gf.m_FogColor) getOffset(&gf.m_FogColor, "client.dll", cls, "m_fogColor");
+		if (!gf.m_FogColor) getOffset(&gf.m_FogColor, "client.dll", cls, "m_FogColor");
+		if (!gf.m_flFogStart) getOffset(&gf.m_flFogStart, "client.dll", cls, "m_flFogStartDistance");
+		if (!gf.m_flFogStart) getOffset(&gf.m_flFogStart, "client.dll", cls, "m_flFogStart");
+		if (!gf.m_flFogEnd) getOffset(&gf.m_flFogEnd, "client.dll", cls, "m_flFogEndDistance");
+		if (!gf.m_flFogEnd) getOffset(&gf.m_flFogEnd, "client.dll", cls, "m_flFogEnd");
+		if (!gf.m_flFogFalloffExponent) getOffset(&gf.m_flFogFalloffExponent, "client.dll", cls, "m_flFogFalloffExponent");
+		if (!gf.m_flFogStartHeight) getOffset(&gf.m_flFogStartHeight, "client.dll", cls, "m_flFogStartHeight");
+		if (!gf.m_flFogEndHeight) getOffset(&gf.m_flFogEndHeight, "client.dll", cls, "m_flFogEndHeight");
+		if (!gf.m_flFogVerticalExponent) getOffset(&gf.m_flFogVerticalExponent, "client.dll", cls, "m_flFogVerticalExponent");
+		if (!gf.m_flFogStrength) getOffset(&gf.m_flFogStrength, "client.dll", cls, "m_flFogStrength");
+		if (!gf.m_flFogMaxOpacity) getOffset(&gf.m_flFogMaxOpacity, "client.dll", cls, "m_flFogMaxOpacity");
+	}
+
 	if (!bOk) ErrorBox(MkErrStr(__FILE__, __LINE__));
 }
 
@@ -257,6 +279,7 @@ void initCosmeticsOffsets()
 	getOffset(&g_clientDllOffsets.C_BaseEntity.m_fFlags, "client.dll", "C_BaseEntity", "m_fFlags");
 	getOffset(&g_clientDllOffsets.C_BaseEntity.m_MoveType, "client.dll", "C_BaseEntity", "m_MoveType");
 	getOffset(&g_clientDllOffsets.C_BaseEntity.m_nActualMoveType, "client.dll", "C_BaseEntity", "m_nActualMoveType");
+	getOffset(&g_clientDllOffsets.ActorAnimGraph.m_bAnimGraphUpdateEnabled,"client.dll","CBaseAnimGraph","m_bAnimGraphUpdateEnabled");
 	getOffset(&g_clientDllOffsets.DeathWeaponRagdoll.m_pClientsideRagdoll,"client.dll","CBaseAnimGraph","m_pClientsideRagdoll");
 	getOffset(&g_clientDllOffsets.DeathWeaponRagdoll.m_RagdollPose,"client.dll","CBaseAnimGraph","m_RagdollPose");
 	getOffset(&g_clientDllOffsets.DeathWeaponRagdoll.m_pRagdollControl,"client.dll","CBaseAnimGraph","m_pRagdollControl");
@@ -322,6 +345,8 @@ void initCosmeticsOffsets()
 	getOffset(&g_clientDllOffsets.CCSPlayerController.m_hPlayerPawn, "client.dll", "CCSPlayerController", "m_hPlayerPawn");
 	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_hOriginalController, "client.dll", "C_CSPlayerPawn", "m_hOriginalController"))
 		getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_hOriginalController, "client.dll", "C_CSPlayerPawnBase", "m_hOriginalController");
+	if (!getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_angEyeAngles, "client.dll", "C_CSPlayerPawn", "m_angEyeAngles"))
+		getOffset(&g_clientDllOffsets.C_CSPlayerPawn.m_angEyeAngles, "client.dll", "C_CSPlayerPawnBase", "m_angEyeAngles");
 	// Read-only model-state chain (agent/player-model display). Off the `ok` chain: a missing field
 	// just disables the agent read, not the whole skin-changer. Guarded by != 0 at the read site.
 	getOffset(&g_clientDllOffsets.ModelChain.m_CBodyComponent, "client.dll", "C_BaseEntity", "m_CBodyComponent");

@@ -39,6 +39,9 @@ inline constexpr float kFootClear = kSnowDepth * kSnowReliefMost; // a sole lift
 inline constexpr float kFootDown = 1.5f;     // a sole this near the ground has come down
 inline constexpr float kFootAnkle = 3.2f, kFootToe = .3f; // how far above the sole the ankle and toe bones sit (measured standing)
 inline constexpr float kFootLayer = 4.f;     // height is kept in steps of this, wrapping at 256
+inline constexpr int kFootTile = 32;         // active simulation tile size in texels
+inline constexpr int kFootTiles = kFootSize / kFootTile; // 64 x 64 active tiles across the image
+inline constexpr float kFootBermScale = .35f; // max berm ridge height as a fraction of deep-pit scale (in signed height M = kFootBermScale*berm - press)
 inline constexpr int kFootSteps = 32;        // recent steps kept for ripples and splashes
 inline constexpr int kFootLive = 24;         // feet shown by the foot view: two a pawn (Frame::kMaxActors pawns)
 // A fallen body, as the bones it is read by and the parts between them.
@@ -245,26 +248,125 @@ inline float FootRough(int x, int y) {
     const float lump = (hash(cx, cy) * (1 - fx) + hash(cx + 1, cy) * fx) * (1 - fy) + (hash(cx, cy + 1) * (1 - fx) + hash(cx + 1, cy + 1) * fx) * fy;
     return (lump - .5f) * .22f;
 }
+// Finer granular clump noise (0..1, ~2-texel scale) so displaced berms break into loose granules
+// rather than reading as a smooth molded ring around the boot.
+inline float FootGrainNoise(int x, int y) {
+    auto hash = [](int a, int b) {
+        uint32_t h = uint32_t(a) * 2654435761u ^ uint32_t(b) * 2246822519u;
+        h ^= h >> 13;
+        h *= 0x5bd1e995u;
+        h ^= h >> 15;
+        return float(h & 0xffff) / 65535.f;
+    };
+    const int cell = 2;
+    const int cx = int(std::floor(float(x) / cell)), cy = int(std::floor(float(y) / cell));
+    float fx = float(x - cx * cell) / cell, fy = float(y - cy * cell) / cell;
+    fx = fx * fx * (3 - 2 * fx);
+    fy = fy * fy * (3 - 2 * fy);
+    return (hash(cx, cy) * (1 - fx) + hash(cx + 1, cy) * fx) * (1 - fy) + (hash(cx, cy + 1) * (1 - fx) + hash(cx + 1, cy + 1) * fx) * fy;
+}
 inline uint8_t FootLayer(float z) { return uint8_t(int(std::floor(z / kFootLayer)) & 255); }
-// Four bytes a texel: print depth (thin snow), how far a fire or a blast has cleared the snow
-// (Melt), height layer, and how far down deep snow has been pressed here (255 is to its bed).
+// Granular physical simulation parameters for smooth continuous per-frame refill and slumping.
+struct FootGranularParams {
+    float printRate = 0.f;  // thin print fill rate (fraction/sec)
+    float pressRate = 0.f;  // pressed pit fill rate (fraction/sec)
+    float bermRate = 0.f;   // displaced berm decay rate (fraction/sec)
+    float meltRate = 0.f;   // blast/fire crater refill rate (fraction/sec)
+    float repose = 0.055f;  // max stable height difference per texel before grains avalanche
+    float slumpRate = 0.f;  // lateral avalanche relaxation rate (1/sec)
+    float windDirX = 0.f;   // normalized horizontal wind direction
+    float windDirY = 0.f;
+    float windBias = 0.f;   // downwind saltation asymmetry [0..0.9]
+};
+inline FootGranularParams MakeFootGranularParams(bool sandLies, bool snowing, bool sandWeather, float windX, float windY, float gusts) {
+    FootGranularParams p;
+    const float wLen = std::sqrt(windX * windX + windY * windY);
+    if (wLen > 1e-3f) {
+        p.windDirX = windX / wLen;
+        p.windDirY = windY / wLen;
+    }
+    const float windFactor = std::clamp(wLen / 220.f, 0.f, 1.4f);
+    const float gustFactor = std::clamp(gusts, 0.f, 1.f);
+    if (sandLies) {
+        // Dry granular sand: continuous ~22s refill in calm air down to ~8-9s in a sandstorm,
+        // lower angle of repose (~33 deg), rapid slumping and wind-driven downwind saltation.
+        const float pace = (4.f + 3.5f * windFactor + 2.5f * gustFactor + (sandWeather ? 2.f : 0.f)) / (255.f * 0.35f);
+        p.printRate = pace;
+        p.pressRate = pace * 0.55f;
+        p.bermRate = pace * 1.15f;
+        p.meltRate = ((std::min)(14.f, 4.f + 3.5f * windFactor + 2.5f * gustFactor + (sandWeather ? 2.f : 0.f) + 2.f)) / (255.f * 0.35f);
+        p.repose = 0.048f;
+        p.slumpRate = 2.4f + 1.8f * windFactor + 1.4f * gustFactor + (sandWeather ? 1.2f : 0.f);
+        p.windBias = std::clamp(0.28f * windFactor + 0.32f * gustFactor + (sandWeather ? 0.25f : 0.f), 0.f, 0.85f);
+    } else {
+        // Cohesive snow: holds crisp edges at higher angle of repose (~50 deg), light creep in
+        // wind, and fills continuously (~45s prints, ~90s deep holes) while snowing.
+        const float snowFill = snowing ? (2.f / (255.f * 0.35f)) : 0.f;
+        p.printRate = snowFill;
+        p.pressRate = snowFill * 0.5f;
+        p.bermRate = snowing ? (snowFill * 0.85f) : (0.12f * windFactor / 255.f);
+        p.meltRate = (snowing ? 3.f : 2.f) / (255.f * 0.35f);
+        p.repose = 0.088f;
+        p.slumpRate = 0.35f + 0.55f * windFactor + (snowing ? 0.25f : 0.f);
+        p.windBias = std::clamp(0.15f * windFactor + 0.2f * gustFactor, 0.f, 0.5f);
+    }
+    return p;
+}
+// Four 16-bit channels a texel (DXGI_FORMAT_R16G16B16A16_UNORM):
+//   t[0] R: print depth (thin snow/sand), 0..65535
+//   t[1] G: how far a fire or a blast has cleared it (Melt), 0..65535
+//   t[2] B: (layer << 8) | berm8, packing height layer in upper byte and displaced berm in lower byte
+//   t[3] A: how far down deep snow/sand has been pressed here, 0..65535
+// A matching 16-bit `bermFine` array preserves smooth sub-byte berm dynamics across frames.
 struct FootImage {
-    std::vector<uint8_t> texels = std::vector<uint8_t>(size_t(kFootSize) * kFootSize * 4, 0);
+    std::vector<uint16_t> texels = std::vector<uint16_t>(size_t(kFootSize) * kFootSize * 4, 0);
+    std::vector<uint16_t> bermFine = std::vector<uint16_t>(size_t(kFootSize) * kFootSize, 0);
+    std::vector<uint8_t> activeTiles = std::vector<uint8_t>(size_t(kFootTiles) * kFootTiles, 0);
+    double fillCarry[4] = {0.0, 0.0, 0.0, 0.0}; // fractional 16-bit refill accumulators: print, melt, press, berm
     int cellX = 0, cellY = 0; // the camera's texel, where the window was last centred
     bool centred = false;
     static int Wrap(int v) { return v & (kFootSize - 1); }
-    uint8_t *At(int x, int y) { return &texels[(size_t(Wrap(y)) * kFootSize + Wrap(x)) * 4]; }
-    const uint8_t *At(int x, int y) const { return &texels[(size_t(Wrap(y)) * kFootSize + Wrap(x)) * 4]; }
-    // WHAT CHANGED SINCE IT WAS LAST SENT TO THE GPU. The image is sixteen megabytes; a boot changes
-    // a few hundred texels of it. Each change notes its rectangle here (split where it wraps), and
-    // only those are uploaded. `all` is the whole image: a start, a wipe, or too many pieces.
+    static int WrapTile(int v) { return v & (kFootTiles - 1); }
+    static size_t CellIdx(int x, int y) { return size_t(Wrap(y)) * kFootSize + Wrap(x); }
+    uint16_t *At(int x, int y) { return &texels[CellIdx(x, y) * 4]; }
+    const uint16_t *At(int x, int y) const { return &texels[CellIdx(x, y) * 4]; }
+    static uint8_t ToByte8(uint16_t v) { return uint8_t((uint32_t(v) * 255u + 32767u) / 65535u); }
+    uint8_t Print8(int x, int y) const { return ToByte8(At(x, y)[0]); }
+    uint8_t Melt8(int x, int y) const { return ToByte8(At(x, y)[1]); }
+    uint8_t Layer(int x, int y) const { return uint8_t(At(x, y)[2] >> 8); }
+    uint8_t Berm8(int x, int y) const { return uint8_t(At(x, y)[2] & 0xffu); }
+    uint8_t Press8(int x, int y) const { return ToByte8(At(x, y)[3]); }
+    float PrintF(int x, int y) const { return At(x, y)[0] / 65535.f; }
+    float PressF(int x, int y) const { return At(x, y)[3] / 65535.f; }
+    float BermF(int x, int y) const { return bermFine[CellIdx(x, y)] / 65535.f; }
+    static void PackBlue(uint16_t *t, uint8_t layer, uint16_t berm16) {
+        t[2] = uint16_t((uint16_t(layer) << 8) | uint16_t(ToByte8(berm16)));
+    }
+    int ActiveTileCount() const {
+        int n = 0;
+        for (uint8_t a : activeTiles) n += (a != 0);
+        return n;
+    }
+    void MarkActiveTile(int tx, int ty) {
+        activeTiles[size_t(WrapTile(ty)) * kFootTiles + WrapTile(tx)] = 1;
+    }
+    void MarkActiveBox(int x0, int y0, int x1, int y1) {
+        const int tx0 = int(std::floor(float(x0) / kFootTile)), ty0 = int(std::floor(float(y0) / kFootTile));
+        const int tx1 = int(std::floor(float(x1) / kFootTile)), ty1 = int(std::floor(float(y1) / kFootTile));
+        for (int ty = ty0; ty <= ty1; ++ty)
+            for (int tx = tx0; tx <= tx1; ++tx) MarkActiveTile(tx, ty);
+    }
+    // WHAT CHANGED SINCE IT WAS LAST SENT TO THE GPU. The image is 32 MB in 16-bit RGBA; a boot
+    // changes a small box or active simulation tile run. Each change notes its rectangle here (split
+    // where it wraps), and only those are uploaded. `all` is the whole image: a start, a wipe, or
+    // too many pieces.
     struct Box { int x0, y0, x1, y1; }; // inclusive, inside the image
     std::vector<Box> changed;
     bool all = true;
     void Sent() { changed.clear(); all = false; }
     void Touch(int x0, int y0, int x1, int y1) { // any texel coordinates, x0 <= x1, y0 <= y1
         if (all) return;
-        if (changed.size() > 96 || x1 - x0 >= kFootSize || y1 - y0 >= kFootSize) { all = true; changed.clear(); return; }
+        if (changed.size() > 256 || x1 - x0 >= kFootSize || y1 - y0 >= kFootSize) { all = true; changed.clear(); return; }
         int xs[2][2], ys[2][2], nx = 1, ny = 1;
         xs[0][0] = Wrap(x0); xs[0][1] = Wrap(x1);
         if (xs[0][0] > xs[0][1]) { xs[1][0] = 0; xs[1][1] = xs[0][1]; xs[0][1] = kFootSize - 1; nx = 2; }
@@ -273,7 +375,14 @@ struct FootImage {
         for (int a = 0; a < nx; ++a)
             for (int b = 0; b < ny; ++b) changed.push_back({xs[a][0], ys[b][0], xs[a][1], ys[b][1]});
     }
-    void Clear() { std::fill(texels.begin(), texels.end(), uint8_t(0)); all = true; changed.clear(); }
+    void Clear() {
+        std::fill(texels.begin(), texels.end(), uint16_t(0));
+        std::fill(bermFine.begin(), bermFine.end(), uint16_t(0));
+        std::fill(activeTiles.begin(), activeTiles.end(), uint8_t(0));
+        std::fill(std::begin(fillCarry), std::end(fillCarry), 0.0);
+        all = true;
+        changed.clear();
+    }
     // Follows the camera: texels that leave the window on one side come back on the other, wiped.
     // Returns whether anything was wiped.
     bool Centre(Vec3 camera) {
@@ -290,12 +399,20 @@ struct FootImage {
         bool wiped = false;
         for (int step = x > cellX ? 1 : -1; cellX != x; cellX += step, wiped = true) {
             const int column = step > 0 ? cellX + half : cellX - half;
-            for (int row = 0; row < kFootSize; ++row) std::fill_n(At(column, row), 4, uint8_t(0));
+            for (int row = 0; row < kFootSize; ++row) {
+                const size_t idx = CellIdx(column, row);
+                std::fill_n(&texels[idx * 4], 4, uint16_t(0));
+                bermFine[idx] = 0;
+            }
             Touch(column, 0, column, kFootSize - 1);
         }
         for (int step = y > cellY ? 1 : -1; cellY != y; cellY += step, wiped = true) {
             const int row = step > 0 ? cellY + half : cellY - half;
-            for (int column = 0; column < kFootSize; ++column) std::fill_n(At(column, row), 4, uint8_t(0));
+            for (int column = 0; column < kFootSize; ++column) {
+                const size_t idx = CellIdx(column, row);
+                std::fill_n(&texels[idx * 4], 4, uint16_t(0));
+                bermFine[idx] = 0;
+            }
             Touch(0, row, kFootSize - 1, row);
         }
         return wiped;
@@ -304,20 +421,13 @@ struct FootImage {
         const float reach = (kFootSize / 2) * kFootTexel - margin;
         return std::abs(x - (cellX + .5f) * kFootTexel) < reach && std::abs(y - (cellY + .5f) * kFootTexel) < reach;
     }
-    // A boot at `at`, pointing along `heading`, pressing the snow `press` of the way down (0..1).
-    // The hole is the boot's own oval with a wall that slopes out a little beyond it, ragged at the
-    // edge. `print` also leaves the print thin snow shows. Deeper marks win, so a foot standing
-    // still does not widen its hole and one hole laid over another joins it.
-    // Returns whether any texel changed.
-    bool Press(Vec3 at, float heading, float press, bool print) {
-        return Stamp(at, heading, kFootBootLength, kFootBootWidth, press, print ? kFootLength : 0, kFootWidth);
+    bool Press(Vec3 at, float heading, float press, bool print, float bermStrength = 1.f) {
+        return Stamp(at, heading, kFootBootLength, kFootBootWidth, press, print ? kFootLength : 0, kFootWidth, bermStrength);
     }
-    // A round part of a body, `radius` across the middle, pressing the same way. Pressed nearly to
-    // the bed it also leaves its shape in thin snow.
-    bool PressRound(Vec3 at, float radius, float press) { return Stamp(at, 0, radius, radius, press, press > .85f ? radius * .9f : 0, radius * .9f); }
-    // A whole fallen body lying on `ground`: every part presses the snow down to its own underside.
-    // A part high above the ground (the body still upright, or an arm in the air) presses nothing.
-    bool PressBody(const FallenBones &body, float ground) {
+    bool PressRound(Vec3 at, float radius, float press, float bermStrength = 1.f) {
+        return Stamp(at, 0, radius, radius, press, press > .85f ? radius * .9f : 0, radius * .9f, bermStrength);
+    }
+    bool PressBody(const FallenBones &body, float ground, float bermStrength = 1.f) {
         bool changed = false;
         for (const BodyPart &part : kBodyParts) {
             if (!body.has[part.from] || !body.has[part.to]) continue;
@@ -327,14 +437,11 @@ struct FootImage {
                 const float t = float(i) / count;
                 const Vec3 at{a.x + d.x * t, a.y + d.y * t, a.z + d.z * t};
                 const float press = FootPress((std::max)(at.z - part.radius - ground, 0.f));
-                if (press > .02f) changed |= PressRound({at.x, at.y, ground}, part.radius, press);
+                if (press > .02f) changed |= PressRound({at.x, at.y, ground}, part.radius, press, bermStrength);
             }
         }
         return changed;
     }
-    // SNOW CLEARED BY HEAT OR A BLAST, in the image's second byte. Within `radius` of `at` the snow is
-    // gone, more toward the middle, with a ragged edge. `add` raises what is there by `amount` (a
-    // fire, a little a frame); otherwise it is set to at least `amount` (a blast, at once).
     bool Melt(Vec3 at, float radius, float amount, bool add) {
         if (!Inside(at.x, at.y, radius + 2) || amount <= 0) return false;
         bool changed = false;
@@ -344,30 +451,32 @@ struct FootImage {
         for (int y = cy - reach; y <= cy + reach; ++y)
             for (int x = cx - reach; x <= cx + reach; ++x) {
                 const float dx = (x + .5f) * kFootTexel - at.x, dy = (y + .5f) * kFootTexel - at.y;
-                // Bare in the middle, thinning evenly to the edge. (A ragged, all-or-nothing edge
-                // drew a hard-edged speckled patch; and added as a share of a small step, the outer
-                // ring rounded to nothing and never melted at all.)
                 float w = std::clamp((1 - std::sqrt(dx * dx + dy * dy) / radius) * 1.6f, 0.f, 1.f);
                 w = w * w * (3 - 2 * w);
                 if (w <= 0) continue;
-                uint8_t *t = At(x, y);
-                const int most = int(w * 255 + .5f);
-                const int now = add ? (std::max)(int(t[1]), (std::min)(most, int(t[1]) + (std::max)(1, int(amount * 255 + .5f))))
+                const size_t idx = CellIdx(x, y);
+                uint16_t *t = &texels[idx * 4];
+                const int most = int(w * 65535.f + .5f);
+                const int step16 = (std::max)(1, int(amount * 65535.f + .5f));
+                const int now = add ? (std::max)(int(t[1]), (std::min)(most, int(t[1]) + step16))
                                     : (std::max)(int(t[1]), int(amount * most));
                 if (now == t[1]) continue;
-                t[1] = uint8_t(now);
-                // The floor a texel belongs to is the floor of its marks; heat names it only where
-                // there are none. (Named always, a fire by a trail took the trail off its floor.)
-                if (!t[0] && !t[3]) t[2] = layer;
+                t[1] = uint16_t(now);
+                if (!t[0] && !t[3] && !bermFine[idx]) PackBlue(t, layer, 0);
                 changed = true;
             }
-        if (changed) Touch(cx - reach, cy - reach, cx + reach, cy + reach);
+        if (changed) {
+            Touch(cx - reach, cy - reach, cx + reach, cy + reach);
+            MarkActiveBox(cx - reach, cy - reach, cx + reach, cy + reach);
+        }
         return changed;
     }
     // An oval with half extents `length` along `heading` and `width` across it; the print in thin
-    // snow is the smaller oval `printLength` by `printWidth` (none when printLength is 0).
-    bool Stamp(Vec3 at, float heading, float length, float width, float press, float printLength, float printWidth) {
-        const float around = (std::max)(length, width) + kFootWall;
+    // snow/sand is the smaller oval `printLength` by `printWidth`. Around the depressed oval, displaced
+    // material builds a granular berm (bermFine) that collapses if stepped over later.
+    bool Stamp(Vec3 at, float heading, float length, float width, float press, float printLength, float printWidth, float bermStrength = 1.f) {
+        const float bermReach = kFootWall + 2.5f;
+        const float around = (std::max)(length, width) + bermReach;
         if (!Inside(at.x, at.y, around + 2)) return false;
         bool changed = false;
         const float c = std::cos(heading), s = std::sin(heading);
@@ -383,66 +492,261 @@ struct FootImage {
                     const float u = along / printLength, v = across / printWidth;
                     depth = std::clamp((1 - (u * u + v * v)) * 2.2f, 0.f, 1.f);
                 }
-                // Distance beyond the boot's oval, in units (roughly: exact along its two axes).
                 const float hu = along / length, hv = across / width;
                 const float r = std::sqrt(hu * hu + hv * hv);
                 const float beyond = (r - 1) * (r > 1e-4f ? std::sqrt(along * along + across * across) / r : width);
                 float wall = std::clamp(1 - beyond / kFootWall + FootRough(x, y), 0.f, 1.f);
                 wall = wall * wall * (3 - 2 * wall);
                 const float pressed = press * wall;
-                if (depth <= 0 && pressed <= 0) continue;
-                uint8_t *t = At(x, y);
-                const uint8_t d = uint8_t(depth * 255), h = uint8_t(pressed * 255 + .5f);
-                if (d <= t[0] && h <= t[3]) continue;
-                // A TEXEL HOLDS ONE FLOOR'S MARKS. A foot on a stair's first tread reaches over the
-                // ground at its foot, and a foot on the ground reaches under the tread. Where the two
-                // overlap the deeper mark keeps the texel, whole: merged, the texel took the new
-                // floor's name with the old floor's depth, texel by texel along the ragged edge of
-                // each print, and the trail at the foot of a stair was drawn as a comb of thin walls.
-                const int apart = std::abs(int(int8_t(uint8_t(layer - t[2]))));
-                if ((t[0] || t[3]) && apart * kFootLayer > 7) {
+
+                float berm = 0.f;
+                if (bermStrength > 0.f && beyond > 0.1f && beyond < bermReach) {
+                    // Peak ridge just past the boot lip (~2.0u out), biased slightly ahead along heading.
+                    const float normB = (beyond - 0.1f) / (bermReach - 0.1f);
+                    const float hump = std::sin(std::clamp(normB, 0.f, 1.f) * 3.14159265f);
+                    const float plowBias = 0.85f + 0.30f * std::clamp(along / (std::max)(length, 1.f), -1.f, 1.f);
+                    const float grit = 0.65f + 0.70f * FootGrainNoise(x, y);
+                    berm = std::clamp(press * bermStrength * hump * hump * plowBias * grit * (1.f - wall * 0.75f), 0.f, 1.f);
+                }
+
+                if (depth <= 0 && pressed <= 0 && berm <= 0) continue;
+                const size_t idx = CellIdx(x, y);
+                uint16_t *t = &texels[idx * 4];
+                const uint16_t d = uint16_t(std::clamp(depth, 0.f, 1.f) * 65535.f);
+                const uint16_t h = uint16_t(std::clamp(pressed, 0.f, 1.f) * 65535.f + .5f);
+                const uint16_t b = uint16_t(std::clamp(berm, 0.f, 1.f) * 65535.f + .5f);
+                const uint8_t curLayer = uint8_t(t[2] >> 8);
+                uint16_t curBerm = bermFine[idx];
+                const bool hasMark = (t[0] || t[3] || curBerm);
+                const int apart = std::abs(int(int8_t(uint8_t(layer - curLayer))));
+
+                auto bermCap = [](uint16_t pv) -> uint16_t {
+                    if (pv >= 6553u) return 0; // >= 10% pressed pit crushes displaced ridge flat
+                    return uint16_t((uint32_t(6553u - pv) * 65535u) / 6553u);
+                };
+
+                if (hasMark && apart * kFootLayer > 7) {
                     if (h <= t[3] && !(h == t[3] && d > t[0])) continue;
                     t[0] = d;
                     t[3] = h;
-                } else {
-                    t[0] = (std::max)(t[0], d);
-                    t[3] = (std::max)(t[3], h);
+                    const uint16_t crushed = (std::min)(b, bermCap(h));
+                    bermFine[idx] = crushed;
+                    PackBlue(t, layer, crushed);
+                    changed = true;
+                    continue;
                 }
-                t[2] = layer;
+
+                bool rowChanged = false;
+                uint8_t nextLayer = hasMark ? curLayer : layer;
+                if (d > t[0]) { t[0] = d; nextLayer = layer; rowChanged = true; }
+                if (h > t[3]) {
+                    t[3] = h;
+                    nextLayer = layer;
+                    const uint16_t cap = bermCap(t[3]);
+                    if (curBerm > cap) curBerm = cap;
+                    rowChanged = true;
+                }
+                const uint16_t bAllowed = (std::min)(b, bermCap(t[3]));
+                if (bAllowed > curBerm) {
+                    curBerm = bAllowed;
+                    if (!t[0] && !t[3]) nextLayer = layer;
+                    rowChanged = true;
+                }
+                if (!rowChanged) continue;
+                bermFine[idx] = curBerm;
+                PackBlue(t, nextLayer, curBerm);
                 changed = true;
             }
-        if (changed) Touch(cx - reach, cy - reach, cx + reach, cy + reach);
+        if (changed) {
+            Touch(cx - reach, cy - reach, cx + reach, cy + reach);
+            MarkActiveBox(cx - reach, cy - reach, cx + reach, cy + reach);
+        }
         return changed;
     }
     // A foot moving from a to b, pressing `from` of the way down at a and `to` at b.
-    bool Sweep(Vec3 a, Vec3 b, float heading, float from, float to) {
+    bool Sweep(Vec3 a, Vec3 b, float heading, float from, float to, float bermStrength = 1.f) {
         bool changed = false;
         const float dx = b.x - a.x, dy = b.y - a.y;
         const int count = (std::max)(1, int(std::ceil(std::sqrt(dx * dx + dy * dy) / 1.5f)));
         for (int i = 1; i <= count; ++i) {
             const float t = float(i) / count, press = from + (to - from) * t;
-            if (press > .02f) changed |= Press({a.x + dx * t, a.y + dy * t, a.z + (b.z - a.z) * t}, heading, press, false);
+            if (press > .02f) changed |= Press({a.x + dx * t, a.y + dy * t, a.z + (b.z - a.z) * t}, heading, press, false, bermStrength);
         }
         return changed;
     }
-    // A print from a worked-out step (no bones): the foot came down here and went to the bed.
-    void Print(const FootStep &step) { Press(step.position, step.heading, 1, true); }
-    // Falling snow fills the marks back in: `amount` of the full depth is taken off the prints, and
-    // half that off what deep snow was pressed, which is far more snow to put back. A hole fills
-    // from the bottom, so it grows shallower and narrower until it is gone.
+    void Print(const FootStep &step, float bermStrength = 1.f) { Press(step.position, step.heading, 1, true, bermStrength); }
+    // Continuous per-frame granular physics & smooth refill across active tiles:
+    //   1. Angle-of-repose slumping + wind saltation exchanges mass between steep neighbors
+    //   2. Smooth 16-bit fractional-carry refill restores prints, pits, berms, and craters smoothly
+    bool StepGranular(float dt, const FootGranularParams &p) {
+        dt = std::clamp(dt, 0.f, .1f);
+        if (dt <= 0.f) return false;
+        const float windStrength = std::clamp(p.windBias, 0.f, .9f);
+        const float slumpC = (p.slumpRate > 0.f) ? (std::min)(.14f, p.slumpRate * dt) : 0.f;
+        const bool doSlump = slumpC > 1e-6f;
+
+        auto takeCarry = [&](int slot, float rate) -> uint16_t {
+            if (rate <= 0.f) return 0;
+            fillCarry[slot] += double(rate) * double(dt) * 65535.0;
+            const int step = int(std::floor(fillCarry[slot]));
+            if (step <= 0) return 0;
+            fillCarry[slot] -= double(step);
+            return uint16_t((std::min)(step, 65535));
+        };
+        const uint16_t dPrint = takeCarry(0, p.printRate);
+        const uint16_t dMelt = takeCarry(1, p.meltRate);
+        const uint16_t dPress = takeCarry(2, p.pressRate);
+        const uint16_t dBerm = takeCarry(3, p.bermRate);
+
+        auto cellH = [&](size_t idx) -> float {
+            return kFootBermScale * (bermFine[idx] / 65535.f) - (texels[idx * 4 + 3] / 65535.f);
+        };
+        auto setH = [&](size_t idx, float m, uint8_t layer) {
+            m = std::clamp(m, -1.f, kFootBermScale);
+            if (m >= 0.f) {
+                texels[idx * 4 + 3] = 0;
+                bermFine[idx] = uint16_t(std::lround(std::clamp(m / kFootBermScale, 0.f, 1.f) * 65535.f));
+            } else {
+                texels[idx * 4 + 3] = uint16_t(std::lround(std::clamp(-m, 0.f, 1.f) * 65535.f));
+                bermFine[idx] = 0;
+            }
+            PackBlue(&texels[idx * 4], layer, bermFine[idx]);
+        };
+
+        std::vector<uint8_t> dirtyTiles(size_t(kFootTiles) * kFootTiles, 0);
+        bool anyDirty = false;
+        std::vector<std::pair<int, int>> activeList;
+        activeList.reserve(128);
+        for (int ty = 0; ty < kFootTiles; ++ty)
+            for (int tx = 0; tx < kFootTiles; ++tx)
+                if (activeTiles[size_t(ty) * kFootTiles + tx]) activeList.push_back({tx, ty});
+
+        if (doSlump && !activeList.empty()) {
+            const int ox[4] = {1, -1, 0, 0};
+            const int oy[4] = {0, 0, 1, -1};
+            for (int parity = 0; parity < 2; ++parity) {
+                for (const auto &[tx, ty] : activeList) {
+                    const int x0 = tx * kFootTile, y0 = ty * kFootTile;
+                    for (int ly = 0; ly < kFootTile; ++ly) {
+                        const int y = y0 + ly;
+                        for (int lx = (ly & 1) ^ parity; lx < kFootTile; lx += 2) {
+                            const int x = x0 + lx;
+                            const size_t iA = size_t(y) * kFootSize + x;
+                            uint16_t *tA = &texels[iA * 4];
+                            uint16_t bA = bermFine[iA];
+                            const bool hasA = (tA[3] > 0 || bA > 0);
+                            const uint8_t lA = uint8_t(tA[2] >> 8);
+                            for (int d = 0; d < 4; ++d) {
+                                const int nx = Wrap(x + ox[d]), ny = Wrap(y + oy[d]);
+                                const size_t iB = size_t(ny) * kFootSize + nx;
+                                uint16_t *tB = &texels[iB * 4];
+                                uint16_t bB = bermFine[iB];
+                                if (!hasA && tB[3] == 0 && bB == 0) continue;
+                                const uint8_t lB = uint8_t(tB[2] >> 8);
+                                const bool hasAnyA = (tA[0] || tA[3] || bA);
+                                const bool hasAnyB = (tB[0] || tB[3] || bB);
+                                if (hasAnyA && hasAnyB && std::abs(int(int8_t(uint8_t(lA - lB)))) * kFootLayer > 7) continue;
+
+                                const float hA = cellH(iA), hB = cellH(iB);
+                                const float diff = hA - hB;
+                                const float absDiff = std::abs(diff);
+                                if (absDiff <= p.repose) continue;
+
+                                // Grains avalanche from higher cell -> lower cell. Wind boosts transfer
+                                // traveling downwind from a high edge into a pit or leeward slope.
+                                const float dirSign = diff > 0.f ? 1.f : -1.f;
+                                const float alignedWind = (float(ox[d]) * p.windDirX + float(oy[d]) * p.windDirY) * dirSign;
+                                const float windMult = (std::max)(0.25f, 1.f + windStrength * alignedWind);
+                                const float flow = dirSign * slumpC * (absDiff - p.repose) * windMult * 0.5f;
+
+                                const uint8_t sharedLayer = (hasAnyA && hasAnyB) ? (abs(hB) > abs(hA) ? lB : lA) : (hasAnyA ? lA : lB);
+                                setH(iA, hA - flow, sharedLayer);
+                                setH(iB, hB + flow, sharedLayer);
+                                bA = bermFine[iA];
+
+                                dirtyTiles[size_t(ty) * kFootTiles + tx] = 1;
+                                const int ntx = nx / kFootTile, nty = ny / kFootTile;
+                                dirtyTiles[size_t(nty) * kFootTiles + ntx] = 1;
+                                activeTiles[size_t(nty) * kFootTiles + ntx] = 1;
+                                anyDirty = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Smooth decay + tile retirement sweep over all currently active tiles (including spilled neighbors).
+        for (int ty = 0; ty < kFootTiles; ++ty) {
+            for (int tx = 0; tx < kFootTiles; ++tx) {
+                const size_t tid = size_t(ty) * kFootTiles + tx;
+                if (!activeTiles[tid]) continue;
+                bool tileHasWork = false;
+                bool tileChanged = dirtyTiles[tid] != 0;
+                const int x0 = tx * kFootTile, y0 = ty * kFootTile;
+                for (int ly = 0; ly < kFootTile; ++ly) {
+                    const int y = y0 + ly;
+                    uint16_t *row = &texels[(size_t(y) * kFootSize + x0) * 4];
+                    uint16_t *bRow = &bermFine[size_t(y) * kFootSize + x0];
+                    for (int lx = 0; lx < kFootTile; ++lx, row += 4, ++bRow) {
+                        const uint16_t r0 = row[0], r1 = row[1], r3 = row[3], b0 = *bRow;
+                        if (!(r0 | r1 | r3 | b0)) continue;
+                        if (dPrint && row[0]) { row[0] = uint16_t(row[0] > dPrint ? row[0] - dPrint : 0); tileChanged = true; }
+                        if (dMelt && row[1]) { row[1] = uint16_t(row[1] > dMelt ? row[1] - dMelt : 0); tileChanged = true; }
+                        if (dPress && row[3]) { row[3] = uint16_t(row[3] > dPress ? row[3] - dPress : 0); tileChanged = true; }
+                        if (dBerm && *bRow) {
+                            *bRow = uint16_t(*bRow > dBerm ? *bRow - dBerm : 0);
+                            PackBlue(row, uint8_t(row[2] >> 8), *bRow);
+                            tileChanged = true;
+                        }
+                        if (row[0] | row[1] | row[3] | *bRow) {
+                            tileHasWork = true;
+                        } else {
+                            row[2] = 0; // clean layer when completely refilled
+                            tileChanged = true;
+                        }
+                    }
+                }
+                if (!tileHasWork) activeTiles[tid] = 0;
+                if (tileChanged) {
+                    dirtyTiles[tid] = 1;
+                    anyDirty = true;
+                }
+            }
+        }
+
+        if (anyDirty) {
+            for (int ty = 0; ty < kFootTiles; ++ty) {
+                int runStart = -1;
+                for (int tx = 0; tx <= kFootTiles; ++tx) {
+                    const bool dirty = tx < kFootTiles && dirtyTiles[size_t(ty) * kFootTiles + tx] != 0;
+                    if (dirty && runStart < 0) runStart = tx;
+                    else if (!dirty && runStart >= 0) {
+                        Touch(runStart * kFootTile, ty * kFootTile, tx * kFootTile - 1, (ty + 1) * kFootTile - 1);
+                        runStart = -1;
+                    }
+                }
+            }
+        }
+        return anyDirty;
+    }
     void Fill(uint8_t amount) { FillRows(amount, 0, kFootSize); }
-    // The same for `count` rows from `first` (wrapping): the image is filled a band at a time, so no
-    // one frame works through all four million texels or sends them all to the GPU.
-    // `back` is taken off what a fire or a blast cleared, snowing or not: it drifts back in.
     void FillRows(uint8_t amount, int first, int count, uint8_t back = 0) {
-        const uint8_t slow = amount ? uint8_t((std::max)(1, amount / 2)) : uint8_t(0);
+        const uint16_t a16 = uint16_t(amount) * 257u;
+        const uint16_t b16 = uint16_t(back) * 257u;
+        const uint16_t slow = amount ? uint16_t((std::max)(1, int(amount) / 2) * 257) : uint16_t(0);
         count = (std::min)(count, kFootSize);
         for (int r = 0; r < count; ++r) {
-            uint8_t *row = At(0, first + r);
-            for (int x = 0; x < kFootSize; ++x, row += 4) {
-                row[0] = uint8_t(row[0] > amount ? row[0] - amount : 0);
-                row[1] = uint8_t(row[1] > back ? row[1] - back : 0);
-                row[3] = uint8_t(row[3] > slow ? row[3] - slow : 0);
+            const int wy = Wrap(first + r);
+            uint16_t *row = At(0, wy);
+            uint16_t *bRow = &bermFine[size_t(wy) * kFootSize];
+            for (int x = 0; x < kFootSize; ++x, row += 4, ++bRow) {
+                row[0] = uint16_t(row[0] > a16 ? row[0] - a16 : 0);
+                row[1] = uint16_t(row[1] > b16 ? row[1] - b16 : 0);
+                row[3] = uint16_t(row[3] > slow ? row[3] - slow : 0);
+                *bRow = uint16_t(*bRow > a16 ? *bRow - a16 : 0);
+                if (row[0] | row[1] | row[3] | *bRow) PackBlue(row, uint8_t(row[2] >> 8), *bRow);
+                else row[2] = 0;
             }
         }
         if (count >= kFootSize) { all = true; changed.clear(); }

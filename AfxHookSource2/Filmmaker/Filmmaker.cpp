@@ -3,6 +3,9 @@
 #include "Props/Props.h"
 #include "Lens/LensRain.h"
 #include "Takes/Takes.h"
+#include "Takes/ActorAnimations.h"
+#include "SceneEditor/SceneEditor.h"
+#include "SceneEditor/SceneEditorHud.h"
 #include "Environment/EnvironmentScene.h"
 #include "../WrpConsole.h"
 #include "../ViewportScaler.h" // AfxViewportScaler::SetWorldReloading: no held preview over a loading screen
@@ -884,6 +887,7 @@ void RunMainThreadLateFrame() {
 	// Config picker: the death clip on the player-model preview. Local-pose write, so it has to be the
 	// last write before the draw like the ones above. Own module: Panorama/DeathAnimPreview.h.
 	DeathAnimPreview_RunLateFrame(ConfigHud_Enabled());
+	Takes::RunMainThreadLateFrame(ConfigHud_Enabled() || SceneEditor::Enabled());
 	// SCENE OBJECTS > CS2 ASSETS preview: turns the browsed model (same late local-pose write).
 	PropPreview_RunLateFrame();
 	// Reassert the final facial weights and eye pose after the engine frame handler.
@@ -895,6 +899,7 @@ void RunMainThreadLateFrame() {
 void RunMainThreadPostFrame() {
 	// Publish the final hand target for independent read-only scene-draw diagnostics.
 	RagdollWeapon_RunPostFrame();
+	Takes::RunMainThreadPostFrame(ConfigHud_Enabled() || SceneEditor::Enabled());
 }
 
 void RunMainThreadFrame() {
@@ -1214,7 +1219,7 @@ void RunMainThreadFrame() {
 	// Read-only evidence for the remaining black composition-layer bug. This does not invoke any
 	// render path or manipulate playback; it only observes engine-owned per-frame calls.
 	// The CS2 ASSETS preview (Props/PropPreview.h) is the same kind of panel and needs the same arming.
-	const bool assetPreview = ConfigHud_Enabled() && PropPreview_Active();
+	const bool assetPreview = ConfigHud_Enabled() && (PropPreview_Active() || ActorAnim::PreviewActive());
 	PreviewRenderProbe_RunFrame(CameraEditor_CustomizeModalOpen(), DeathAnimPreview_Active() || assetPreview);
 	// ...and the entity-side half of the same symptom: a preview pawn SPAWNED while the demo is
 	// paused never interpolates, so the renderer skips its body and only the held weapon shows.
@@ -1242,6 +1247,7 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("aimxhair"); AimCrosshairHudRef().RunFrame(); }
 
 	{ PanoramaPerf_Scope _p("confighud"); ConfigHudRef().RunFrame(); }
+	{ PanoramaPerf_Scope _p("sceneeditorhud"); SceneEditorHudRef().RunFrame(); }
 
 	// Drops the F8 blackout when demo playback ends -- the toggle that clears it is itself one
 	// of the things it hides, so a stuck blackout would read as broken UI.
@@ -1319,6 +1325,7 @@ void RunMainThreadFrame() {
 	{ PanoramaPerf_Scope _p("lensrain"); LensRain_RunMainThreadFrame(rainIntensity); }
 	// Bot takes: the scene clock and bots of a private match (inert until someone uses them).
 	{ PanoramaPerf_Scope _p("takes"); Takes::RunMainThreadFrame(); }
+	{ PanoramaPerf_Scope _p("sceneeditor"); SceneEditor::RunMainThreadFrame(); }
 	// Round heat map: follows the demo to its round and the camera to its area (inert while off).
 	{ PanoramaPerf_Scope _p("heatmap"); Heatmap::RunMainThreadFrame(); }
 	// Alternative environment: its pictures, AUTO ALIGN and copy builds land here (inert while unused).
@@ -1346,6 +1353,7 @@ void Shutdown() {
 	Heatmap::Shutdown(); // cancel + join the round paths scan and the grid build
 	WorldDecals::Shutdown();
 	AltEnvironment::Shutdown(); // cancel + join the copy build, map pictures and AUTO ALIGN
+	SceneEditor::Shutdown();
 	g_library.Shutdown();
 }
 
@@ -1411,7 +1419,8 @@ bool CameraTimeline_Visible() { return CameraTimelineHudRef().Visible(); }
 // OFF -- so G could only ever take the mouse away, never hand it over. The live panel now owns
 // its own flag and the demo timeline is left alone.
 bool LiveFxMenu_WantsGameMouseReleased() {
-	return MvmTest_CanUseMenu() && ConfigHud_IsLive() && ConfigHud_LiveCursor();
+	return (MvmTest_CanUseMenu() && ConfigHud_IsLive() && ConfigHud_LiveCursor()) ||
+	       (SceneEditor::Enabled() && SceneEditor::WantsCursor());
 }
 
 // --- camera-path view ownership + debug gate (read by main.cpp's view-setup hook) ---
@@ -1495,6 +1504,17 @@ bool CameraEditor_TextCaptureActive() { return CameraEditorHudRef().TextCaptureA
 
 // --- Camera-path preview: HUD masked (Tab) -> MovieHud hides itself this frame ---
 bool CameraPath_PreviewHudHidden() { return CameraPathRef().PreviewHudHidden(); }
+
+// --- Standalone 3D Scene Editor ---
+bool SceneEditor_Enabled() { return SceneEditor::Enabled(); }
+bool SceneEditor_WantsCursor() { return SceneEditor::WantsCursor(); }
+void SceneEditor_SetCursor(bool cursor) { SceneEditor::SetCursor(cursor); }
+void SceneEditor_ToggleCursor() { SceneEditor::ToggleCursor(); }
+void SceneEditor_PushWheel(int notches) { SceneEditorHudRef().PushWheel(notches); }
+void SceneEditor_PushChar(unsigned charCode) { SceneEditorHudRef().PushChar(charCode); }
+bool SceneEditor_TextCaptureActive() { return SceneEditor::Enabled() && SceneEditorHudRef().TextCaptureActive(); }
+bool SceneEditor_BusyEditing() { return SceneEditor::BusyEditing(); }
+bool SceneEditor_FlyCam() { return SceneEditor::FlyCam(); }
 
 // --- Experimental graph editor (isolated opt-in overlay) ---
 void GraphEditorExperiment_Set(bool enabled) { GraphEditorExperimentHudRef().SetEnabled(enabled); }

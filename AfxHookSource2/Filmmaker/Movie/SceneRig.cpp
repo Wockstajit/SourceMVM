@@ -1,6 +1,8 @@
 #define NOMINMAX
 #include "SceneRig.h"
 
+#include "../SceneEditor/SceneEditor.h"
+
 #include "SceneRigMath.h"
 #include "SceneRigTransient.h"
 #include "SceneKeys.h"
@@ -421,6 +423,7 @@ void LogOverlay(const char* what, const SceneOverlay* overlay) {
 }
 
 void PublishOverlay() {
+	if (SceneEditor::Enabled()) { g_overlayShown = true; return; }
 	const char* hidden = !g_overlayOn ? "rig overlay off" : HudBlackout_Active() ? "F8 blackout"
 		: g_live.empty() ? "no scene objects"
 		: CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying ? "a camera path is playing" : nullptr;

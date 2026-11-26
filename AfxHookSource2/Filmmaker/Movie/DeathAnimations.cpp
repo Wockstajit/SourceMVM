@@ -51,8 +51,8 @@ constexpr double kAcquireWindow = 0.75;
 // (CoD shotgun deaths lean 28-37 degrees at frame 0); applying that frame at once snapped the whole
 // body sideways. Strength, blend out and wall reactions: DeathAnimationsMath::PlaybackTuning.
 
-const char* const kSourceKeys[] = { "mw2019", "classic", "extra" };
-const char* const kSourceNames[] = { "Modern Warfare 2019", "Classic CoD", "Extra (GMod)" };
+const char* const kSourceKeys[] = { "mw2019", "classic", "extra", "alyx" };
+const char* const kSourceNames[] = { "Modern Warfare 2019", "Classic CoD", "Extra (GMod)", "Half-Life: Alyx" };
 const char* const kCategoryNames[] = { "generic", "head", "neck", "torso", "leftarm", "rightarm",
 	"leftleg", "rightleg", "explosion", "moving", "fire", "melee", "manual" };
 const char* const kWeaponNames[] = { "any", "shotgun", "sniper", "heavy" };
@@ -1396,7 +1396,7 @@ void JsonString(std::ostringstream& o, const char* s) {
 }
 
 const char* SourceLabel(Source s) {
-	return s == Source::Mw2019 ? "MW2019" : s == Source::Classic ? "Classic CoD" : "Extra";
+	return s == Source::Mw2019 ? "MW2019" : s == Source::Classic ? "Classic CoD" : s == Source::Alyx ? "HL: Alyx" : "Extra";
 }
 
 // Every clip, compact, for the picker's list: [name, source, stance, area, side, weapon, frames].
@@ -1628,9 +1628,9 @@ void DeathAnimations_RunCommand(int argc, advancedfx::ICommandArgs* args, const 
 	}
 	int active = 0;
 	for (const Corpse& c : g_corpses) active += c.phase == Phase::Playing ? 1 : 0;
-	advancedfx::Message("deathanim: %s, source %s, file: %s, clips mw2019=%d classic=%d extra=%d, playing=%d played=%d failed=%d%s%s\n",
+	advancedfx::Message("deathanim: %s, source %s, file: %s, clips mw2019=%d classic=%d extra=%d alyx=%d, playing=%d played=%d failed=%d%s%s\n",
 		g_enabled ? "on" : "off", kSourceNames[(int)g_source], g_lib.status.c_str(),
-		ClipCount(Source::Mw2019), ClipCount(Source::Classic), ClipCount(Source::Extra), active, g_played, g_failed,
+		ClipCount(Source::Mw2019), ClipCount(Source::Classic), ClipCount(Source::Extra), ClipCount(Source::Alyx), active, g_played, g_failed,
 		g_forcedClip.empty() ? "" : ", forced ", g_forcedClip.c_str());
 	(void)cmd;
 }

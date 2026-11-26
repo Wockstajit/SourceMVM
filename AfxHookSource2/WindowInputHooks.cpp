@@ -304,6 +304,10 @@ LRESULT CALLBACK new_Afx_WindowProc(
 			Filmmaker::ConfigHud_PushChar((unsigned)wParam);
 			return 0;
 		}
+		if(Filmmaker::SceneEditor_TextCaptureActive()) {
+			Filmmaker::SceneEditor_PushChar((unsigned)wParam);
+			return 0;
+		}
 		if(Filmmaker::CameraEditor_TextCaptureActive()) {
 			Filmmaker::CameraEditor_CustomizePushChar((unsigned)wParam);
 			return 0;
