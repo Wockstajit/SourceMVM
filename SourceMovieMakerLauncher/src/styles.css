@@ -1828,6 +1828,13 @@ input:focus-visible {
   50% { transform: translateX(14px); }
 }
 
+/* Held while CS2 runs, the drawer is open or the window is behind something (App.tsx `quiet`). */
+.launcher.is-quiet .wm-title,
+.launcher.is-quiet .wm-trail,
+.launcher.is-quiet .wm-ghost {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .launcher.is-ready .wm-title,
   .launcher.is-ready .wm-trail,

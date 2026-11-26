@@ -199,7 +199,10 @@ namespace SourceMovieMakerHost
             RequireFile(options.InjectorPath, "injector.exe");
             RequireFile(Path.Combine(options.SteamPath, "steam.exe"), "Steam client executable");
             RequireFile(Path.Combine(options.SteamPath, "steamclient64.dll"), "Steamworks client library");
-            if (System.Diagnostics.Process.GetProcessesByName("steam").Length == 0)
+            System.Diagnostics.Process[] steamProcesses = System.Diagnostics.Process.GetProcessesByName("steam");
+            bool steamRunning = steamProcesses.Length > 0;
+            foreach (var process in steamProcesses) process.Dispose();
+            if (!steamRunning)
                 throw new InvalidOperationException("Start Steam and sign in before launching the offline game.");
             if (!string.IsNullOrWhiteSpace(options.DebugHelperPath))
                 RequireFile(options.DebugHelperPath, "the optional debug helper DLL");
@@ -224,7 +227,10 @@ namespace SourceMovieMakerHost
             public string CommandLine { get; private set; } = "-steam -insecure";
             // Defaults to CS2 so every existing caller keeps working without passing it.
             public string SteamAppId { get; private set; } = "730";
-            public int SettleMilliseconds { get; private set; } = 2000;
+            // Wait between injection and resume. The hook is resident once Inject returns, so a plain
+            // launch needs none (it used to add 2 s to every GO). A debug helper (RenderDoc) installs
+            // its interception asynchronously and keeps the old 2 s unless --settle-ms says otherwise.
+            public int SettleMilliseconds { get; private set; }
             public uint WatchStartupMilliseconds { get; private set; }
 
             public void ResolveSteamPath()
@@ -278,6 +284,8 @@ namespace SourceMovieMakerHost
                     options.CommandLine = commandLine;
                 if (int.TryParse(settle, out int settleMilliseconds))
                     options.SettleMilliseconds = Math.Max(0, settleMilliseconds);
+                else if (!string.IsNullOrWhiteSpace(options.DebugHelperPath))
+                    options.SettleMilliseconds = 2000;
                 if (uint.TryParse(Value(values, "--watch-startup-ms"), out uint watchMilliseconds))
                     options.WatchStartupMilliseconds = watchMilliseconds;
                 return options;

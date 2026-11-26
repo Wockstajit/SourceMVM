@@ -291,6 +291,41 @@ export default function App() {
     return () => window.clearTimeout(fallback);
   }, []);
 
+  // Space, Escape or a click skips the intro.
+  useEffect(() => {
+    const skip = (event: KeyboardEvent) => {
+      if (event.key === ' ' || event.key === 'Escape') finishIntro();
+    };
+    window.addEventListener('keydown', skip);
+    return () => window.removeEventListener('keydown', skip);
+  }, []);
+
+  // The launcher stays open while CS2 runs, often behind it. Its looping video and the title
+  // sweep (blur + letter-spacing, a relayout every frame) then cost GPU and CPU the game needs,
+  // so they pause while CS2 is running, the Advanced drawer covers them, or the window is not in
+  // front.
+  const [windowActive, setWindowActive] = useState(
+    () => document.hasFocus() && document.visibilityState === 'visible');
+  useEffect(() => {
+    const update = () => setWindowActive(document.hasFocus() && document.visibilityState === 'visible');
+    window.addEventListener('focus', update);
+    window.addEventListener('blur', update);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      window.removeEventListener('focus', update);
+      window.removeEventListener('blur', update);
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, []);
+  const quiet = started || advanced || !windowActive;
+  const linemapRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = linemapRef.current;
+    if (!video) return;
+    if (quiet) video.pause();
+    else void video.play().catch(() => {});
+  }, [quiet]);
+
   useEffect(() => {
     let active = true;
     window.sourceMvm.validateCs2(settings.cs2Exe).then((valid) => {
@@ -724,13 +759,14 @@ export default function App() {
     ?? (busy ? { label: 'STARTING CS2', percent: -1 } : null);
 
   return (
-    <main className={`launcher ${introDone ? 'is-ready' : ''}`}>
+    <main className={`launcher ${introDone ? 'is-ready' : ''} ${quiet ? 'is-quiet' : ''}`}>
       <section
         className={`intro ${introPhase === 'fading' ? 'is-fading' : ''} ${introDone ? 'is-hidden' : ''}`}
         aria-hidden={introDone}
+        onClick={finishIntro}
       >
         <audio className="media-preload" ref={letsRollAudioRef} src={LETS_ROLL_SOUND} preload="auto" aria-hidden="true" />
-        <video
+        {!introDone && <video
           className="intro-video"
           src={introVideoUrl || './source-mvm-intro.mp4'}
           autoPlay
@@ -744,7 +780,7 @@ export default function App() {
           }}
           onEnded={finishIntro}
           onError={finishIntro}
-        />
+        />}
       </section>
 
       <header className="window-chrome mainmenu-top-navbar">
@@ -877,6 +913,7 @@ export default function App() {
           >
             <span className="play-menu__playbtn__bg" aria-hidden="true">
               <video
+                ref={linemapRef}
                 className="play-linemap-video"
                 src="./panorama/videos/linemap.webm"
                 autoPlay

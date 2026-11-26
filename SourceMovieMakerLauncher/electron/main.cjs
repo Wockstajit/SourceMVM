@@ -69,8 +69,14 @@ if (isPortable) {
 }
 
 function defaultSettings() {
+  return { ...baseSettings(), cs2Exe: detectCs2Exe() || '' };
+}
+
+// The defaults without finding cs2.exe, which spawns reg.exe and reads every Steam library. Saving
+// runs on every settings change and only needs the keys and their fallbacks.
+function baseSettings() {
   return {
-    cs2Exe: detectCs2Exe() || '',
+    cs2Exe: '',
     runtimeRoot: '',
     hookDllPath: '',
     injectorPath: '',
@@ -165,11 +171,12 @@ function loadSettings() {
 }
 
 function saveSettings(next) {
-  const defaults = defaultSettings();
+  const defaults = baseSettings();
   settings = { ...defaults };
   for (const key of Object.keys(defaults)) {
     if (next && Object.prototype.hasOwnProperty.call(next, key)) settings[key] = next[key];
   }
+  if (!(next && Object.prototype.hasOwnProperty.call(next, 'cs2Exe'))) settings.cs2Exe = detectCs2Exe() || '';
   fs.mkdirSync(path.dirname(configPath()), { recursive: true });
   fs.writeFileSync(configPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
   return settings;
@@ -736,7 +743,9 @@ function createWindow() {
     },
   });
 
-  const rendererUrl = process.env.SMVM_RENDERER_URL;
+  // A development override (live-preview.bat). A packaged launcher always shows its own files, so
+  // an environment variable cannot point the installed app at some other page.
+  const rendererUrl = app.isPackaged ? '' : process.env.SMVM_RENDERER_URL;
   if (rendererUrl) {
     mainWindow.loadURL(rendererUrl);
   } else {
@@ -744,6 +753,24 @@ function createWindow() {
   }
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+// One launcher window at a time: a second start (double-click, Start menu) brings the open one to
+// the front instead of a second copy racing it over settings, downloads and the CS2 launch.
+// Headless runs (automation, -autoStart) are separate jobs and skip the lock.
+const startsHeadless = process.argv.includes('--headless')
+  || process.argv.includes('-noGui')
+  || process.argv.includes('-autoStart');
+const ownsInstance = startsHeadless || app.requestSingleInstanceLock();
+if (!ownsInstance) {
+  app.quit();
+} else if (!startsHeadless) {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
 }
 
@@ -952,15 +979,13 @@ async function runHeadless(argv) {
 }
 
 app.whenReady().then(async () => {
+  if (!ownsInstance) return;
   registerMediaProtocol();
   settings = loadSettings();
   dlssTool.init(app.getPath('userData'));
   registerIpc();
   configureUpdater();
-  const headless = process.argv.includes('--headless')
-    || process.argv.includes('-noGui')
-    || process.argv.includes('-autoStart');
-  if (headless) {
+  if (startsHeadless) {
     await runHeadless(process.argv.slice(1));
     return;
   }
