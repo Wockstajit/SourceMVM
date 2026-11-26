@@ -78,6 +78,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # interior-camera-tests.py loads the interior camera tool, which needs numpy.
+      - name: Python test dependencies
+        run: python -m pip install --disable-pip-version-check --quiet numpy
       - name: Static source tests
         run: |
           $skip = @('ui-mockup-menu-fixture-tests.mjs', 'ui-source-sync-tests.mjs')
