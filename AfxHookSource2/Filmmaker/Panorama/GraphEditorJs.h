@@ -82,7 +82,7 @@ R"GEJS(
     // DOCK_H_MIN, so more of the game shows above it (Movie/TimelineDock.h, `timeline.dockH`). Only
     // the rows give up height; the toolbar, ruler and footer keep theirs.
     var DOCK_H_MAX = 440, DOCK_H_MIN = 220;
-    var DOCK_H = DOCK_H_MAX, HEADER_H = 36, OVERVIEW_H = 10, RULER_H = 20, ROWS_Y = 66, FOOTER_H = 26;
+    var DOCK_H = DOCK_H_MAX, HEADER_H = 42, OVERVIEW_H = 10, RULER_H = 20, ROWS_Y = 72, FOOTER_H = 26;
     var ROWS_H = DOCK_H - ROWS_Y - FOOTER_H;
     function setDockH(h) {
       h = Math.round(Math.min(DOCK_H_MAX, Math.max(DOCK_H_MIN, h)));
@@ -456,7 +456,7 @@ R"GEJS(
     // ---- toolbar ------------------------------------------------------------
     // One row: timecode + KEYFRAMES / GRAPH | transport + speed, centred | ease, snap, history,
     // delete and the workspace pair. What you have hold of reads in the footer.
-    var HEADER_ONE = 36, HEADER_TWO = 64, HEADER_LINE = 34;
+    var HEADER_ONE = 42, HEADER_TWO = 76, HEADER_LINE = 40;
     var header = mk('Panel', dock); header.hittest = false;
     header.style.position = '0px 0px 0px'; header.style.height = HEADER_LINE + 'px';
     header.style.flowChildren = 'right'; header.style.paddingLeft = '14px'; header.style.paddingRight = '14px';
@@ -519,13 +519,13 @@ R"GEJS(
     midCol.style.width = 'fill-parent-flow(1.0)'; midCol.style.verticalAlign = 'center';
     midCol.style.marginLeft = '18px'; midCol.style.marginRight = '18px';
     var rowTop = mk('Panel', midCol); rowTop.hittest = false; rowTop.style.flowChildren = 'right';
-    rowTop.style.width = '100%';
+    rowTop.style.horizontalAlign = 'center';
     // Small transport keys, so the speed strip beside them gets the room (it fills whatever the
     // row leaves: layoutHeader sizes it). Natural order: step, play, step, then speed and Cache.
     function tKey(b, w) {
       b.style.width = w + 'px'; b.style.marginRight = '4px';
-      b.style.paddingTop = '2px'; b.style.paddingBottom = '2px'; b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
-      b.__lbl.style.fontSize = '11px'; b.__lbl.style.horizontalAlign = 'center';
+      b.style.paddingTop = '3px'; b.style.paddingBottom = '3px'; b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
+      b.__lbl.style.fontSize = '12px'; b.__lbl.style.horizontalAlign = 'center';
       return b;
     }
     var prevKeyBtn = tKey(btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, T('Previous keyframe on the selected layer')), 28);
@@ -534,7 +534,7 @@ R"GEJS(
     var nextKeyBtn = tKey(btn(rowTop, '▶|', function () { jumpKey(1); }, S.value, T('Next keyframe on the selected layer')), 28);
     nextKeyBtn.style.marginRight = '10px';
     // The SAME continuous speed scrubber the native demo bar carries.
-    var speedScrub = buildSpeedScrubber(rowTop, { width: 260, maxWidth: 1000, height: 24, font: S.font });
+    var speedScrub = buildSpeedScrubber(rowTop, { width: 260, maxWidth: 460, height: 26, font: S.font });
     speedScrub.strip.style.marginRight = '10px'; speedScrub.strip.style.verticalAlign = 'center';
     // Cache: keep the preview of every frame the world plays, so scrubbing back over it shows at
     // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while on.
@@ -3260,11 +3260,13 @@ R"GEJS(
       var padR = two ? 14 : toolsW + 4;
       if (padR !== headerPadR) { headerPadR = padR; header.style.paddingRight = padR + 'px'; }
       // The speed strip takes whatever the transport row leaves between the step / play keys and
-      // Cache: no handle, it simply fills the gap (the owner's request: the space was wasted).
+      // Cache: no handle, it simply fills the gap (the owner's request: the space was wasted), up to
+      // 460 px -- past that, on the full-width MODULAR dock, it dwarfed everything else in the row,
+      // so the transport group stays that size and centres instead.
       var mw = (midCol.actuallayoutwidth || 0) / sx;
       if (mw > 100) {
         var keysW = 28 + 4 + 34 + 4 + 28 + 10 + 10 + Math.round((cacheBtn.actuallayoutwidth || 0) / sx || 56);
-        speedScrub.setWidth(Math.min(1000, mw - keysW - 2));
+        speedScrub.setWidth(Math.min(460, mw - keysW - 2));
       }
       return moved;
     }
