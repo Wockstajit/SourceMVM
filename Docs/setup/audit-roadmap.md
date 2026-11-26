@@ -6,8 +6,8 @@ This document tracks the multi-batch codebase audit and implementation plan for 
 
 | Batch | Branch | Scope | Status | Tracking Issue | Pull Request |
 | --- | --- | --- | --- | --- | --- |
-| **Batch 1** | `fix/audit-batch-1-stability-safety` | Critical bugs, D3D11 leaks/UAFs, Panorama UAFs, thread races, shutdown hangs, atomic saves, `save-reset` exFAT fix, leftover debug HTTP removal | `in_review` | TBD | TBD |
-| **Batch 2** | `perf/audit-batch-2-low-end-pc` | Low-end PC zero-idle-cost rendering, MapData/VPK/TextureCache perf, idle VRAM reaper, single per-frame `FrameEntityCache`, `FilmmakerSettings` dirty check, `PlayingDemoPath` & save debounce | `pending` | — | — |
+| **Batch 1** | `fix/audit-batch-1-stability-safety` | Critical bugs, D3D11 leaks/UAFs, Panorama UAFs, thread races, shutdown hangs, atomic saves, `save-reset` exFAT fix, leftover debug HTTP removal | `in_review` | #199 | #200 |
+| **Batch 2** | `perf/audit-batch-2-low-end-pc` | Low-end PC zero-idle-cost rendering, MapData/VPK/TextureCache perf, idle VRAM reaper, single per-frame `FrameEntityCache`, `FilmmakerSettings` dirty check, `PlayingDemoPath` & save debounce | `in_review` | TBD | TBD |
 | **Batch 3** | `feat/audit-batch-3-launcher-perf-qol` | Launcher performance (pause WebM/blurs when CS2 runs, async main thread, remove 2s sleep), reliability (single-instance, update races, timeouts, DPI fix), QoL & unused asset cleanup | `pending` | — | — |
 | **Batch 4** | `perf/audit-batch-4-panorama-ui-qol` | In-game Panorama UI speed (`WorkspaceShell` blur/WebM gating, hide-instead-of-teardown, split cursor from state JSON, `RunScriptCached`, `$.Schedule` cleanup, catalog/localization bloat), undo/redo & QoL, CI test wiring & `automation/` path fix | `pending` | — | — |
 | **Deferred: Perf Mode** | — | Unified Low-Spec / Performance Mode toggle (`mirv_filmmaker perfmode` + UI) and GPU/VRAM budget HUD | `deferred` | — | — |
@@ -40,30 +40,24 @@ See [Deadlock audit backlog](../deadlock/audit-backlog.md) for all deferred Dead
 
 ## Batch 2 — Low-End PC Zero-Idle-Cost & VRAM Pass
 
-**Target branch:** `perf/audit-batch-2-low-end-pc`
+**Branch:** `perf/audit-batch-2-low-end-pc` (stacked on Batch 1: both edit `SkyGpuRotation.cpp`, `AtomicFile.h` and `EasterEggs.cpp`)
 
-### GPU, Shaders, VRAM & MapData
-- [ ] `AfxHookSource2/Filmmaker/Environment/EnvironmentNativeMaterialDerive.cpp`: defer background shader derivation until Environment/Relight is enabled (matching `ScaledColorCodeTag`), and gate/remove the permanent 512 MiB DXBC `programRecord()` dump cache unless `mvm_debug` / dump mode is requested.
-- [ ] `AfxHookSource2/Filmmaker/Environment/EnvironmentScene.cpp` & `EnvironmentOcclusion.cpp`: defer `UpdateMapOcclusion` extraction and geometry decompression until an occlusion/lighting consumer is enabled.
-- [ ] `AfxHookSource2/Filmmaker/MapData/MapDataIo.cpp`, `MapCasters.cpp`, `MapExtract.cpp`: cache open VPK file handles inside `Vpk::Read`, add an LRU/byte budget cap to `MapCasters::TextureCache` (plus `GdiplusShutdown`), and drop synchronous `MOVEFILE_WRITE_THROUGH` on cache writes.
-- [ ] Universal idle VRAM reaper + `EndDevice` cleanup:
-  - Split `LensFx::EnsureTargets` (`LensFx.cpp`) into separate DoF and Flare pools and release on idle.
-  - Honor `kCubeSize = 1024` (instead of 12× full backbuffer textures) in `WorldWarpRender.cpp` and release on idle.
-  - Add `EndDevice()` and idle release to `RenderHdrCapture.cpp` (`s_candidates[8]`), `RenderPassCompositor.cpp`, `CustomShadowAtlas.cpp`, `AutoExposure.cpp`, `SkyGpuRotation.cpp`, `SmokeAppearance.cpp`, `ContactShadowPass.cpp`, `LensRain.cpp`, `WorldDecalsRender.cpp`, `ViewportScaler.cpp`, and `EnvironmentRender.cpp` (`gHdr` when recording stops).
-- [ ] Hot-path idle gating (`RenderSystemDX11Hooks.cpp`, `LightFx.cpp`, `SmokeAppearance.cpp`, `EnvironmentFoliage.cpp`, `WorldWarpRender.cpp`):
-  - Add a single `std::atomic<bool>` active flag in `LightFx.cpp` (`new_LightSubmit`) to skip SEH, mutex, and 6× `WorldTransient::Number` lookups when idle.
-  - Gate `SmokeAppearance::Note*` and `EnvironmentFoliage::InvalidateFoliageConstantCopy` on active flags; avoid `D3DReflect` and full DXBC bytecode retention in `WorldWarpRender.cpp` when unused.
-  - Cache `GetModuleHandleW(L"nvapi64.dll")` lookup in `EnsureVendorMultiDrawHooks()`, avoid unconditional `char shaderName[1024] = {}` zeroing in `New_PSSetShader`, and avoid per-frame `g_scene`/`Relight::CaptureScene` deep copies when both Environment and Relight are OFF.
-- [ ] Active-pass bottlenecks: remove per-frame staging allocation + dual GPU->CPU `Map(READ)` flushes in `SkyGpuRotation.cpp` (use persistent/ring staging or GPU-only rotation), batch/bound `WorldDecalsRender.cpp` scene copies, and move synchronous `D3DCOMPILE_OPTIMIZATION_LEVEL3` off the render thread where practical.
-- [ ] Consolidation opportunities in this pass: evaluate retiring `D3D11` deferred contexts (23 instances) into a shared `D3D11StateGuard`, and consolidate duplicated `D3DReflect` / format helpers / `New_Draw*` scopes into `D3D11Utils.h`.
+Measured in CS2 at 1920x1080 with ReShade loaded, `mvm_debug` off (it forces extra per-draw work), using `mirv_filmmaker health`.
 
-### Core CPU & Disk I/O
-- [ ] `AfxHookSource2/ClientEntitySystem.{h,cpp}` & `Filmmaker.cpp`: build one per-frame `FrameEntityCache` at the top of `RunMainThreadFrame()` to eliminate 8–40+ redundant full entity-list scans across `main.cpp`, `DemoEndHold.cpp`, `CameraShakeStack.cpp`, `ParticleFx.cpp`, `CustomizeTarget.cpp`, `CosmeticUiQueries.cpp`, `CosmeticOverrideSystem.cpp`, and `MethodActing.cpp`.
-- [ ] `AfxHookSource2/Filmmaker/Config/FilmmakerSettingsStore.cpp`: replace unconditional per-frame 90+ setting `BuildSnapshot()` serialization with a revision counter / dirty flag.
-- [ ] `AfxHookSource2/Filmmaker/Demo/PlayingDemoPath.cpp`: move `__try/__except` out of the per-character loop in `SafeCopyAscii`, cache `PlayingDemoPath()` once per frame, and invalidate on raw-path change instead of 1 s `CreateFileW` TTL.
-- [ ] Gate/throttle `CustomizeTarget_RunFrame`, `CamPathShake_RunFrame` (`PublishSnapshot`), `SceneRig_RunMainThreadFrame`, `SceneEditor::PublishOverlay`, `WrpEnsureCommandsRegistered`, and `EasterEggs` (remove per-frame `localtime_s` + 60s main-thread disk save).
-- [ ] `AfxHookSource2/Filmmaker/Movie/CameraPath.cpp`, `CamPathShake.cpp`, `DemoProjectStore.cpp`: debounce `project.mvm` writes (500 ms idle, flushed on switch/shutdown) and only rewrite `demos/index.json` when mutated.
-- [ ] `AfxHookSource2/Filmmaker/Demo/DemoLibrary.cpp` & `CrashReport.cpp`: cap `ScanWorker` helper pool to `clamp(hw/2, 1, 4)` with `BELOW_NORMAL_PRIORITY_CLASS` + `GOMEMLIMIT` + `JobObject`, and buffer `CrashReport_SessionLogLine` instead of 2 `WriteFile` calls per console line.
+### Done
+- [x] `World/SkyGpuRotation.cpp`: any sky or sun rotation cost 2.5-3.2 ms of draw-hook time per frame (0.3 ms without). Every small effects quad was read back from the GPU synchronously to test whether it was the sun. Now: sky-only rotation skips the sun path; the colour boost comes from the captured upload or an asynchronous staging read; vertex data comes from the upload cache where possible; non-sun quads are rejected before any vertex read; the upload cache is one slot per buffer instead of a 64-slot ring; shader names are classified once per frame and re-read only after a pixel-shader change. Result: 0.33 ms with sky 90 and sun 60.
+- [x] `World/LightFx.cpp`: the light-submit hook skips its mutex while nothing is tracked and evaluates the six `WorldTransient` override lookups once per frame instead of per light.
+- [x] Idle VRAM: the held preview and the viewport scaler's temp copy (one backbuffer each, ~13 MB at 1080p) are freed 120 presents after the scaled preview closes. Hook VRAM after closing Config: 47.6 MB (ReShade depth/scene copies only), was ~120 MB.
+- [x] `EasterEggs.cpp`: the minute save ran a disk-synced write on the main thread (25 ms peak frame); it now uses `WriteFileAtomic(..., durable = false)`, and the calendar day is read once a minute instead of every frame.
+- [x] `MapData`: VPK reads reuse one open handle per package file (positional `ReadFile`), the decoded-texture cache is capped at 256 MiB, and the rebuildable cache publish drops `MOVEFILE_WRITE_THROUGH`. Inferno extraction is byte-identical to the existing cache (`compare-map-data.py`: all checks pass).
+- [x] Checked and left as is: Environment already releases its targets after 300 idle frames (verified: `Off (resources released)`); `PlayingDemoPath` already caches with a 1 s revalidation and write revisions; moving `__try` out of `SafeCopyAscii`'s loop gains nothing on x64 (table-based SEH); `GdiplusShutdown` is not safe to call from DLL unload (loader lock).
+
+### Still open (not measured as hot in this pass)
+- [ ] `EnvironmentNativeMaterialDerive.cpp` deferred derivation and the 512 MiB DXBC dump cache; `EnvironmentScene.cpp` / `EnvironmentOcclusion.cpp` deferred occlusion extraction.
+- [ ] `EndDevice()` / idle release for `LensFx`, `WorldWarpRender` (`kCubeSize`), `RenderHdrCapture`, `RenderPassCompositor`, `CustomShadowAtlas`, `AutoExposure`, `SmokeAppearance`, `ContactShadowPass`, `LensRain`, `WorldDecalsRender`.
+- [ ] Hot-path gating in `SmokeAppearance`, `EnvironmentFoliage`, `WorldWarpRender`; `nvapi64.dll` lookup cache; `New_PSSetShader` name buffer; `Relight::CaptureScene` copies. With every effect off the draw hooks cost ~0.2 ms a frame, so these are small.
+- [ ] `WorldDecalsRender.cpp` scene copies; shader compiles off the render thread; D3D11 deferred-context / helper consolidation.
+- [ ] Per-frame `FrameEntityCache`, `FilmmakerSettingsStore` dirty flag, `project.mvm` debounce, `DemoLibrary` helper pool cap, `CrashReport` log buffering. The UI perf probe puts cosmetics and world at ~0.1 ms a frame each.
 
 ---
 

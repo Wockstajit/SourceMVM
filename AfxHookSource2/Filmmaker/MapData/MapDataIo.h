@@ -62,6 +62,11 @@ private:
     uint64_t m_dataStart = 0;
     std::unordered_map<std::string, Entry> m_entries;
     std::function<void(const std::filesystem::path &)> m_onFileRead;
+    // Open read handles to the directory file and its archives, kept for the package's lifetime.
+    // Extraction reads thousands of entries; opening a stream per entry was the cost.
+    struct FileHandles;
+    std::shared_ptr<FileHandles> m_files;
+    bool ReadRange(const std::filesystem::path &file, uint64_t offset, uint64_t size, uint8_t *out) const;
     std::filesystem::path ArchivePath(uint16_t index) const;
     void Parse(const uint8_t *tree, size_t treeSize, size_t headerSize);
 };

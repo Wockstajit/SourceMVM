@@ -212,11 +212,17 @@ unsigned long long NowMs() { return GetTickCount64(); }
 
 double U01() { return std::uniform_real_distribution<double>(0.0, 1.0)(g_rng); }
 
+// Called every frame by TickHints: the calendar day only needs re-reading about once a minute.
 int TodayKey() {
-	time_t t = time(nullptr);
+	static time_t s_checked = 0;
+	static int s_key = 0;
+	const time_t t = time(nullptr);
+	if (s_key != 0 && t >= s_checked && t - s_checked < 60) return s_key;
 	tm lt{};
 	localtime_s(&lt, &t);
-	return (lt.tm_year + 1900) * 10000 + (lt.tm_mon + 1) * 100 + lt.tm_mday;
+	s_checked = t;
+	s_key = (lt.tm_year + 1900) * 10000 + (lt.tm_mon + 1) * 100 + lt.tm_mday;
+	return s_key;
 }
 
 std::wstring StatePath() {
@@ -266,7 +272,9 @@ void Save() {
 	const std::filesystem::path file(StatePath());
 	std::error_code ec;
 	std::filesystem::create_directories(file.parent_path(), ec);
-	WriteFileAtomic(file.wstring(), j.Str());
+	// Hint timers only: written from the main thread every minute, so skip the disk sync that
+	// cost a 25 ms frame on a hard disk. A power cut loses at most a minute of hint progress.
+	WriteFileAtomic(file.wstring(), j.Str(), false);
 	g_dirty = false;
 	g_lastSaveMs = NowMs();
 }

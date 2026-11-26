@@ -221,7 +221,9 @@ test("tracked light directions are kept until the next map", () => {
   assert.doesNotMatch(lightFx, /PruneIdleTrackedLights|lastSubmitMs|kTrackedLightIdleMs/);
   // The only erases: a failed write, the restore that hands the light back, and the map change.
   assert.equal((lightFx.match(/g_rotationObjectBases\.erase\(/g) || []).length, 2);
-  assert.match(lightFx, /g_rotationObjectBases\.clear\(\);\}\r?\n\s+g_trackedLightsFull\.store\(false/);
+  assert.match(lightFx, /g_rotationObjectBases\.clear\(\);(?:g_rotationTracked\.store\(0, std::memory_order_relaxed\);)?\}\r?\n\s+g_trackedLightsFull\.store\(false/);
+  // The submit hook's lock-free "anything tracked?" check follows every change to the table.
+  assert.equal((lightFx.match(/g_rotationTracked\.store\(/g) || []).length, 4);
   // A full table leaves a light it has never seen as authored rather than forgetting another one.
   assert.match(lightFx, /\} else if \(g_rotationObjectBases\.size\(\) >= kTrackedLightCap\) \{[\s\S]{0,400}?return false;/);
 });

@@ -8,6 +8,7 @@
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
+#include <deque>
 #include <Windows.h>
 #include <objidl.h>
 #include <gdiplus.h>
@@ -181,6 +182,25 @@ struct TextureCache {
     const PackageSet &resources;
     std::vector<std::string> &warnings;
     std::unordered_map<std::string, std::shared_ptr<Image>> images;
+    // Decoded RGBA is kept only up to a byte budget, oldest first out: a big map decodes hundreds
+    // of full-resolution textures and used to hold every one until extraction ended. Evicting is
+    // safe because callers keep their own shared_ptr; a re-request decodes again.
+    static constexpr size_t kBudgetBytes = size_t(256) << 20;
+    std::deque<std::string> order;
+    size_t bytesHeld = 0;
+
+    void Remember(const std::string &path, const std::shared_ptr<Image> &image) {
+        images[path] = image;
+        order.push_back(path);
+        if (image) bytesHeld += image->rgba.size();
+        while (bytesHeld > kBudgetBytes && order.size() > 1) {
+            auto old = images.find(order.front());
+            order.pop_front();
+            if (old == images.end()) continue;
+            if (old->second) bytesHeld -= std::min(bytesHeld, old->second->rgba.size());
+            images.erase(old);
+        }
+    }
 
     std::shared_ptr<Image> Get(const std::string &path) {
         auto it = images.find(path);
@@ -198,7 +218,7 @@ struct TextureCache {
                 image = nullptr;
             }
         }
-        images[path] = image;
+        Remember(path, image);
         return image;
     }
 };
