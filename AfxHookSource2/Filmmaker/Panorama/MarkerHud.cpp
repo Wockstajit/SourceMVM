@@ -115,10 +115,14 @@ void MarkerHud::RunFrame() {
 	bool playingDemo = false;
 	if (g_pEngineToClient) {
 		if (auto pDemo = g_pEngineToClient->GetDemoFile())
-			playingDemo = pDemo->IsPlayingDemo();
+			playingDemo = pDemo->IsPlayingDemo() || pDemo->IsDemoPaused();
 	}
 
-	unsigned char* hud = playingDemo ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
+	unsigned char* liveHud = AfxHookSource2_GetPanoramaHudPanel();
+	if (!liveHud || liveHud != m_hudPanel) {
+		m_bridge.SetContextPanel(nullptr);
+	}
+	unsigned char* hud = playingDemo ? liveHud : nullptr;
 	if (!hud) { // main menu / not playing a demo -> tear down + bail
 		Teardown();
 		return;

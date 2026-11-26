@@ -26,6 +26,11 @@ inline const char* kCameraTimelineJs = R"TLJS(
 #include "LocalizationJs.h"
 R"TLJS(
   try {
+    // The previous instance owns the list of native HUD panels it hid. A rebuild (language
+    // change) can land while a workspace still hides the HUD; the old instance keeps rendering
+    // until this point, so it must hand everything back now or this instance would find those
+    // panels already invisible, never track them, and leave the game HUD hidden for good.
+    if ($.CamTimeline && $.CamTimeline.restoreNative) { try { $.CamTimeline.restoreNative(); } catch (eOld) {} }
     var existing = $('#CamTimelineRoot'); if (existing) existing.DeleteAsync(0);
     var existingRange = $('#CamTimelineRangeRoot'); if (existingRange) existingRange.DeleteAsync(0);
     var ctx = $.GetContextPanel();

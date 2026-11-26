@@ -1,5 +1,6 @@
 #include "WorkshopOrganizerStore.h"
 
+#include "../Platform/AtomicFile.h"
 #include "../../hlaeFolder.h"
 
 #include <fstream>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cctype>
+#include <sstream>
 
 namespace Filmmaker {
 
@@ -150,19 +152,20 @@ void WorkshopOrganizerStore::Load() {
 }
 
 bool WorkshopOrganizerStore::Save() const {
-	std::ofstream f(std::filesystem::path(FilePath()), std::ios::binary | std::ios::trunc);
-	if (!f.is_open())
-		return false;
-	f << "v 2\n";
-	f << "sort " << m_sort << "\n";
-	f << "hidetraining " << (m_hideTraining ? 1 : 0) << "\n";
-	f << "words " << WordsJoined() << "\n";
+	const std::filesystem::path file(FilePath());
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+	std::ostringstream out;
+	out << "v 2\n";
+	out << "sort " << m_sort << "\n";
+	out << "hidetraining " << (m_hideTraining ? 1 : 0) << "\n";
+	out << "words " << WordsJoined() << "\n";
 	for (const auto& r : m_played) {
 		if (r.lastPlayed <= 0)
 			continue;
-		f << "p " << r.lastPlayed << " " << r.id << "\n";
+		out << "p " << r.lastPlayed << " " << r.id << "\n";
 	}
-	return true;
+	return WriteFileAtomic(file.wstring(), out.str()) == ERROR_SUCCESS;
 }
 
 std::string WorkshopOrganizerStore::WordsJoined() const {

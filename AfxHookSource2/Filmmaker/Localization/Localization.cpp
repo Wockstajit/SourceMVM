@@ -192,6 +192,10 @@ const char* const kRebuildRoots[] = {
 	"AimXhairRoot", "CamEditorRoot", "CamTimelineRoot", "ConfigHudRoot", "MvmEggRoot", "FxDebugHudRoot",
 	"GraphExpRoot", "MarkerHudRoot", "MovieHudRoot", "MvmOnboardingRoot", "MvmHeaderRoot",
 	"FilmmakerMenuTab", "MvmPlayMenuHost", "MvmCommunityHost",
+	"CamEditorDebugRoot", "CamEditorConfirmRoot", "CamEditorSettingsRoot", "CamEditorRenderRoot",
+	"CamEditorCustomizeRoot", "CamEditorCustomizeConfirmRoot", "ConfigEditorSettingsRoot",
+	"ConfigHudOverlayRoot", "CamTimelineRangeRoot", "MvmBarTipRoot", "MvmHeaderSettingsRoot",
+	"MvmCamToast",
 };
 
 bool AnyRebuildRootLeft(void* contextPanel) {
@@ -203,7 +207,13 @@ bool AnyRebuildRootLeft(void* contextPanel) {
 void PumpRebuild() {
 	if (g_publicEpoch == g_epoch) { g_rebuildFrames = -1; return; }
 	if (g_rebuildFrames < 0) {
-		std::string script = "(function(){var ids=[";
+		std::string script =
+			"(function(){"
+			"if($.ConfigHudDap)try{$.ConfigHudDap.close();}catch(e){}"
+			"if($.ConfigHudAap)try{$.ConfigHudAap.close();}catch(e){}"
+			"if($.ConfigHud&&$.ConfigHud.releaseDeny)try{$.ConfigHud.releaseDeny();}catch(e){}"
+			"if($.CamTimeline&&$.CamTimeline.restoreNative)try{$.CamTimeline.restoreNative();}catch(e){}"
+			"var ids=[";
 		for (const char* id : kRebuildRoots) { script += '\''; script += id; script += "',"; }
 		script += "];for(var i=0;i<ids.length;i++){try{var p=$('#'+ids[i]);if(p)p.DeleteAsync(0);}catch(e){}}})();";
 		if (g_menu.panel && g_menu.bridge.CanRunScript()) g_menu.bridge.RunScript(script);

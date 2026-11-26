@@ -3,6 +3,7 @@
 #define NOMINMAX
 #endif
 #include "OsuGame.h"
+#include "../../Platform/AtomicFile.h"
 
 #include "OsuAudio.h"
 #include "OsuDifficulty.h"
@@ -98,11 +99,9 @@ void ApplyVolumes() {
 void SaveSettings() {
 	std::error_code ec;
 	std::filesystem::create_directories(OsuPlatform::RoamingRoot(), ec);
-	std::ofstream f(SettingsPath(), std::ios::binary | std::ios::trunc);
-	if (!f) return;
 	char b[256];
 	snprintf(b, sizeof(b), "sensitivity=%.2f\nmaster=%.2f\nmusic=%.2f\neffects=%.2f\n", g_sens, g_volMaster, g_volMusic, g_volEffects);
-	f << b;
+	Filmmaker::WriteFileAtomic(std::filesystem::path(SettingsPath()).wstring(), b);
 }
 // First run (no settings.ini yet): start from the player's osu!lazer settings (framework.ini:
 // CursorSensitivity, VolumeUniversal / VolumeMusic / VolumeEffect).

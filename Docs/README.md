@@ -49,6 +49,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | Interior lighting camera validation, map sweep and authored-light audit | [`interior-lighting-testing.md`](effects/interior-lighting-testing.md) |
 | Map lights, collision and shadow casters (native extraction on map load) | [`map-data-extraction.md`](effects/map-data-extraction.md) |
 | Deadlock port | [`deadlock/README.md`](deadlock/README.md) |
+| Deadlock deferred audit backlog | [`deadlock/audit-backlog.md`](deadlock/audit-backlog.md) |
 
 ## Document classes
 
@@ -74,6 +75,7 @@ Every document lives in exactly one of these folders. Nothing but this index sit
 - [GitHub workflow and contribution policy](setup/git-workflow.md) covers branches, PRs, AI-assisted contributions, required checks, releases and issues.
 - [Continuous integration](setup/ci.md) covers which CI jobs a change runs, the native build caches and `ci-gate`.
 - [Publishing releases](setup/publishing-releases.md) covers builds, the direct executable scan and public assets.
+- [Repository audit roadmap](setup/audit-roadmap.md) tracks multi-batch bug, performance, launcher and UI improvements across sessions.
 - [Automation hygiene](../Automation/docs/AUTOMATION_HYGIENE.md) covers generated output and retained evidence.
 - [Relighting regression fixtures](../Automation/fixtures/relight-regressions/README.md) describe saved visual checks.
 

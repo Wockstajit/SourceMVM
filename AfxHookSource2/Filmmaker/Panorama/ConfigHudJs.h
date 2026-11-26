@@ -1428,6 +1428,9 @@ R"CFJS(
       else settingsPopup.toggle();
       return settingsPopup.isOpen() ? 'open' : 'closed';
     };
+    api.releaseDeny = function () {
+      setLiveMouseCapture(false);
+    };
     $.ConfigHud = api;
     $.Msg('[confighud] panel built.\n');
   } catch (e) {

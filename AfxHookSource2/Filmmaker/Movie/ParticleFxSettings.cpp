@@ -6,6 +6,7 @@
 
 #include "../Config/PracticeSessionFlag.h" // a practice session saves nothing
 
+#include "../Platform/AtomicFile.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
 #include "../../hlaeFolder.h" // GetHlaeRoamingAppDataFolderW
@@ -139,12 +140,10 @@ bool ParticleFx::SaveSettings() const {
 	// A practice session keeps its effects in memory; the file stays the user's.
 	if (PracticeSession_Active())
 		return true;
-	const std::string text = SettingsJson();
-	std::ofstream f{ std::filesystem::path(SettingsPath()), std::ios::trunc };
-	if (!f.is_open())
-		return false;
-	f << text;
-	return true;
+	const std::filesystem::path file(SettingsPath());
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+	return WriteFileAtomic(file.wstring(), SettingsJson()) == ERROR_SUCCESS;
 }
 
 void ParticleFx::ResetSettingsToDefaults() {

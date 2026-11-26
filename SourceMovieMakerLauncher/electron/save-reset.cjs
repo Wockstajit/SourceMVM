@@ -38,6 +38,21 @@ function planReset(recordedEpoch) {
   return [...WIPED_DIRECTORIES, ...WIPED_FILES];
 }
 
+// An exclusive hard link publishes the complete same-volume copy atomically on NTFS. On
+// filesystems without hard-link support (exFAT/FAT32) or cross-device targets, fall back to
+// exclusive copy so existing files still win with EEXIST.
+async function publishExclusiveFile(temporary, target, fsImpl = fsp) {
+  try {
+    await fsImpl.link(temporary, target);
+  } catch (error) {
+    if (error && (error.code === 'EPERM' || error.code === 'ENOTSUP' || error.code === 'EXDEV')) {
+      await fsImpl.copyFile(temporary, target, fs.constants.COPYFILE_EXCL);
+      return;
+    }
+    throw error;
+  }
+}
+
 // These are Valve's original files, not resettable settings. Earlier hooks relocated them.
 // Recover BEFORE any delete; a failure leaves all saves and the reset epoch untouched.
 async function restoreMovedMatchInfo(hlaeRoot) {
@@ -68,9 +83,7 @@ async function restoreMovedMatchInfo(hlaeRoot) {
     const temporary = `${target}.mvm-recover-${randomUUID()}.tmp`;
     try {
       await fsp.copyFile(archive.archived, temporary, fs.constants.COPYFILE_EXCL);
-      // An exclusive hard link publishes the complete same-volume copy atomically. Existing
-      // files win even if CS2 wrote one between the initial check and publication.
-      await fsp.link(temporary, target);
+      await publishExclusiveFile(temporary, target);
     } catch (error) {
       if (error.code !== 'EEXIST' || !(await fsp.stat(target).catch(() => null))?.isFile())
         throw new Error('Could not restore CS2 match metadata beside its demo. Your saves have been kept.');
@@ -104,4 +117,4 @@ async function resetSavesIfNeeded(hlaeRoot) {
   return { reset: true, removed };
 }
 
-module.exports = { SAVE_EPOCH, EPOCH_FILE, WIPED_DIRECTORIES, WIPED_FILES, parseEpoch, planReset, resetSavesIfNeeded };
+module.exports = { SAVE_EPOCH, EPOCH_FILE, WIPED_DIRECTORIES, WIPED_FILES, parseEpoch, planReset, publishExclusiveFile, resetSavesIfNeeded };

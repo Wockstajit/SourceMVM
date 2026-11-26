@@ -1567,14 +1567,13 @@ bool CosmeticOverrideSystem::ModelSwapResolved() const {
 int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 	if (!m_modelSwap) {
 		if (MvmDebugLog_Active())
-			MvmAgentLog("H1", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics", "modelswap_disabled", "");
+			MvmDebugLog_LinefAlways("cosmetics.diag", "hyp=H1 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=modelswap_disabled");
 		return 0;
 	}
 
 	const ClientDllOffsets_t& o = g_clientDllOffsets;
 	if (MvmDebugLog_Active() && o.C_CSPlayerPawn.m_EconGloves == 0) {
-		MvmAgentLog("H4", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics", "econ_gloves_offset_missing",
-			"\"m_EconGloves\":0");
+		MvmDebugLog_LinefAlways("cosmetics.diag", "hyp=H4 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=econ_gloves_offset_missing m_EconGloves=0");
 	}
 	const uint64_t spectatedSteamId = CurrentSpectatedSteamId();
 	if (spectatedSteamId != 0)
@@ -1585,12 +1584,9 @@ int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 	// changes so switching back to a player always runs a fresh burst (not only on first UI set).
 	if (spectatedSteamId != 0 && spectatedSteamId != m_lastGloveSpectatedSid) {
 		if (MvmDebugLog_Active()) {
-			char data[128];
-			std::snprintf(data, sizeof(data),
-				"\"from\":%llu,\"to\":%llu",
+			MvmDebugLog_LinefAlways("cosmetics.diag",
+				"hyp=H8 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=glove_rearm_spectate_change from=%llu to=%llu",
 				(unsigned long long)m_lastGloveSpectatedSid, (unsigned long long)spectatedSteamId);
-			MvmAgentLog("H8", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics",
-				"glove_rearm_spectate_change", data);
 		}
 		m_lastGloveSpectatedSid = spectatedSteamId;
 		CosmeticProfile* sp = m_store.Find(spectatedSteamId);
@@ -1665,13 +1661,10 @@ int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 			const bool stickyBurst = (spectatedSteamId == 0 && m_lastSpectatedSteamId == steamId && st.frames > 0);
 			if (!spectatedMatch && !uiBypass && !stickyBurst) {
 				if (MvmDebugLog_Active() && (m_lastStats.frame % 64) == 0) {
-					char data[200];
-					std::snprintf(data, sizeof(data),
-						"\"steamId\":%llu,\"spectated\":%llu,\"uiBypass\":%d,\"sticky\":%d,\"framesLeft\":%d",
+					MvmDebugLog_LinefAlways("cosmetics.diag",
+						"hyp=H7 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=glove_skip_not_spectated steamId=%llu spectated=%llu uiBypass=%d sticky=%d framesLeft=%d",
 						(unsigned long long)steamId, (unsigned long long)spectatedSteamId,
 						uiBypass ? 1 : 0, stickyBurst ? 1 : 0, st.frames);
-					MvmAgentLog("H7", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics",
-						"glove_skip_not_spectated", data);
 				}
 				continue;
 			}
@@ -1685,10 +1678,9 @@ int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 				if (armRecreate) {
 					st.frames = 4;
 					if (MvmDebugLog_Active()) {
-						char data[96];
-						std::snprintf(data, sizeof(data), "\"steamId\":%llu", (unsigned long long)steamId);
-						MvmAgentLog("H8", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics",
-							"glove_rearm_pawn_recreate", data);
+						MvmDebugLog_LinefAlways("cosmetics.diag",
+							"hyp=H8 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=glove_rearm_pawn_recreate steamId=%llu",
+							(unsigned long long)steamId);
 					}
 				} else {
 					st.frames = 0;
@@ -1703,12 +1695,9 @@ int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 			// Spectate/player-switch recreates the pawn with team=0 briefly -- defer writes until valid.
 			if (team != 2 && team != 3) {
 				if (MvmDebugLog_Active() && (m_lastStats.frame % 32) == 0) {
-					char data[128];
-					std::snprintf(data, sizeof(data),
-						"\"steamId\":%llu,\"team\":%u,\"framesLeft\":%d",
+					MvmDebugLog_LinefAlways("cosmetics.diag",
+						"hyp=H9 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=glove_skip_team_unready steamId=%llu team=%u framesLeft=%d",
 						(unsigned long long)steamId, (unsigned)team, st.frames);
-					MvmAgentLog("H9", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics",
-						"glove_skip_team_unready", data);
 				}
 				continue;
 			}
@@ -1730,13 +1719,10 @@ int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 				if (liveDef != prof->gloves.defIndex || engineWantsReapply) {
 					st.frames = 4;
 					if (MvmDebugLog_Active()) {
-						char data[160];
-						std::snprintf(data, sizeof(data),
-							"\"steamId\":%llu,\"liveDef\":%d,\"wantDef\":%d,\"engineReapply\":%d",
+						MvmDebugLog_LinefAlways("cosmetics.diag",
+							"hyp=H8 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=glove_rearm_live_mismatch steamId=%llu liveDef=%d wantDef=%d engineReapply=%d",
 							(unsigned long long)steamId, liveDef, prof->gloves.defIndex,
 							engineWantsReapply ? 1 : 0);
-						MvmAgentLog("H8", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics",
-							"glove_rearm_live_mismatch", data);
 					}
 				}
 			}
@@ -1762,13 +1748,10 @@ int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 				if (composePaint)
 					--m_constructPaintBudget;
 				if (MvmDebugLog_Active()) {
-					char data[360];
-					std::snprintf(data, sizeof(data),
-						"\"steamId\":%llu,\"wantDef\":%d,\"wantPaint\":%d,\"framesLeft\":%d,\"pawn\":%llu,"
-						"\"team\":%u,\"composePaint\":%d,\"pawnStable\":%d",
+					MvmDebugLog_LinefAlways("cosmetics.diag",
+						"hyp=H6 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=glove_apply_fire steamId=%llu wantDef=%d wantPaint=%d framesLeft=%d pawn=%llu team=%u composePaint=%d pawnStable=%d",
 						(unsigned long long)steamId, prof->gloves.defIndex, prof->gloves.paintKit, st.frames,
 						(unsigned long long)(uintptr_t)pawn, (unsigned)team, composePaint ? 1 : 0, st.pawnStable);
-					MvmAgentLog("H6", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics", "glove_apply_fire", data);
 				}
 				if (ApplyGloveModel(pawn, prof->gloves.defIndex, prof->gloves.paintKit,
 						prof->gloves.wear, prof->gloves.seed, (uint32_t)steamId, composePaint)) {
@@ -1781,11 +1764,9 @@ int CosmeticOverrideSystem::ApplyPawnCosmetics() {
 				}
 				--st.frames;
 			} else if (MvmDebugLog_Active() && (m_lastStats.frame % 128) == 0) {
-				char data[192];
-				std::snprintf(data, sizeof(data),
-					"\"steamId\":%llu,\"wantDef\":%d,\"framesLeft\":0,\"sig\":%llu",
+				MvmDebugLog_LinefAlways("cosmetics.diag",
+					"hyp=H6 loc=CosmeticOverrideSystem.cpp:ApplyPawnCosmetics msg=glove_gate_idle steamId=%llu wantDef=%d framesLeft=0 sig=%llu",
 					(unsigned long long)steamId, prof->gloves.defIndex, (unsigned long long)st.sig);
-				MvmAgentLog("H6", "CosmeticOverrideSystem.cpp:ApplyPawnCosmetics", "glove_gate_idle", data);
 			}
 		}
 	}

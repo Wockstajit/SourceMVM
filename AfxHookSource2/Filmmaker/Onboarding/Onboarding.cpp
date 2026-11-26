@@ -8,6 +8,7 @@
 #include "../../WrpConsole.h"
 #include "../../../Shared/AfxConsole.h"
 
+#include <atomic>
 #include <cstdlib>
 #include <mutex>
 #include <string>
@@ -37,6 +38,20 @@ bool g_clicksGated = false;
 std::vector<ClickZone> g_clickZones;
 std::vector<ClickZone> g_asstZones; // where Clippy is on screen (`asst ...`), for every step
 std::mutex g_clickMutex; // the window procedure reads the zones; console commands write them
+std::atomic<bool> g_wndOn{ false };
+std::atomic<bool> g_wndClosed{ false };
+std::atomic<bool> g_wndLocked{ false };
+std::atomic<int> g_wndAllowedMask{ 0 };
+
+void SyncWndState() {
+	g_wndOn.store(g_state.on, std::memory_order_release);
+	g_wndClosed.store(g_state.closed, std::memory_order_release);
+	g_wndLocked.store(g_state.locked, std::memory_order_release);
+	int mask = 0;
+	for (int i = 0; i < kLockKeyCount; ++i)
+		if (g_allowed[i]) mask |= (1 << i);
+	g_wndAllowedMask.store(mask, std::memory_order_release);
+}
 
 // The routes the panel script has lessons for (Panorama/OnboardingRoutesJs.h). Anything else is
 // rejected rather than shown as an empty bubble. cs2 / app are the two opening paths;
@@ -54,6 +69,7 @@ const char* CanonicalRoute(const char* name) {
 
 void Changed(const char* why) {
 	++g_state.rev;
+	SyncWndState();
 	// The tutorial runs as a practice session: defaults in, nothing saved, everything read back
 	// when it is switched off (PracticeSession.h). The close question keeps it running.
 	if (g_state.on) PracticeSession_Begin();
@@ -100,7 +116,7 @@ void Onboarding_PlayToDone() { g_state.playToTick = -1; }
 void Onboarding_SeekIssued() { g_state.seekTick = -1; }
 
 bool Onboarding_ClickOnAssistant(int clientX, int clientY, int clientW, int clientH) {
-	if (!g_state.on || clientW <= 0 || clientH <= 0) return false;
+	if (!g_wndOn.load(std::memory_order_acquire) || clientW <= 0 || clientH <= 0) return false;
 	std::lock_guard<std::mutex> lock(g_clickMutex);
 	const float fx = (float)clientX / clientW, fy = (float)clientY / clientH;
 	for (const ClickZone& z : g_asstZones)
@@ -109,12 +125,16 @@ bool Onboarding_ClickOnAssistant(int clientX, int clientY, int clientW, int clie
 }
 
 bool Onboarding_BlocksClick(int clientX, int clientY, int clientW, int clientH) {
-	if (!g_state.on || g_state.closed || !g_state.locked || !g_clicksGated) return false;
+	if (!g_wndOn.load(std::memory_order_acquire)
+		|| g_wndClosed.load(std::memory_order_acquire)
+		|| !g_wndLocked.load(std::memory_order_acquire))
+		return false;
 	// A camera path playing: a click anywhere is how the user gets the mouse back, and the
 	// director swallows it before anything else sees it (MovieMode::OnUiClick).
 	if (CameraPathRef().GetMode() == CameraPath::Mode::PreviewPlaying) return false;
 	if (clientW <= 0 || clientH <= 0) return false;
 	std::lock_guard<std::mutex> lock(g_clickMutex);
+	if (!g_clicksGated) return false;
 	const float fx = (float)clientX / clientW, fy = (float)clientY / clientH;
 	for (const ClickZone& z : g_clickZones)
 		if (fx >= z.x0 && fx <= z.x1 && fy >= z.y0 && fy <= z.y1) return false;
@@ -122,9 +142,13 @@ bool Onboarding_BlocksClick(int clientX, int clientY, int clientW, int clientH) 
 }
 
 bool Onboarding_BlocksKey(int vkey) {
-	if (!g_state.on || g_state.closed || !g_state.locked) return false;
+	if (!g_wndOn.load(std::memory_order_acquire)
+		|| g_wndClosed.load(std::memory_order_acquire)
+		|| !g_wndLocked.load(std::memory_order_acquire))
+		return false;
+	const int mask = g_wndAllowedMask.load(std::memory_order_acquire);
 	for (int i = 0; i < kLockKeyCount; ++i)
-		if (kLockKeys[i].vkey == vkey) return !g_allowed[i];
+		if (kLockKeys[i].vkey == vkey) return (mask & (1 << i)) == 0;
 	return false;
 }
 
@@ -216,6 +240,7 @@ void Onboarding_RunCommand(int argc, advancedfx::ICommandArgs* args, const char*
 		for (int arg = firstArg + 2; on && arg < argc; ++arg)
 			for (int i = 0; i < kLockKeyCount; ++i)
 				if (0 == _stricmp(args->ArgV(arg), kLockKeys[i].name)) g_allowed[i] = true;
+		SyncWndState();
 		if (MvmDebugLog_Active()) {
 			std::string keys;
 			for (int i = 0; i < kLockKeyCount; ++i) if (g_allowed[i]) { keys += ' '; keys += kLockKeys[i].name; }

@@ -9,7 +9,7 @@
 #include "../../SchemaSystem.h"          // g_clientDllOffsets
 #include "../../Globals.h"               // getFunctionStart
 #include "../Debug/MvmDebugLog.h"
-#include "CosmeticEntityAccess.h"           // MvmDebugLog_* + MvmAgentLog + MvmCrashWatch_Arm
+#include "CosmeticEntityAccess.h"           // MvmDebugLog_* + MvmCrashWatch_Arm
 
 #include "../../../Shared/binutils.h"
 
@@ -295,8 +295,10 @@ bool SafeApplyGloves(unsigned char* pawn, int gloveDef, int paintKit, float wear
 			o.C_EconItemView.m_bRestoreCustomMaterialAfterPrecache ? 1 : 0,
 			o.C_EconItemView.m_iItemID ? 1 : 0,
 			dFaulted);
-		MvmAgentLog(liveDef == gloveDef && (paintKit <= 0 || livePaint == paintKit) ? "H5" : "H4",
-			"CosmeticModelSwap.cpp:SafeApplyGloves", "apply_done", data);
+		MvmDebugLog_LinefAlways("cosmetics.diag",
+			"hyp=%s loc=CosmeticModelSwap.cpp:SafeApplyGloves msg=apply_done data={%s}",
+			(liveDef == gloveDef && (paintKit <= 0 || livePaint == paintKit)) ? "H5" : "H4",
+			data);
 		if (trace)
 			MvmDebugLog_LinefAlways("glove.swap", "END idx=%d coreFault=%d bodyFault=%d arms=%d compose=%d",
 				pawnIdx, dCoreFaulted, dBodyFaulted, armsResolved ? 1 : 0, composePaintKit ? 1 : 0);
@@ -505,8 +507,9 @@ bool ApplyGloveModel(unsigned char* pawn, int gloveDef, int paintKit, float wear
 	ResolveModelSwapFns();
 	if (!pawn || gloveDef <= 0) {
 		if (MvmDebugLog_Active())
-			MvmAgentLog("H3", "CosmeticModelSwap.cpp:ApplyGloveModel", "bad_args",
-				pawn ? "\"pawn\":1" : "\"pawn\":0");
+			MvmDebugLog_LinefAlways("cosmetics.diag",
+				"hyp=H3 loc=CosmeticModelSwap.cpp:ApplyGloveModel msg=bad_args data={\"pawn\":%d}",
+				pawn ? 1 : 0);
 		return false;
 	}
 	return SafeApplyGloves(pawn, gloveDef, paintKit, wear, seed, accountId, composePaintKit);

@@ -210,7 +210,11 @@ void AimCrosshairHud::RunFrame() {
 		m_wasEnabled = active;
 	}
 
-	unsigned char* hud = active ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
+	unsigned char* liveHud = AfxHookSource2_GetPanoramaHudPanel();
+	if (!liveHud || liveHud != m_hudPanel) {
+		m_bridge.SetContextPanel(nullptr);
+	}
+	unsigned char* hud = active ? liveHud : nullptr;
 	if (!hud) { Teardown(); return; }
 	if (hud != m_hudPanel) { m_hudPanel = hud; m_built = false; }
 	// A language change rebuilds the script, which is what re-reads its text (Localization.h).

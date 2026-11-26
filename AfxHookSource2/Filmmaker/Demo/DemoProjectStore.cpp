@@ -4,6 +4,7 @@
 
 #include "../Debug/MvmDebugLog.h"
 #include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
+#include "../Platform/AtomicFile.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
 #include "../Platform/TextEncoding.h"
@@ -101,10 +102,7 @@ bool SaveIndexLocked(const std::wstring& root) {
 	}
 	json.EndArray();
 	json.EndObject();
-	std::ofstream out(path, std::ios::binary | std::ios::trunc);
-	if (!out) return false;
-	out.write(json.Str().data(), (std::streamsize)json.Str().size());
-	return (bool)out;
+	return ::Filmmaker::WriteFileAtomic(path.wstring(), json.Str()) == ERROR_SUCCESS;
 }
 
 // The "project" section payload: {"game":"cs2"|"deadlock","demoPath":"<utf8>"}.
@@ -128,16 +126,7 @@ bool ReadFileBytes(const fs::path& path, std::string& out) {
 
 // Temp file in the same folder, flushed, then renamed over the target.
 bool WriteFileAtomic(const fs::path& target, const std::string& bytes) {
-	const fs::path temp = fs::path(target.wstring() + L".tmp");
-	HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr,
-		CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-	if (file == INVALID_HANDLE_VALUE) return false;
-	DWORD wrote = 0;
-	const bool ok = WriteFile(file, bytes.data(), (DWORD)bytes.size(), &wrote, nullptr)
-		&& wrote == bytes.size() && FlushFileBuffers(file);
-	CloseHandle(file);
-	const bool published = ok && MoveFileExW(temp.c_str(), target.c_str(),
-		MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+	const bool published = ::Filmmaker::WriteFileAtomic(target.wstring(), bytes) == ERROR_SUCCESS;
 	if (published) InvalidateDemoProjectPathCache();
 	return published;
 }

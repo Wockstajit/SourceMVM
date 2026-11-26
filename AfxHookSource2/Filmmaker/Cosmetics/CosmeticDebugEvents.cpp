@@ -10,7 +10,7 @@
 #include "CosmeticCatalog.h"
 #include "CosmeticModelSwap.h"
 #include "CosmeticDebugInternal.h" // shared SEH-guarded POD readers (implemented in CosmeticDebug.cpp)
-#include "../Debug/MvmDebugLog.h"      // MvmDebugLog_Active / MvmDebugLog_LinefAlways / MvmAgentLog
+#include "../Debug/MvmDebugLog.h"      // MvmDebugLog_Active / MvmDebugLog_LinefAlways
 #include "CosmeticGloveLabels.h"
 
 #include "../../ClientEntitySystem.h" // CEntityInstance, entity-list globals, CBaseHandle
@@ -369,12 +369,6 @@ void Cosmetics_LogGlovePick(uint64_t steamId, int newDef, int newPaint, float ne
 		newDef, newPaint, newWear, newSeed,
 		liveBefore.ok ? liveBefore.def : -1, liveBefore.ok ? liveBefore.paint : -1,
 		liveBefore.ok ? liveBefore.wear : -1.0f);
-
-	char data[384];
-	std::snprintf(data, sizeof(data),
-		"\"player\":\"%s\",\"steamId\":%llu,\"before\":\"%s\",\"after\":\"%s\",\"wantDef\":%d,\"wantPaint\":%d",
-		nameDisp, (unsigned long long)steamId, beforeLabel.c_str(), afterLabel.c_str(), newDef, newPaint);
-	MvmAgentLog("DBG", "CosmeticDebugEvents.cpp:LogGlovePick", "glove_pick", data);
 }
 
 void Cosmetics_LogWeaponPick(uint64_t steamId, int defIndex, int newPaint, float newWear, int newSeed, int statTrak) {
@@ -408,13 +402,6 @@ void Cosmetics_LogWeaponPick(uint64_t steamId, int defIndex, int newPaint, float
 		(unsigned)sys.CurrentObserverMode(),
 		beforePaint, beforeLegacy, newPaint, wantLegacy, (unsigned long long)wantMask,
 		newWear, newSeed, statTrak);
-	char data[512];
-	std::snprintf(data, sizeof(data),
-		"\"player\":\"%s\",\"steamId\":%llu,\"def\":%d,\"idx\":%d,\"obs\":%u,"
-		"\"beforePaint\":%d,\"beforeLegacy\":%d,\"wantPaint\":%d,\"wantLegacy\":%d,\"wantMask\":%llu",
-		nameDisp, (unsigned long long)steamId, defIndex, weaponIdx, (unsigned)sys.CurrentObserverMode(),
-		beforePaint, beforeLegacy, newPaint, wantLegacy, (unsigned long long)wantMask);
-	MvmAgentLog("FP-VM", "CosmeticDebugEvents.cpp:LogWeaponPick", "weapon_pick", data);
 }
 
 void Cosmetics_LogSpectateTargetChange(uint64_t fromSteamId, uint64_t toSteamId, const char* reason) {
@@ -441,13 +428,6 @@ void Cosmetics_LogSpectateTargetChange(uint64_t fromSteamId, uint64_t toSteamId,
 		reason ? reason : "?", (unsigned)sys.CurrentObserverMode(), sys.CurrentSpectatedPawnIndex(),
 		fromName.c_str(), (unsigned long long)fromSteamId, fromGloves.c_str(),
 		toName.c_str(), (unsigned long long)toSteamId, toGloves.c_str(), toProfiled, gloveRearm);
-
-	char data[384];
-	std::snprintf(data, sizeof(data),
-		"\"reason\":\"%s\",\"fromName\":\"%s\",\"fromSteam\":%llu,\"toName\":\"%s\",\"toSteam\":%llu,\"gloveRearm\":%d",
-		reason ? reason : "?", fromName.c_str(), (unsigned long long)fromSteamId,
-		toName.c_str(), (unsigned long long)toSteamId, gloveRearm);
-	MvmAgentLog("DBG", "CosmeticDebugEvents.cpp:LogSpectateSwitch", "spectate_switch", data);
 }
 
 // Emit ONE full snapshot of the currently-spectated player's LIVE equipped cosmetics into the

@@ -1,5 +1,6 @@
 #include "DemoOrganizerStore.h"
 
+#include "../Platform/AtomicFile.h"
 #include "../Platform/TextEncoding.h"
 #include "../../hlaeFolder.h"
 
@@ -7,6 +8,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <cstdlib>
+#include <sstream>
 
 namespace Filmmaker {
 
@@ -142,20 +144,21 @@ void DemoOrganizerStore::Load() {
 }
 
 bool DemoOrganizerStore::Save() const {
-	std::ofstream f(std::filesystem::path(FilePath()), std::ios::binary | std::ios::trunc);
-	if (!f.is_open())
-		return false;
-	f << "v 1\n";
-	f << "sort " << m_sort << "\n";
-	f << "rootcollapsed " << (m_rootCollapsed ? 1 : 0) << "\n";
+	const std::filesystem::path file(FilePath());
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+	std::ostringstream out;
+	out << "v 1\n";
+	out << "sort " << m_sort << "\n";
+	out << "rootcollapsed " << (m_rootCollapsed ? 1 : 0) << "\n";
 	for (const auto& g : m_groups)
-		f << "g " << g.id << " " << (g.collapsed ? 1 : 0) << " " << g.name << "\n";
+		out << "g " << g.id << " " << (g.collapsed ? 1 : 0) << " " << g.name << "\n";
 	for (const auto& r : m_records) {
 		if (r.lastPlayed <= 0 && r.groupId < 0)
 			continue;
-		f << "p " << r.lastPlayed << " " << r.groupId << " " << WideToUtf8(r.key) << "\n";
+		out << "p " << r.lastPlayed << " " << r.groupId << " " << WideToUtf8(r.key) << "\n";
 	}
-	return true;
+	return WriteFileAtomic(file.wstring(), out.str()) == ERROR_SUCCESS;
 }
 
 bool DemoOrganizerStore::SetSort(const std::string& mode) {

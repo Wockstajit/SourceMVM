@@ -328,11 +328,9 @@ void DoPlayer(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 		Cosmetics_LogGlovePick(id, defIndex, paintKit, wear, seed);
 		CosmeticsRef().SetGloves(id, defIndex, paintKit, wear, seed);
 		if (MvmDebugLog_Active()) {
-			char data[256];
-			std::snprintf(data, sizeof(data),
-				"\"steamId\":%llu,\"wantDef\":%d,\"wantPaint\":%d,\"wantWear\":%.4f,\"wantSeed\":%d",
+			MvmDebugLog_LinefAlways("cosmetics.diag",
+				"hyp=H2 loc=CosmeticCommands.cpp:SetGloves msg=profile_set data={\"steamId\":%llu,\"wantDef\":%d,\"wantPaint\":%d,\"wantWear\":%.4f,\"wantSeed\":%d}",
 				(unsigned long long)id, defIndex, paintKit, wear, seed);
-			MvmAgentLog("H2", "CosmeticCommands.cpp:SetGloves", "profile_set", data);
 		}
 		advancedfx::Message("%s cosmetics: gloves steamId=%llu def=%d paint=%d wear=%.4f seed=%d.\n",
 			cmd, (unsigned long long)id, defIndex, paintKit, wear, seed);

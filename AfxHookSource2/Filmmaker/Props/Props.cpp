@@ -4,6 +4,7 @@
 #include "Props.h"
 #include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
 #include "PropsMath.h"
+#include "../Platform/AtomicFile.h"
 #include "PropsEffectProfiles.h"
 #include "ClientEntitySpawn.h"
 #include "PropPreview.h"
@@ -310,9 +311,7 @@ void Save() {
 	std::error_code ec;
 	const auto path = StorePath(g_map);
 	std::filesystem::create_directories(path.parent_path(), ec);
-	const auto temp = path.wstring() + L".tmp";
-	{ std::ofstream out(temp, std::ios::binary | std::ios::trunc); out << j.Str(); }
-	std::filesystem::rename(temp, path, ec);
+	WriteFileAtomic(path.wstring(), j.Str());
 }
 
 std::filesystem::path SpawnMarkerPath(const std::string& map) {

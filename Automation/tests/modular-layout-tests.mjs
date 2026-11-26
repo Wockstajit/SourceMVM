@@ -208,7 +208,7 @@ test('a demo_gototick seek does not tear the header bar down, or the TIMELINE do
   const camtl = read('Panorama', 'CameraTimelineHud.cpp');
   const camtlH = read('Panorama', 'CameraTimelineHud.h');
   assert.match(camtlH, /bool DemoActive\(\) const \{ return m_demoActive; \}/);
-  assert.match(camtl, /m_demoActive = PlayingDemo\(\);\s*unsigned char\* hud = m_demoActive \?/, 'the debounced reading, once a frame');
+  assert.match(camtl, /m_demoActive = PlayingDemo\(\);[\s\S]{0,240}?unsigned char\* hud = m_demoActive \? liveHud/, 'the debounced reading, once a frame');
   assert.match(headerHud, /const bool playingDemo = CameraTimelineHudRef\(\)\.DemoActive\(\);/);
   assert.doesNotMatch(headerHud, /IsPlayingDemo\(\)/, 'no raw reading of its own');
   assert.match(filmmaker, /CameraTimelineHudRef\(\)\.RunFrame\(\);[\s\S]*WorkspaceHeaderHudRef\(\)\.RunFrame\(\);/, 'the timeline pumps first');

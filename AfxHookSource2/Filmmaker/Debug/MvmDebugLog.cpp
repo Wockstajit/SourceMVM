@@ -15,9 +15,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <winhttp.h>
 #include <winioctl.h>
-#pragma comment(lib, "winhttp.lib")
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
@@ -32,75 +30,6 @@
 #include <thread>
 
 namespace Filmmaker {
-
-// Cursor Debug Logs panel reads NDJSON from the local ingest server (127.0.0.1:7571). Optional file
-// mirror via MVM_AGENT_DEBUG_LOG / MVM_AGENT_LOG / CURSOR_DEBUG_LOG env vars (workspace debug-af2ef9.log).
-namespace {
-constexpr wchar_t kAgentIngestHost[] = L"127.0.0.1";
-constexpr INTERNET_PORT kAgentIngestPort = 7571;
-constexpr wchar_t kAgentIngestPath[] =
-	L"/ingest/5987dfd1-d151-4549-a5c3-03dddc72dd02";
-constexpr wchar_t kAgentIngestHdr[] =
-	L"Content-Type: application/json\r\nX-Debug-Session-Id: af2ef9\r\n";
-
-DWORD WINAPI AgentLogHttpThread(LPVOID param) {
-	char* body = (char*)param;
-	if (!body)
-		return 0;
-	HINTERNET ses = WinHttpOpen(L"MvmAgentLog/1", WINHTTP_ACCESS_TYPE_NO_PROXY,
-		WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-	if (ses) {
-		HINTERNET conn = WinHttpConnect(ses, kAgentIngestHost, kAgentIngestPort, 0);
-		if (conn) {
-			HINTERNET req = WinHttpOpenRequest(conn, L"POST", kAgentIngestPath,
-				nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
-			if (req) {
-				const DWORD bodyLen = (DWORD)std::strlen(body);
-				if (WinHttpSendRequest(req, kAgentIngestHdr, (DWORD)-1L, body, bodyLen, bodyLen, 0))
-					WinHttpReceiveResponse(req, nullptr);
-				WinHttpCloseHandle(req);
-			}
-			WinHttpCloseHandle(conn);
-		}
-		WinHttpCloseHandle(ses);
-	}
-	free(body);
-	return 0;
-}
-
-void PostAgentLogAsync(const char* line, int lineLen) {
-	if (!line || lineLen <= 0 || lineLen >= 2040)
-		return;
-	char* copy = (char*)malloc((size_t)lineLen + 1);
-	if (!copy)
-		return;
-	memcpy(copy, line, (size_t)lineLen);
-	copy[lineLen] = '\0';
-	HANDLE th = CreateThread(nullptr, 0, AgentLogHttpThread, copy, 0, nullptr);
-	if (th)
-		CloseHandle(th);
-	else
-		free(copy);
-}
-
-void WrapAgentDataJson(const char* dataJson, char* out, size_t outSize) {
-	if (!out || outSize < 3) {
-		if (out && outSize > 0)
-			out[0] = '\0';
-		return;
-	}
-	if (!dataJson || !*dataJson) {
-		std::snprintf(out, outSize, "{}");
-		return;
-	}
-	while (*dataJson == ' ' || *dataJson == '\t')
-		++dataJson;
-	if (dataJson[0] == '{')
-		std::snprintf(out, outSize, "%s", dataJson);
-	else
-		std::snprintf(out, outSize, "{%s}", dataJson);
-}
-} // namespace (agent helpers)
 
 namespace {
 FILE* g_file = nullptr;
@@ -509,51 +438,6 @@ void MvmDebugLog_LinefAlways(const char* category, const char* fmt, ...) {
 	va_start(ap, fmt);
 	LineV(category, /*dedup=*/false, fmt, ap);
 	va_end(ap);
-}
-
-// Cursor/agent NDJSON hook: POSTs to the Cursor debug ingest server for the chat Debug Logs panel,
-// optionally mirrors to env-configured file paths, and copies to mvm_debug category "agent" when active.
-void MvmAgentLog(const char* hypothesisId, const char* location, const char* message, const char* dataJson) {
-	if (!hypothesisId || !location || !message)
-		return;
-
-	char dataObj[1024];
-	WrapAgentDataJson(dataJson, dataObj, sizeof(dataObj));
-
-	const unsigned long long ts = (unsigned long long)GetTickCount64();
-	char line[2048];
-	int n = std::snprintf(line, sizeof(line),
-		"{\"sessionId\":\"af2ef9\",\"timestamp\":%llu,\"hypothesisId\":\"%s\",\"location\":\"%s\",\"message\":\"%s\",\"data\":%s}\n",
-		ts, hypothesisId, location, message, dataObj);
-	if (n <= 0 || n >= (int)sizeof(line))
-		return;
-
-	if (MvmDebugLog_Active()) {
-		MvmDebugLog_LinefAlways("agent", "hyp=%s loc=%s msg=%s data=%s",
-			hypothesisId, location, message, dataObj);
-	}
-
-	PostAgentLogAsync(line, n);
-
-	static std::mutex s_agentMutex;
-	std::lock_guard<std::mutex> lock(s_agentMutex);
-
-	char envPath[MAX_PATH * 4] = {};
-	DWORD envLen = GetEnvironmentVariableA("MVM_AGENT_LOG", envPath, (DWORD)sizeof(envPath));
-	if (envLen == 0)
-		envLen = GetEnvironmentVariableA("MVM_AGENT_DEBUG_LOG", envPath, (DWORD)sizeof(envPath));
-	if (envLen == 0)
-		envLen = GetEnvironmentVariableA("CURSOR_DEBUG_LOG", envPath, (DWORD)sizeof(envPath));
-	if (envLen > 0 && envLen < sizeof(envPath)) {
-		wchar_t pathW[MAX_PATH * 4] = {};
-		if (MultiByteToWideChar(CP_UTF8, 0, envPath, -1, pathW, (int)(sizeof(pathW) / sizeof(pathW[0]))) > 0) {
-			FILE* f = nullptr;
-			if (_wfopen_s(&f, pathW, L"ab") == 0 && f) {
-				fwrite(line, 1, (size_t)n, f);
-				fclose(f);
-			}
-		}
-	}
 }
 
 void MvmCrashWatch_Arm(int entityIndex, const char* model) {

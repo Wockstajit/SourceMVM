@@ -88,7 +88,11 @@ void WorkspaceHeaderHud::RunFrame() {
 	// no demo for a few frames, and taking that raw tore the bar down on every seek -- and with it
 	// the TIMELINE dock it hosts, ending the scrub that caused the seek (Codex review on #137).
 	const bool playingDemo = CameraTimelineHudRef().DemoActive();
-	unsigned char* hud = (playingDemo && UiLayout_Modular()) ? AfxHookSource2_GetPanoramaHudPanel() : nullptr;
+	unsigned char* liveHud = AfxHookSource2_GetPanoramaHudPanel();
+	if (!liveHud || liveHud != m_hudPanel) {
+		m_bridge.SetContextPanel(nullptr);
+	}
+	unsigned char* hud = (playingDemo && UiLayout_Modular()) ? liveHud : nullptr;
 	if (!hud) {
 		Teardown();
 		m_bridge.SetContextPanel(nullptr);

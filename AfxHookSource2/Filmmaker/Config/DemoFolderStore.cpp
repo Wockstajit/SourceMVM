@@ -1,11 +1,13 @@
 #include "DemoFolderStore.h"
 
+#include "../Platform/AtomicFile.h"
 #include "../Platform/TextEncoding.h"
 #include "../../hlaeFolder.h"
 
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
+#include <sstream>
 
 namespace Filmmaker {
 
@@ -51,13 +53,14 @@ void DemoFolderStore::Load() {
 }
 
 bool DemoFolderStore::Save() const {
-	std::ofstream f(std::filesystem::path(FilePath()), std::ios::binary | std::ios::trunc);
-	if (!f.is_open())
-		return false;
+	const std::filesystem::path file(FilePath());
+	std::error_code ec;
+	std::filesystem::create_directories(file.parent_path(), ec);
+	std::ostringstream out;
 	for (const auto& folder : m_folders) {
-		f << WideToUtf8(folder) << "\n";
+		out << WideToUtf8(folder) << "\n";
 	}
-	return true;
+	return WriteFileAtomic(file.wstring(), out.str()) == ERROR_SUCCESS;
 }
 
 bool DemoFolderStore::Add(const std::wstring& folder) {

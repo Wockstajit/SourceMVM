@@ -3,6 +3,7 @@
 #include "RelightLightEditorMath.h"
 #include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Debug/MvmDebugLog.h"
+#include "../Platform/AtomicFile.h"
 #include "../Config/PracticeSessionFlag.h" // a practice session writes nothing
 #include <cstdlib>
 #include <wrl/client.h>
@@ -56,8 +57,9 @@ void SaveLocked() {
     const auto path = ChoicesPath(g_map);
     if (g_off.empty()) { std::filesystem::remove(path, error); return; }
     std::filesystem::create_directories(path.parent_path(), error);
-    std::ofstream out(path, std::ios::trunc);
-    for (const auto& key : g_off) out << key << '\n';
+    std::string text;
+    for (const auto& key : g_off) { text += key; text += '\n'; }
+    WriteFileAtomic(path.wstring(), text);
 }
 
 // ---- markers ----

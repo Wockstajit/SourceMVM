@@ -132,17 +132,35 @@ std::string RunCaptureStdout(const std::wstring& exe, const std::wstring& arg,
 	std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
 	cmdBuf.push_back(L'\0');
 
-	STARTUPINFOW si{};
-	si.cb = sizeof(si);
-	si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-	si.wShowWindow = SW_HIDE;
-	si.hStdOutput = writePipe;
-	si.hStdError = (nulHandle != INVALID_HANDLE_VALUE) ? nulHandle : writePipe;
-	si.hStdInput = nullptr;
+	STARTUPINFOEXW si{};
+	si.StartupInfo.cb = sizeof(si);
+	si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+	si.StartupInfo.wShowWindow = SW_HIDE;
+	si.StartupInfo.hStdOutput = writePipe;
+	si.StartupInfo.hStdError = (nulHandle != INVALID_HANDLE_VALUE) ? nulHandle : writePipe;
+	si.StartupInfo.hStdInput = nullptr;
+
+	HANDLE inheritList[2] = { writePipe, nulHandle };
+	DWORD inheritCount = (nulHandle != INVALID_HANDLE_VALUE) ? 2 : 1;
+	std::vector<unsigned char> attrBuf;
+	SIZE_T attrBytes = 0;
+	InitializeProcThreadAttributeList(nullptr, 1, 0, &attrBytes);
+	if (attrBytes > 0) {
+		attrBuf.resize(attrBytes);
+		auto list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrBuf.data());
+		if (InitializeProcThreadAttributeList(list, 1, 0, &attrBytes) &&
+			UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+				inheritList, sizeof(HANDLE) * inheritCount, nullptr, nullptr)) {
+			si.lpAttributeList = list;
+		}
+	}
 
 	PROCESS_INFORMATION pi{};
+	const DWORD creationFlags = CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+		| (si.lpAttributeList ? EXTENDED_STARTUPINFO_PRESENT : 0);
 	BOOL ok = CreateProcessW(exe.c_str(), cmdBuf.data(), nullptr, nullptr, TRUE,
-		CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+		creationFlags, nullptr, nullptr, &si.StartupInfo, &pi);
+	if (si.lpAttributeList) DeleteProcThreadAttributeList(si.lpAttributeList);
 	CloseHandle(writePipe); // parent keeps only the read end
 	if (nulHandle != INVALID_HANDLE_VALUE)
 		CloseHandle(nulHandle);

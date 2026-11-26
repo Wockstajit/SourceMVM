@@ -534,16 +534,11 @@ int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t mes
 			entityIndex, (void*)arms, hres.armsIdx, hres.source, hres.hudArmsEntities,
 			wantClass ? wantClass : "?", wantBodyChoice, model ? model : "", (unsigned long long)meshMask);
 	bool matchedAny = false;
-	// #region agent log
-	{
-		char adata[384];
-		std::snprintf(adata, sizeof(adata),
-			"\"worldIdx\":%d,\"armsIdx\":%d,\"armsSrc\":\"%s\",\"wantClass\":\"%s\",\"wantModel\":\"%s\",\"wantBody\":\"%s\",\"mask\":%llu",
+	if (trace)
+		MvmDebugLog_LinefAlways("cosmetics.weapon.vm",
+			"vm_walk_begin worldIdx=%d armsIdx=%d armsSrc='%s' wantClass='%s' wantModel='%s' wantBody='%s' mask=%llu",
 			entityIndex, hres.armsIdx, hres.source ? hres.source : "?", wantClass ? wantClass : "?",
 			wantModel, wantBodyChoice ? wantBodyChoice : "?", (unsigned long long)meshMask);
-		MvmAgentLog("FP-VM", "CosmeticModelSwap.cpp:RefreshViewmodelWeapons", "vm_walk_begin", adata);
-	}
-	// #endregion
 
 	// Per-child breadcrumbs are written + flushed BEFORE each renderable is touched, so if the crash is
 	// in a half-built viewmodel during a switch, the LAST "knife.vm child" line names the exact child
@@ -579,17 +574,6 @@ int RefreshViewmodelWeapons(unsigned char* pawn, const char* model, uint64_t mes
 						wantBodyChoice, classMatch ? 1 : 0, modelMatch ? 1 : 0, sameWeapon ? 1 : 0,
 						childPaint,
 						(sameWeapon && model && *model) ? 1 : 0, (sameWeapon && meshMask) ? 1 : 0);
-				// #region agent log
-				if (guard < 4) {
-					char adata[512];
-					std::snprintf(adata, sizeof(adata),
-						"\"worldIdx\":%d,\"n\":%d,\"idx\":%d,\"cls\":\"%s\",\"model\":\"%s\",\"wantClass\":\"%s\",\"wantModel\":\"%s\",\"wantBody\":\"%s\",\"classMatch\":%d,\"modelMatch\":%d,\"same\":%d,\"paint\":%d,\"meshWrite\":%d",
-						entityIndex, guard, childIdx, oc ? oc : "?", childModel,
-						wantClass ? wantClass : "?", wantModel, wantBodyChoice ? wantBodyChoice : "?",
-						classMatch ? 1 : 0, modelMatch ? 1 : 0, sameWeapon ? 1 : 0, childPaint, (sameWeapon && meshMask) ? 1 : 0);
-					MvmAgentLog("FP-VM", "CosmeticModelSwap.cpp:RefreshViewmodelWeapons", "vm_child", adata);
-				}
-				// #endregion
 				if (sameWeapon) {
 					matchedAny = true;
 					++matches;
@@ -1016,17 +1000,6 @@ ViewmodelMirrorResult MirrorWeaponCosmeticsToViewmodel(
 					"mirror.child worldIdx=%d n=%d idx=%d cls='%s' model='%s' wantClass='%s' wantModel='%s' wantBody='%s' classMatch=%d modelMatch=%d",
 					worldEntityIndex, guard, childIdx, oc ? oc : "?",
 					childModel, wantClass ? wantClass : "?", wantModel, wantBodyChoice, classMatch ? 1 : 0, modelMatch ? 1 : 0);
-			// #region agent log
-			if (guard < 4) {
-				char adata[384];
-				std::snprintf(adata, sizeof(adata),
-					"\"worldIdx\":%d,\"n\":%d,\"idx\":%d,\"cls\":\"%s\",\"model\":\"%s\",\"wantClass\":\"%s\",\"wantModel\":\"%s\",\"wantBody\":\"%s\",\"classMatch\":%d,\"modelMatch\":%d",
-					worldEntityIndex, guard, childIdx, oc ? oc : "?",
-					childModel, wantClass ? wantClass : "?", wantModel, wantBodyChoice ? wantBodyChoice : "?",
-					classMatch ? 1 : 0, modelMatch ? 1 : 0);
-				MvmAgentLog("FP-VM", "CosmeticModelSwap.cpp:MirrorWeaponCosmeticsToViewmodel", "vm_mirror_child", adata);
-			}
-			// #endregion
 			if (!ViewmodelChildMatchesWeapon(wantClass, wantModel, oc, childModel)) {
 				child = *(void**)((unsigned char*)child + o.CGameSceneNode.m_pNextSibling);
 				continue;
@@ -1073,14 +1046,6 @@ ViewmodelMirrorResult MirrorWeaponCosmeticsToViewmodel(
 					(unsigned long long)r.meshBefore, (unsigned long long)r.meshAfter,
 					r.meshWritten ? 1 : 0, r.namedSetter ? 1 : 0,
 					r.compositeCalled ? 1 : 0, r.compositeFaulted ? 1 : 0);
-				char adata[384];
-				std::snprintf(adata, sizeof(adata),
-					"\"worldIdx\":%d,\"vmIdx\":%d,\"paintBefore\":%d,\"paintAfter\":%d,"
-					"\"meshBefore\":%llu,\"meshAfter\":%llu,\"composite\":%d",
-					worldEntityIndex, r.vmEntityIndex, r.paintBefore, r.paintAfter,
-					(unsigned long long)r.meshBefore, (unsigned long long)r.meshAfter,
-					r.compositeCalled ? 1 : 0);
-				MvmAgentLog("FP-VM", "CosmeticModelSwap.cpp:MirrorWeaponCosmeticsToViewmodel", "vm_mirror", adata);
 			}
 			break; // only the matching active viewmodel class
 		}
