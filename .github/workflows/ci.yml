@@ -1,6 +1,6 @@
 name: CI
 
-# Checks for pull requests into main and release/*, pushes to those branches, merge queue groups,
+# Checks for all pull requests, pushes to main and release/*, merge queue groups,
 # a nightly run and manual runs. Branch protection should require only `ci-gate`: it fails when any
 # job failed or was cancelled, or when a job the change needed did not run. Docs/setup/ci.md
 # explains the job scoping and the build caches. A green CI run does not prove that an in-game
@@ -8,7 +8,6 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, "release/**"]
   push:
     branches: [main, "release/**"]
   merge_group:
@@ -229,6 +228,37 @@ jobs:
 
       - name: CMake - Configure CS2 and Deadlock hooks
         run: cmake --preset $env:PRESET
+      # Give the shader compiler the runner while the other compilers are idle.
+      - name: Build the environment shader bundle
+        if: env.SCOPE == 'all'
+        env:
+          MVM_SHADER_WORKERS: 4
+          MVM_SHADER_TIMES: '1'
+        run: cmake --build --preset $env:PRESET --target EnvironmentShaderBundle --parallel $env:NATIVE_JOBS
+      - name: Stage the environment shader bundle
+        id: shaders-stage
+        if: env.SCOPE == 'all'
+        run: |
+          $bundle = "build\$env:PRESET\AfxHookSource2\Release\environment-shaders"
+          # ready.stamp is written only after every program compiled and verified in this run.
+          if (-not (Test-Path "$bundle\ready.stamp")) { "The shader bundle did not finish in this run."; exit 0 }
+          # Store only the programs the manifest lists, so obsolete entries never accumulate. Stage
+          # into the restore step's folder: actions/cache versions an entry by its path, so a save
+          # from any other path can never be restored.
+          $stage = Join-Path $env:RUNNER_TEMP "environment-shaders"
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Get-Content "$bundle\manifest.txt" | Where-Object { $_ } | ForEach-Object { Copy-Item (Join-Path $bundle $_) $stage }
+          Copy-Item "$bundle\manifest.txt" $stage
+          $hash = (Get-FileHash "$bundle\manifest.txt" -Algorithm SHA256).Hash.Substring(0, 16).ToLowerInvariant()
+          "key=envshaders-v1-$env:RUNNER_OS-$hash" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+      - name: Save the environment shader bundle
+        if: ${{ !cancelled() && steps.shaders-stage.outputs.key != '' && steps.shaders-stage.outputs.key != steps.shaders-restore.outputs.cache-matched-key }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/environment-shaders
+          key: ${{ steps.shaders-stage.outputs.key }}
+
       - name: CMake - Build (${{ needs.changes.outputs.native }})
         run: |
           sccache --zero-stats | Out-Null
@@ -257,29 +287,14 @@ jobs:
           path: ${{ runner.temp }}/sccache
           key: ${{ steps.sccache-restore.outputs.cache-primary-key }}
 
-      - name: Stage the environment shader bundle
-        id: shaders-stage
-        if: ${{ !cancelled() && env.SCOPE == 'all' }}
-        run: |
-          $bundle = "build\$env:PRESET\AfxHookSource2\Release\environment-shaders"
-          # ready.stamp is written only after every program compiled and verified in this run.
-          if (-not (Test-Path "$bundle\ready.stamp")) { "The shader bundle did not finish in this run."; exit 0 }
-          # Store only the programs the manifest lists, so obsolete entries never accumulate. Stage
-          # into the restore step's folder: actions/cache versions an entry by its path, so a save
-          # from any other path can never be restored.
-          $stage = Join-Path $env:RUNNER_TEMP "environment-shaders"
-          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $stage | Out-Null
-          Get-Content "$bundle\manifest.txt" | Where-Object { $_ } | ForEach-Object { Copy-Item (Join-Path $bundle $_) $stage }
-          Copy-Item "$bundle\manifest.txt" $stage
-          $hash = (Get-FileHash "$bundle\manifest.txt" -Algorithm SHA256).Hash.Substring(0, 16).ToLowerInvariant()
-          "key=envshaders-v1-$env:RUNNER_OS-$hash" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
-      - name: Save the environment shader bundle
-        if: ${{ !cancelled() && steps.shaders-stage.outputs.key != '' && steps.shaders-stage.outputs.key != steps.shaders-restore.outputs.cache-matched-key }}
-        uses: actions/cache/save@v4
+      # WARP probes compile their own entry points. Cache bytecode only. CTest still
+      # runs the draws, readbacks and assertions on every runner.
+      - name: Cache environment test shaders
+        if: env.SCOPE == 'all'
+        uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/environment-shaders
-          key: ${{ steps.shaders-stage.outputs.key }}
+          path: ~/AppData/Roaming/HLAE/source_mvm/shader-cache
+          key: test-shaders-v1-${{ runner.os }}-${{ hashFiles('AfxHookSource2/Filmmaker/Environment/**', 'Automation/tests/environment-*.cpp') }}
 
       # The four D3D11 render fixtures take 17 s to 8 minutes on a real GPU and have no GPU here, so
       # they stay local checks (ctest on a dev machine) and in-game verification.
@@ -294,7 +309,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mode == 'full'
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       # An unbounded parallel build starved the runner ("lost communication" after an hour), so cap
       # MSBuild and cargo.

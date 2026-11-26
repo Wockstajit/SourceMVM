@@ -111,7 +111,7 @@ test('reset keeps all saves on a native sidecar directory collision', async () =
   } finally { fs.rmSync(root, {recursive: true, force: true}); }
 });
 
-test('publishExclusiveFile falls back to exclusive copy on EPERM/ENOTSUP/EXDEV', async () => {
+test('publishExclusiveFile falls back to an atomic rename on EPERM/ENOTSUP/EXDEV', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'smvm-save-reset-fallback-'));
   try {
     for (const code of ['EPERM', 'ENOTSUP', 'EXDEV']) {
@@ -124,10 +124,12 @@ test('publishExclusiveFile falls back to exclusive copy on EPERM/ENOTSUP/EXDEV',
           err.code = code;
           throw err;
         },
-        copyFile: fs.promises.copyFile,
+        stat: fs.promises.stat,
+        rename: fs.promises.rename,
       };
       await publishExclusiveFile(tmp, dst, fakeFs);
       assert.equal(fs.readFileSync(dst, 'utf8'), `payload-${code}`);
+      assert.equal(fs.existsSync(tmp), false, 'the complete temporary is renamed, never copied in place');
 
       // Existing file must win with EEXIST instead of overwriting.
       fs.writeFileSync(tmp, 'overwrite-attempt');

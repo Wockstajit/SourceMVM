@@ -38,15 +38,24 @@ function planReset(recordedEpoch) {
   return [...WIPED_DIRECTORIES, ...WIPED_FILES];
 }
 
-// An exclusive hard link publishes the complete same-volume copy atomically on NTFS. On
-// filesystems without hard-link support (exFAT/FAT32) or cross-device targets, fall back to
-// exclusive copy so existing files still win with EEXIST.
+// An exclusive hard link publishes the complete same-volume copy atomically on NTFS. Filesystems
+// without hard links (exFAT/FAT32) and cross-device targets refuse it; there the temporary, which
+// is already a complete copy, is renamed into place. A rename is atomic -- an interruption leaves
+// either no target or the whole file, never a partial one a later reset would accept and then
+// delete the archive behind. Rename replaces, so the target is checked first and an existing one
+// still wins with EEXIST. The reset runs with CS2 closed, so nothing else writes the target in
+// between.
 async function publishExclusiveFile(temporary, target, fsImpl = fsp) {
   try {
     await fsImpl.link(temporary, target);
   } catch (error) {
     if (error && (error.code === 'EPERM' || error.code === 'ENOTSUP' || error.code === 'EXDEV')) {
-      await fsImpl.copyFile(temporary, target, fs.constants.COPYFILE_EXCL);
+      if (await fsImpl.stat(target).then(() => true, () => false)) {
+        const exists = new Error(`EEXIST: file already exists, '${target}'`);
+        exists.code = 'EEXIST';
+        throw exists;
+      }
+      await fsImpl.rename(temporary, target);
       return;
     }
     throw error;
