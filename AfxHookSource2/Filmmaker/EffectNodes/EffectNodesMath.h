@@ -176,6 +176,74 @@ inline Node MakeDefaultNode(int id, NodeType type, float x, float y) {
 	return n;
 }
 
+// Whether a wire from `fromId`'s output into (`toId`, `toPort`) makes sense. The graph editor asks
+// before it connects, so a wire that the compiler would silently ignore or that would loop is
+// refused with a reason instead of leaving the Output dark ("Final Output sometimes doesn't work").
+//   Effect   port 0 = image (from an effect), port 1 = mask (from a mask)
+//   Combine  ports 0 and 1 = masks
+//   Output   port 0 = image only
+//   Masks other than Combine take no input; Output has no output.
+enum class ConnectCheck { Ok, SameNode, MissingNode, NoSuchPort, MaskIntoImage, ImageIntoMask, Cycle };
+
+inline const char* ConnectCheckText(ConnectCheck c) {
+	switch (c) {
+	case ConnectCheck::Ok: return "ok";
+	case ConnectCheck::SameNode: return "a node cannot feed itself";
+	case ConnectCheck::MissingNode: return "no such node";
+	case ConnectCheck::NoSuchPort: return "that node has no such input";
+	case ConnectCheck::MaskIntoImage: return "a mask cannot be the image input";
+	case ConnectCheck::ImageIntoMask: return "an image cannot be a mask input";
+	case ConnectCheck::Cycle: return "that wire would make a loop";
+	}
+	return "?";
+}
+
+inline ConnectCheck CheckConnect(const NodeGraph& g, int fromId, int toId, int toPort) {
+	if (fromId == toId) return ConnectCheck::SameNode;
+	const Node* from = nullptr;
+	const Node* to = nullptr;
+	for (const Node& n : g.nodes) {
+		if (n.id == fromId) from = &n;
+		if (n.id == toId) to = &n;
+	}
+	if (!from || !to) return ConnectCheck::MissingNode;
+	if (from->type == NodeType::Output || toPort < 0 || toPort > 1) return ConnectCheck::NoSuchPort;
+	const bool fromMask = IsMaskNode(from->type);
+	if (to->type == NodeType::Output) {
+		if (toPort != 0) return ConnectCheck::NoSuchPort;
+		if (fromMask) return ConnectCheck::MaskIntoImage;
+	} else if (to->type == NodeType::MaskCombine) {
+		if (!fromMask) return ConnectCheck::ImageIntoMask;
+	} else if (IsMaskNode(to->type)) {
+		return ConnectCheck::NoSuchPort;
+	} else if (toPort == 0) {
+		if (fromMask) return ConnectCheck::MaskIntoImage;
+	} else if (!fromMask) {
+		return ConnectCheck::ImageIntoMask;
+	}
+	// A loop: `to` already feeds `from`, directly or further up.
+	std::vector<int> stack{ fromId };
+	std::set<int> seen;
+	while (!stack.empty()) {
+		const int id = stack.back(); stack.pop_back();
+		if (id == toId) return ConnectCheck::Cycle;
+		if (!seen.insert(id).second) continue;
+		for (const Edge& e : g.edges)
+			if (e.toNode == id) stack.push_back(e.fromNode);
+	}
+	return ConnectCheck::Ok;
+}
+
+// The input a new node takes when a wire dragged from `fromType`'s output is dropped on empty space
+// and the node is created there (Blender / Nuke): a mask lands on the mask input, an image on the
+// image input. -1 when the new node takes nothing from it.
+inline int DefaultLinkPort(NodeType fromType, NodeType newType) {
+	const bool fromMask = IsMaskNode(fromType);
+	if (newType == NodeType::MaskCombine) return fromMask ? 0 : -1;
+	if (IsMaskNode(newType) || newType == NodeType::Output) return -1;
+	return fromMask ? 1 : 0;
+}
+
 struct CompiledStep {
 	int nodeId = 0;
 	NodeType type = NodeType::ColorGrade;

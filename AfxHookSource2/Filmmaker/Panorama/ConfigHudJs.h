@@ -1181,7 +1181,7 @@ R"CFJS(
       // over it with last frame's state.
       // (The drag edge and the stored column width are resolved higher up, immediately before
       // layoutDemoWorkspace -- which is the thing that consumes the width. See the note there.)
-      try { cfgColorPump(st); cfgDropdownPump(st); cfgCursorPump(st); cfgTextPump(st); }
+      try { cfgColorPump(st); cfgDropdownPump(st); cfgCursorPump(st); cfgTextPump(st); ngPump(st); }
       catch (ep) { $.Msg('[confighud] slider pump failed: ' + ep + '\n'); }
 
       // THE HOOK SWEEP IS GATED ON THE STATE ACTUALLY CHANGING.
@@ -1239,6 +1239,8 @@ R"CFJS(
       tipHide();
       // Over an open dropdown's list the wheel scrolls that list (ten rows show at a time).
       if (cfgDropWheel(n)) return;
+      // Over the node graph window the wheel pans the graph (ConfigHudNodesTabJs.h).
+      if (ngWheel(n)) return;
       cfgDropdownClose();   // the popover is anchored to a field the wheel is about to move
       // Over the alternative environment's MAP VIEW the wheel zooms the map.
       if (typeof aeWheel === 'function' && aeWheel(n)) return;
@@ -1270,6 +1272,11 @@ R"CFJS(
       return cfgRailScrollY;
     };
     api.chars = function (csv) { configWindowChars(csv); };
+    // Drive the node graph's pointer from the console (ConfigHudNodesTabJs.h ngPump).
+    api.nodesPointer = function (x, y, l, r) {
+      ngSim = (x === undefined) ? null : { mx: +x, my: +y, lmb: !!+l, rmb: !!+r };
+      return ngSim ? 'sim' : 'os';
+    };
     // A quick right-click in the ENVIRONMENT view (MovieMode via `config viewmenu`): the props
     // gizmo picks under the pointer and opens that object's outliner menu.
     api.viewMenu = function () { propsMenuRequest = true; return 'ok'; };

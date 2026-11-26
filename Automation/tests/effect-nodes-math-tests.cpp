@@ -144,6 +144,37 @@ void TestTooManyLiveMasksAreDroppedNotOverwritten() {
 }
 } // namespace
 
+// The graph editor asks CheckConnect before it wires two nodes: a mask never becomes the image the
+// Output shows, an image never becomes a mask, and no wire closes a loop.
+void TestConnectRules() {
+	NodeGraph g = BuildPreset("glow_through_fog", true);   // fog -> glow(mask), glow -> grade -> out
+	int fog = -1, glow = -1, grade = -1, out = -1;
+	for (const Node& n : g.nodes) {
+		if (n.type == NodeType::FogMask) fog = n.id;
+		if (n.type == NodeType::Glow) glow = n.id;
+		if (n.type == NodeType::ColorGrade) grade = n.id;
+		if (n.type == NodeType::Output) out = n.id;
+	}
+	CHECK(fog > 0 && glow > 0 && grade > 0 && out > 0);
+	CHECK(CheckConnect(g, grade, out, 0) == ConnectCheck::Ok);
+	CHECK(CheckConnect(g, fog, out, 0) == ConnectCheck::MaskIntoImage);
+	CHECK(CheckConnect(g, grade, out, 1) == ConnectCheck::NoSuchPort);
+	CHECK(CheckConnect(g, out, grade, 0) == ConnectCheck::NoSuchPort);
+	CHECK(CheckConnect(g, fog, glow, 0) == ConnectCheck::MaskIntoImage);
+	CHECK(CheckConnect(g, grade, glow, 1) == ConnectCheck::ImageIntoMask);
+	CHECK(CheckConnect(g, glow, fog, 0) == ConnectCheck::NoSuchPort);
+	// glow feeds grade, so grade -> glow would loop.
+	CHECK(CheckConnect(g, grade, glow, 0) == ConnectCheck::Cycle);
+	CHECK(CheckConnect(g, glow, glow, 0) == ConnectCheck::SameNode);
+	CHECK(CheckConnect(g, glow, 999, 0) == ConnectCheck::MissingNode);
+	// A wire dropped on empty space: masks land on the mask input, images on the image input.
+	CHECK(DefaultLinkPort(NodeType::FogMask, NodeType::Glow) == 1);
+	CHECK(DefaultLinkPort(NodeType::Glow, NodeType::ColorGrade) == 0);
+	CHECK(DefaultLinkPort(NodeType::SkyMask, NodeType::MaskCombine) == 0);
+	CHECK(DefaultLinkPort(NodeType::Glow, NodeType::MaskCombine) == -1);
+	CHECK(DefaultLinkPort(NodeType::Glow, NodeType::DepthRange) == -1);
+}
+
 int main() {
 	TestStarterPresetsCompileCleanly();
 	TestPlayerPresetsFollowThePick();
@@ -152,6 +183,7 @@ int main() {
 	TestDeepCombineTreeKeepsLiveBranches();
 	TestTooManyLiveMasksAreDroppedNotOverwritten();
 	TestDisabledGraphProducesNoSteps();
+	TestConnectRules();
 	if (g_failed) {
 		std::cerr << g_failed << " EffectNodesMathTests failed\n";
 		return 1;
