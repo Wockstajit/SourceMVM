@@ -112,4 +112,9 @@ R"UIMJS(
       // Motion: <=160ms, and only colour, opacity or a 4px entry offset. Nothing reflows.
       mo: { arrive: 'cubic-bezier(0.16,1,0.3,1)', tab: 0.16, panel: 0.16, hover: 0.12, rise: 4 }
     };
+    // The rail grows with a widened column (a quarter of it, 180..250), so a long card name such
+    // as HANDHELD CAMERA gets its one line back instead of staying wrapped while the pane widens.
+    function mvmRailW(colW) {
+      return Math.max(UI.rail.w, Math.min(250, Math.round((colW || 0) * 0.24)));
+    }
 )UIMJS"

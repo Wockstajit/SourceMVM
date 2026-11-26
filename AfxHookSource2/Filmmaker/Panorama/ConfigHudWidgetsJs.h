@@ -838,17 +838,24 @@ R"CFJS(
     // `hint` feeds the tooltip when no explicit `tip` is given (the parameter order is kept so
     // no caller changes).
     // A run of on/off switches laid out two to a row instead of one long stack. Build each
-    // togglePill into grid.cell(), then call grid.__layout(). Every cell takes half the row (the
-    // switch row fills its cell, so no measured widths are needed); the cells go full width when
-    // the inspector is too narrow for two labels side by side, and re-flow when it is resized.
+    // togglePill into grid.cell(), then call grid.__layout(). Every two cells share one line and
+    // split it with fill-parent-flow, so no measured widths are needed; the cells stack full width
+    // when the inspector is too narrow for two labels side by side, and re-flow when it is resized.
+    // Not a right-wrap of two 50% cells: at some column widths the halves rounded past the row
+    // and the second one wrapped under the first, half width (seen while dragging the column).
     function toggleGrid(parent) {
       endTileLine(parent);
       var g = mk('Panel', parent); g.hittest = false; g.hittestchildren = true;
-      g.style.flowChildren = 'right-wrap'; g.style.width = '100%';
-      var cells = [];
+      g.style.flowChildren = 'down'; g.style.width = '100%';
+      var cells = [], lines = [];
       g.cell = function () {
-        var c = mk('Panel', g); c.hittest = false; c.hittestchildren = true;
-        c.style.flowChildren = 'down'; c.style.width = '50%';
+        if (cells.length % 2 === 0) {
+          var ln = mk('Panel', g); ln.hittest = false; ln.hittestchildren = true;
+          ln.style.flowChildren = 'right'; ln.style.width = '100%';
+          lines.push(ln);
+        }
+        var c = mk('Panel', lines[lines.length - 1]); c.hittest = false; c.hittestchildren = true;
+        c.style.flowChildren = 'down'; c.style.width = 'fill-parent-flow(1.0)';
         cells.push(c);
         return c;
       };
@@ -857,11 +864,12 @@ R"CFJS(
       g.__layout = function () {
         var gap = UI.line.cellGap;
         var two = cfgPaneInnerW() + 2 * UI.line.padH >= 2 * (2 * UI.line.padH + 120 + 44) + gap;
+        for (var li = 0; li < lines.length; li++) lines[li].style.flowChildren = two ? 'right' : 'down';
         for (var i = 0; i < cells.length; i++) {
           var cell = cells[i], row = cell.GetChild(0);
-          // An odd one out at the end takes the whole row rather than leave half of it empty.
+          // An odd one out at the end has its line to itself, so it fills the whole row.
           var half = two && !(i === cells.length - 1 && i % 2 === 0);
-          cell.style.width = half ? '50%' : '100%';
+          cell.style.width = two ? 'fill-parent-flow(1.0)' : '100%';
           if (!row) continue;
           row.style.width = 'fill-parent-flow(1.0)';
           row.style.marginRight = (half && i % 2 === 0) ? gap + 'px' : '0px';
@@ -975,7 +983,7 @@ R"CFJS(
     // length (UI.line.ch per 12px bold character), the same estimate the browser mockup uses.
     function cfgPaneInnerW() {
       var w = (typeof INSPECTOR_W === 'number' && INSPECTOR_W > 0) ? INSPECTOR_W : UI.col.w;
-      return w - 2 * UI.col.pad - UI.rail.w - UI.rail.gap - 2 * UI.line.padH;
+      return w - 2 * UI.col.pad - mvmRailW(w) - UI.rail.gap - 2 * UI.line.padH;
     }
     function cfgCtlW() { return cfgPaneInnerW() - UI.line.label - UI.line.colGap; }
     function cfgCaptionW(text) { return ('' + text).length * UI.line.ch + UI.line.padCell; }

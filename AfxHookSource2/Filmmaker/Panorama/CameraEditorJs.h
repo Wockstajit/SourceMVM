@@ -643,7 +643,7 @@ R"EDJS(
     edBodyRow.style.height = 'fill-parent-flow(1.0)'; edBodyRow.style.marginTop = '14px';
     var edRailHost = mk('Panel', edBodyRow); edRailHost.hittest = false; edRailHost.hittestchildren = true;
     edRailHost.style.flowChildren = 'down';
-    edRailHost.style.width = UI.rail.w + 'px'; edRailHost.style.height = '100%';
+    edRailHost.style.width = mvmRailW(INSPECTOR_W) + 'px'; edRailHost.style.height = '100%';
     edRailHost.style.paddingRight = UI.rail.padR + 'px';
     edRailHost.style.borderRight = '1px solid #ffffff12';
     edRailHost.style.overflow = 'clip';
@@ -1294,7 +1294,7 @@ R"EDJS(
                                       bottomClear: mvmWinDockClear(st.bottomMode, st.dockH) });
       var edWantZ = edWin.zIndex();
       if (edWantZ !== edRootZ) { edRootZ = edWantZ; root.style.zIndex = edWantZ; }
-      if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRelayout(); }
+      if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRailHost.style.width = mvmRailW(inspectorW) + 'px'; edRelayout(); }
       edGrip.place(inspectorW);
       inspector.style.width = inspectorW + 'px';
       // RENDER / CUSTOMIZE PLAYER: built once from UI.col.w, so they need re-sizing with the rest.

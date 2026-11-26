@@ -705,7 +705,7 @@ R"CFJS(
     bodyRow.style.height = 'fill-parent-flow(1.0)'; bodyRow.style.marginTop = '14px';
     var cfgRailHost = mk('Panel', bodyRow); cfgRailHost.hittest = false; cfgRailHost.hittestchildren = true;
     cfgRailHost.style.flowChildren = 'down';
-    cfgRailHost.style.width = UI.rail.w + 'px'; cfgRailHost.style.height = '100%';
+    cfgRailHost.style.width = mvmRailW(INSPECTOR_W) + 'px'; cfgRailHost.style.height = '100%';
     cfgRailHost.style.paddingRight = UI.rail.padR + 'px';
     cfgRailHost.style.borderRight = '1px solid #ffffff12';
     cfgRailHost.style.overflow = 'clip';
@@ -928,6 +928,7 @@ R"CFJS(
     // help; they just have to run again, which the next render does anyway.
     function cfgApplyInspectorW(w) {
       INSPECTOR_W = w;
+      cfgRailHost.style.width = mvmRailW(w) + 'px';
       cfgRelayout();   // mode rows and option grids re-fit to the new pane width
       inspector.style.width = w + 'px';
       footerBg.style.width = w + 'px';

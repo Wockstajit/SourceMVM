@@ -257,7 +257,7 @@ R"EDJS(
     function edPaneInnerW() {
       var w = (typeof edLayoutW === 'number' && edLayoutW > 0) ? edLayoutW
         : ((typeof INSPECTOR_W === 'number' && INSPECTOR_W > 0) ? INSPECTOR_W : UI.col.w);
-      return w - 2 * UI.col.pad - UI.rail.w - UI.rail.gap - 2 * UI.line.padH;
+      return w - 2 * UI.col.pad - mvmRailW(w) - UI.rail.gap - 2 * UI.line.padH;
     }
     function edCaptionW(text) { return ('' + text).length * UI.line.ch + UI.line.padCell; }
     // Every segmented cell is the same width, so the widest caption x the count must fit.

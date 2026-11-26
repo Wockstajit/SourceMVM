@@ -82,7 +82,7 @@ R"GEJS(
     // DOCK_H_MIN, so more of the game shows above it (Movie/TimelineDock.h, `timeline.dockH`). Only
     // the rows give up height; the toolbar, ruler and footer keep theirs.
     var DOCK_H_MAX = 440, DOCK_H_MIN = 220;
-    var DOCK_H = DOCK_H_MAX, HEADER_H = 56, OVERVIEW_H = 10, RULER_H = 20, ROWS_Y = 86, FOOTER_H = 26;
+    var DOCK_H = DOCK_H_MAX, HEADER_H = 36, OVERVIEW_H = 10, RULER_H = 20, ROWS_Y = 66, FOOTER_H = 26;
     var ROWS_H = DOCK_H - ROWS_Y - FOOTER_H;
     function setDockH(h) {
       h = Math.round(Math.min(DOCK_H_MAX, Math.max(DOCK_H_MIN, h)));
@@ -454,24 +454,25 @@ R"GEJS(
     catcher.SetPanelEvent('onactivate', function () { /* swallow stray clicks; the pipe owns logic */ });
 
     // ---- toolbar ------------------------------------------------------------
-    // Timecode | KEYFRAMES / GRAPH + what you have hold of | transport + speed over ease, snap,
-    // history and delete.
+    // One row: timecode + KEYFRAMES / GRAPH | transport + speed, centred | ease, snap, history,
+    // delete and the workspace pair. What you have hold of reads in the footer.
+    var HEADER_ONE = 36, HEADER_TWO = 64, HEADER_LINE = 34;
     var header = mk('Panel', dock); header.hittest = false;
-    header.style.position = '0px 0px 0px'; header.style.height = HEADER_H + 'px';
+    header.style.position = '0px 0px 0px'; header.style.height = HEADER_LINE + 'px';
     header.style.flowChildren = 'right'; header.style.paddingLeft = '14px'; header.style.paddingRight = '14px';
-    header.style.borderBottom = '1px solid ' + S.border;
+    var headerRule = mk('Panel', dock); headerRule.hittest = false;
+    headerRule.style.width = '100%'; headerRule.style.height = '1px'; headerRule.style.backgroundColor = S.border;
+    headerRule.style.position = '0px ' + (HEADER_H - 1) + 'px 0px';
     var tcCol = mk('Panel', header); tcCol.hittest = false;
-    tcCol.style.width = '132px'; tcCol.style.flowChildren = 'down'; tcCol.style.verticalAlign = 'center';
+    tcCol.style.flowChildren = 'right'; tcCol.style.verticalAlign = 'center';
     tcCol.style.marginRight = '18px';
-    var tcLbl = lbl(tcCol, '0:00.00', S.accent, 18); tcLbl.hittest = false;
-    tcLbl.style.fontFamily = S.fontMonodigit; tcLbl.style.marginBottom = '2px';
+    var tcLbl = lbl(tcCol, '0:00.00', S.accent, 16); tcLbl.hittest = false;
+    tcLbl.style.fontFamily = S.fontMonodigit; tcLbl.style.width = '84px'; tcLbl.style.verticalAlign = 'center';
     var tickLbl = lbl(tcCol, '', S.hint, 10); tickLbl.hittest = false;
     tickLbl.style.letterSpacing = '0.5px'; tickLbl.style.whiteSpace = 'nowrap';
-    var midCol = mk('Panel', header); midCol.hittest = false;
-    midCol.style.width = 'fill-parent-flow(1.0)'; midCol.style.flowChildren = 'down';
-    midCol.style.verticalAlign = 'center'; midCol.style.marginRight = '18px';
-    var tabRow = mk('Panel', midCol); tabRow.hittest = false; tabRow.style.flowChildren = 'right';
-    tabRow.style.marginBottom = '3px';
+    tickLbl.style.width = '120px'; tickLbl.style.verticalAlign = 'center';
+    var tabRow = mk('Panel', header); tabRow.hittest = false; tabRow.style.flowChildren = 'right';
+    tabRow.style.verticalAlign = 'center';
     function viewTab(caption, mode, last) {
       var b = tabify(btn(tabRow, caption, function () { setView(mode); }, S.label,
         mode === 'graph' ? T('Curves of the selected layer or property') : T('Every key, one row per property')));
@@ -526,13 +527,12 @@ R"GEJS(
         b.style.border = '1px solid ' + (on ? b.__fgBase : '#ffffff14');
       });
     }
-    var selInfo = lbl(midCol, '', S.hint, 10); selInfo.hittest = false;
-    selInfo.style.letterSpacing = '0.5px'; selInfo.style.whiteSpace = 'nowrap';
-    selInfo.style.textOverflow = 'ellipsis'; selInfo.style.width = '100%';
-    var rightCol = mk('Panel', header); rightCol.hittest = false;
-    rightCol.style.flowChildren = 'down'; rightCol.style.verticalAlign = 'center';
-    var rowTop = mk('Panel', rightCol); rowTop.hittest = false; rowTop.style.flowChildren = 'right';
-    rowTop.style.horizontalAlign = 'right'; rowTop.style.marginBottom = '3px';
+    // The transport sits centred in the room between the tabs and the edit tools.
+    var midCol = mk('Panel', header); midCol.hittest = false;
+    midCol.style.width = 'fill-parent-flow(1.0)'; midCol.style.verticalAlign = 'center';
+    midCol.style.marginLeft = '18px'; midCol.style.marginRight = '18px';
+    var rowTop = mk('Panel', midCol); rowTop.hittest = false; rowTop.style.flowChildren = 'right';
+    rowTop.style.horizontalAlign = 'center';
     var prevKeyBtn = btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, T('Previous keyframe on the selected layer'));
     var playBtn = btn(rowTop, '▶', function () { togglePlay(); }, S.value, T('Play / pause ({0})', K('demo.pause', 'SPACE')));
     playBtn.style.width = '46px'; playBtn.__lbl.style.horizontalAlign = 'center';
@@ -547,10 +547,14 @@ R"GEJS(
     }, S.value, T('Keep every frame you play, so scrubbing back over it is instant'));
     cacheBtn.style.marginRight = '11px';
     // The SAME continuous speed scrubber the native demo bar carries.
-    var speedScrub = buildSpeedScrubber(rowTop, { width: 230, height: 24, font: S.font });
+    var speedScrub = buildSpeedScrubber(rowTop, { width: 200, height: 22, font: S.font });
     speedScrub.strip.style.marginRight = '0px';
-    var rowBot = mk('Panel', rightCol); rowBot.hittest = false; rowBot.style.flowChildren = 'right';
-    rowBot.style.horizontalAlign = 'right';
+    // The edit tools: at the right end of the one header row, or on a second row of their own when
+    // the dock is too narrow for one (a widened Config column leaves it ~700-1200 px).
+    var rowBot = mk('Panel', dock); rowBot.hittest = false; rowBot.style.flowChildren = 'right';
+    // Only as wide as its buttons and aligned right, so it never lies over the tabs or transport.
+    rowBot.style.horizontalAlign = 'right'; rowBot.style.verticalAlign = 'top';
+    rowBot.style.height = HEADER_LINE + 'px'; rowBot.style.marginRight = '14px';
 )GEJS"
 R"GEJS(
     // The interpolation strip. With keys selected it shapes THOSE keys; with nothing selected Smooth /
@@ -773,6 +777,11 @@ R"GEJS(
     footer.style.flowChildren = 'right'; footer.style.borderTop = '1px solid ' + S.border;
     var footLeft = mk('Panel', footer); footLeft.hittest = false;
     footLeft.style.width = LEFTW + 'px'; footLeft.style.height = '100%'; footLeft.style.borderRight = '1px solid ' + S.border;
+    // What you have hold of, under the layer list (it used to take a toolbar line).
+    var selInfo = lbl(footLeft, '', S.hint, 10); selInfo.hittest = false;
+    selInfo.style.letterSpacing = '0.5px'; selInfo.style.whiteSpace = 'nowrap'; selInfo.style.textOverflow = 'ellipsis';
+    selInfo.style.width = '100%'; selInfo.style.paddingLeft = '12px'; selInfo.style.paddingRight = '8px';
+    selInfo.style.verticalAlign = 'center';
     var rangeTxt = lbl(footer, '', S.hint, 11); rangeTxt.hittest = false;
     rangeTxt.style.width = 'fill-parent-flow(1.0)'; rangeTxt.style.paddingLeft = '12px';
     rangeTxt.style.verticalAlign = 'center'; rangeTxt.style.whiteSpace = 'nowrap';
@@ -3221,6 +3230,31 @@ R"GEJS(
     }
 )GEJS"
 R"GEJS(
+    // One header row when the dock is wide enough for timecode + tabs + transport + tools (about
+    // 1240 px); otherwise the tools take a second row under the transport. The transport centres
+    // in whatever the row leaves it, so in one-row mode the header's right padding reserves the
+    // tools' measured width. Returns true when the rows below must move.
+    var headerTwo = null, headerPadR = -1;
+    function layoutHeader(dockW) {
+      var two = dockW < 1240, moved = false;
+      if (two !== headerTwo) {
+        headerTwo = two; moved = true;
+        HEADER_H = two ? HEADER_TWO : HEADER_ONE;
+        ROWS_Y = HEADER_H + OVERVIEW_H + RULER_H; ROWS_H = DOCK_H - ROWS_Y - FOOTER_H;
+        rowBot.style.marginTop = (two ? HEADER_LINE - 4 : 0) + 'px';
+        headerRule.style.position = '0px ' + (HEADER_H - 1) + 'px 0px';
+        colHead.style.position = '0px ' + HEADER_H + 'px 0px';
+        colHead.style.height = (ROWS_Y - HEADER_H) + 'px';
+      }
+      // The tick count goes first when even the two-row header runs out of room.
+      tickLbl.visible = dockW >= 900;
+      var sx = rowBot.actualuiscale_x || 1;
+      var toolsW = Math.round((rowBot.actuallayoutwidth || 0) / sx) + 14;
+      if (!(toolsW > 40 && toolsW < 2000)) toolsW = 540;
+      var padR = two ? 14 : toolsW + 4;
+      if (padR !== headerPadR) { headerPadR = padR; header.style.paddingRight = padR + 'px'; }
+      return moved;
+    }
     function computeGeom() {
       // Measure from the ALREADY-laid-out HUD context first: a fresh root reports 0 for the first
       // layout passes after a build or a resolution switch.
@@ -3239,6 +3273,7 @@ R"GEJS(
       // ow: the track plus the row scrollbar's column, i.e. everything right of the layer list. The
       // overview, the ruler's strip and the GRAPH panel span it, so no row shows past them.
       G = { rw: dockW, tw: tw, ow: tw + SB_W, cw: Math.max(60, tw - 2 * PAD), dh: DOCK_H };
+      if (layoutHeader(dockW)) changed = true;
       if (!changed) return true;
       dock.style.width = dockW + 'px'; dock.style.height = DOCK_H + 'px'; dock.style.marginBottom = BOTTOM_LIFT + 'px';
       header.style.width = dockW + 'px';
@@ -3489,7 +3524,7 @@ R"GEJS(
       var sn = nodeById(selNode);
       if (sn) return sn.layer ? T('{0}  ›  {1}  ·  click a key to select it, right-click for options', sn.layer.name, sn.name)
         : T('{0}  ·  click a key to select it, right-click for options', sn.name);
-      return T('Click a key to select it  ·  drag to move  ·  right-click for options');
+      return '';
     }
 
     // FIT from outside: the onboarding tutorial frames the keys on its graph steps.
