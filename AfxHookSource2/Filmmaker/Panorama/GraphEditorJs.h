@@ -486,69 +486,63 @@ R"GEJS(
     var keysTab = viewTab(T('KEYFRAMES'), 'keys');
     var graphTab = viewTab(T('GRAPH'), 'graph', true);
     tourSet('tl.view.keys', keysTab); tourSet('tl.view.graph', graphTab);
-    // CAM EDITOR | CONFIG at the end of the view tabs, in KEYFRAMES and GRAPH alike: the workspace
-    // hosting the dock is lit, the other one switches over. The native bar's colours (gold editor,
-    // blue Config) and commands (CameraTimelineJs ModeSwapBtn).
-    var wsPair = null;   // built at the right end of the lower toolbar row, below
-    function wsBtn(caption, ws, fg, bg, bgOn, tip) {
-      var b = btn(wsPair, caption, function () {
-        if (st && st.workspace !== ws) rawCmd(ws === 'editor' ? 'mirv_filmmaker editor on' : 'mirv_filmmaker config on');
-      }, fg, tip);
-      // Equal widths, one joined pair: the two halves of a single switch.
-      b.style.width = '50%'; b.style.marginRight = '0px'; b.style.borderRadius = '0px';
-      b.style.paddingTop = '3px'; b.style.paddingBottom = '3px'; b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
-      b.__lbl.style.fontSize = '10px'; b.__lbl.style.letterSpacing = '1px'; b.__lbl.style.horizontalAlign = 'center';
-      b.__bgBase = bg; b.__fgBase = fg; b.__bgSel = bgOn; b.__fgSel = fg;
-      b.style.border = '1px solid #ffffff14';
-      b.__ws = ws; btnVisual(b);
-      return b;
-    }
-    function buildWsPair(parent) {
-      wsPair = mk('Panel', parent); wsPair.hittest = false; wsPair.style.flowChildren = 'right';
-      wsPair.style.width = '190px'; wsPair.style.marginLeft = '10px'; wsPair.style.verticalAlign = 'center';
-      wsPair.style.borderRadius = '3px'; wsPair.style.overflow = 'clip clip';
-    }
-    var wsEditorBtn = null, wsConfigBtn = null;
-    function buildWsButtons() {
-    wsEditorBtn = wsBtn(T('CAM EDITOR'), 'editor', S.accent, '#4a3a10ff', '#6b5416ff',
-      T('The Camera Editor: camera paths, follow cameras and scene keys'));
-    wsConfigBtn = wsBtn(T('CONFIG'), 'config', '#7fb6ffff', '#1c3552ff', '#28497aff',
-      T('Config: camera, effects, environment and scene objects'));
-    tourSet('tl.ws.editor', wsEditorBtn); tourSet('tl.ws.config', wsConfigBtn);
+    // ONE workspace button at the end of the tools, as on the native bar (CameraTimelineJs
+    // ModeSwapBtn): it names the OTHER workspace in that workspace's colour and switches to it --
+    // CONFIG (blue) from the Camera Editor, CAM EDITOR (gold) from Config.
+    var wsSwap = null;
+    function buildWsSwap(parent) {
+      wsSwap = btn(parent, T('CONFIG'), function () {
+        if (!st || !st.workspace || st.workspace === 'none') return;
+        rawCmd(st.workspace === 'editor' ? 'mirv_filmmaker config on' : 'mirv_filmmaker editor on');
+      }, '#7fb6ffff', T('Switch between the Camera Editor and Config'));
+      wsSwap.style.width = '112px'; wsSwap.style.marginLeft = '10px'; wsSwap.style.marginRight = '0px';
+      wsSwap.style.paddingLeft = '0px'; wsSwap.style.paddingRight = '0px';
+      wsSwap.__lbl.style.fontSize = '10px'; wsSwap.__lbl.style.letterSpacing = '1px';
+      wsSwap.__lbl.style.horizontalAlign = 'center';
+      tourSet('tl.ws.swap', wsSwap);
     }
     function paintWorkspaceBtns() {
-      if (!wsEditorBtn) return;
-      wsPair.visible = !!(st && st.workspace && st.workspace !== 'none');
-      [wsEditorBtn, wsConfigBtn].forEach(function (b) {
-        var on = !!(st && st.workspace === b.__ws);
-        b.visible = !!(st && st.workspace && st.workspace !== 'none');
-        if (b.__wsOn === on) return;
-        b.__wsOn = on; btnSel(b, on);
-        b.style.border = '1px solid ' + (on ? b.__fgBase : '#ffffff14');
-      });
+      if (!wsSwap) return;
+      var ws = st && st.workspace, on = !!(ws && ws !== 'none');
+      wsSwap.visible = on;
+      if (!on || wsSwap.__ws === ws) return;
+      wsSwap.__ws = ws;
+      var toCfg = ws === 'editor';
+      wsSwap.__fgBase = toCfg ? '#7fb6ffff' : S.accent;
+      wsSwap.__bgBase = toCfg ? '#1c3552ff' : '#4a3a10ff';
+      wsSwap.style.border = '1px solid ' + (toCfg ? '#7fb6ff66' : '#f0b32366');
+      setText(wsSwap.__lbl, toCfg ? T('CONFIG') : T('CAM EDITOR'));
+      btnVisual(wsSwap);
     }
     // The transport sits centred in the room between the tabs and the edit tools.
     var midCol = mk('Panel', header); midCol.hittest = false;
     midCol.style.width = 'fill-parent-flow(1.0)'; midCol.style.verticalAlign = 'center';
     midCol.style.marginLeft = '18px'; midCol.style.marginRight = '18px';
     var rowTop = mk('Panel', midCol); rowTop.hittest = false; rowTop.style.flowChildren = 'right';
-    rowTop.style.horizontalAlign = 'center';
-    var prevKeyBtn = btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, T('Previous keyframe on the selected layer'));
-    var playBtn = btn(rowTop, '▶', function () { togglePlay(); }, S.value, T('Play / pause ({0})', K('demo.pause', 'SPACE')));
-    playBtn.style.width = '46px'; playBtn.__lbl.style.horizontalAlign = 'center';
+    rowTop.style.width = '100%';
+    // Small transport keys, so the speed strip beside them gets the room (it fills whatever the
+    // row leaves: layoutHeader sizes it). Natural order: step, play, step, then speed and Cache.
+    function tKey(b, w) {
+      b.style.width = w + 'px'; b.style.marginRight = '4px';
+      b.style.paddingTop = '2px'; b.style.paddingBottom = '2px'; b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
+      b.__lbl.style.fontSize = '11px'; b.__lbl.style.horizontalAlign = 'center';
+      return b;
+    }
+    var prevKeyBtn = tKey(btn(rowTop, '|◀', function () { jumpKey(-1); }, S.value, T('Previous keyframe on the selected layer')), 28);
+    var playBtn = tKey(btn(rowTop, '▶', function () { togglePlay(); }, S.value, T('Play / pause ({0})', K('demo.pause', 'SPACE'))), 34);
     tourSet('tl.play', playBtn);
-    var nextKeyBtn = btn(rowTop, '▶|', function () { jumpKey(1); }, S.value, T('Next keyframe on the selected layer'));
-    nextKeyBtn.style.marginRight = '11px';
+    var nextKeyBtn = tKey(btn(rowTop, '▶|', function () { jumpKey(1); }, S.value, T('Next keyframe on the selected layer')), 28);
+    nextKeyBtn.style.marginRight = '10px';
+    // The SAME continuous speed scrubber the native demo bar carries.
+    var speedScrub = buildSpeedScrubber(rowTop, { width: 260, maxWidth: 1000, height: 24, font: S.font });
+    speedScrub.strip.style.marginRight = '10px'; speedScrub.strip.style.verticalAlign = 'center';
     // Cache: keep the preview of every frame the world plays, so scrubbing back over it shows at
-    // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while
-    // on; right before the speed it shares the transport with, as on the old camera timeline.
+    // frame rate instead of restoring the demo on every move (Movie/ScrubFrameCache.h). Lit while on.
     var cacheBtn = btn(rowTop, T('Cache'), function () {
       rawCmd('mirv_filmmaker scrub cache ' + (st && st.scrubCache ? 'off' : 'on'));
     }, S.value, T('Keep every frame you play, so scrubbing back over it is instant'));
-    cacheBtn.style.marginRight = '11px';
-    // The SAME continuous speed scrubber the native demo bar carries.
-    var speedScrub = buildSpeedScrubber(rowTop, { width: 200, height: 22, font: S.font });
-    speedScrub.strip.style.marginRight = '0px';
+    cacheBtn.style.marginRight = '0px'; cacheBtn.style.paddingTop = '2px'; cacheBtn.style.paddingBottom = '2px';
+    cacheBtn.__lbl.style.fontSize = '11px';
     // The edit tools: at the right end of the one header row, or on a second row of their own when
     // the dock is too narrow for one (a widened Config column leaves it ~700-1200 px).
     var rowBot = mk('Panel', dock); rowBot.hittest = false; rowBot.style.flowChildren = 'right';
@@ -560,6 +554,17 @@ R"GEJS(
     // The interpolation strip. With keys selected it shapes THOSE keys; with nothing selected Smooth /
     // Linear set the camera path's one interpolation (the eases need a selection).
     var EASE_ITEMS = [['smooth', T('Smooth')], ['linear', T('Linear')], ['in', T('Ease In')], ['out', T('Ease Out')], ['inout', T('In/Out')], ['hold', T('Hold')]];
+    // Big history keys first: the most used tools sit nearest the timeline's own controls.
+    function histKey(glyphText, fn, tip) {
+      var b = btn(rowBot, glyphText, fn, S.value, tip);
+      b.style.width = '30px'; b.style.paddingLeft = '0px'; b.style.paddingRight = '0px';
+      b.style.paddingTop = '0px'; b.style.paddingBottom = '1px'; b.style.marginRight = '4px';
+      b.__lbl.style.fontSize = '19px'; b.__lbl.style.horizontalAlign = 'center';
+      return b;
+    }
+    var undoBtn = histKey('↺', function () { undo(false); }, T('Undo (Ctrl+Z)'));
+    var redoBtn = histKey('↻', function () { undo(true); }, T('Redo (Ctrl+Shift+Z)'));
+    redoBtn.style.marginRight = '10px';
     var easeBar = mk('Panel', rowBot); easeBar.hittest = false; easeBar.style.flowChildren = 'right';
     easeBar.style.border = '1px solid ' + S.chip; easeBar.style.borderRadius = '3px';
     easeBar.style.marginRight = '9px'; easeBar.style.verticalAlign = 'center'; easeBar.style.overflow = 'clip clip';
@@ -596,12 +601,13 @@ R"GEJS(
     }
     var snapBtn = btn(rowBot, T('SNAP'), function () { showSnapMenu(); }, S.value,
       T('Time snap: quantise the playhead and key placement to a tick grid'));
-    var undoBtn = btn(rowBot, '↺', function () { undo(false); }, S.value, T('Undo (Ctrl+Z)'));
-    var redoBtn = btn(rowBot, '↻', function () { undo(true); }, S.value, T('Redo (Ctrl+Shift+Z)'));
+    snapBtn.style.paddingTop = '2px'; snapBtn.style.paddingBottom = '2px';
+    snapBtn.style.paddingLeft = '6px'; snapBtn.style.paddingRight = '6px';
+    snapBtn.__lbl.style.fontSize = '10px'; snapBtn.__lbl.style.letterSpacing = '0.5px';
     var delBtn = btn(rowBot, '✕', function () { deleteSelection(); }, S.dangerText, T('Delete the selected keyframes (Del)'));
     delBtn.style.marginRight = '0px';
     delBtn.style.backgroundColor = S.dangerBg; delBtn.style.border = '1px solid ' + S.dangerBorder;
-    buildWsPair(rowBot); buildWsButtons();
+    buildWsSwap(rowBot);
 
     // ---- time-snap dropdown ---------------------------------------------
     // Real panels with onactivate because Custom… hosts a text field. It opens UNDER the SNAP pill.
@@ -3253,6 +3259,13 @@ R"GEJS(
       if (!(toolsW > 40 && toolsW < 2000)) toolsW = 540;
       var padR = two ? 14 : toolsW + 4;
       if (padR !== headerPadR) { headerPadR = padR; header.style.paddingRight = padR + 'px'; }
+      // The speed strip takes whatever the transport row leaves between the step / play keys and
+      // Cache: no handle, it simply fills the gap (the owner's request: the space was wasted).
+      var mw = (midCol.actuallayoutwidth || 0) / sx;
+      if (mw > 100) {
+        var keysW = 28 + 4 + 34 + 4 + 28 + 10 + 10 + Math.round((cacheBtn.actuallayoutwidth || 0) / sx || 56);
+        speedScrub.setWidth(Math.min(1000, mw - keysW - 2));
+      }
       return moved;
     }
     function computeGeom() {
