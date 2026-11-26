@@ -109,7 +109,15 @@ int wmain(int argc,wchar_t** argv){
             if(const auto thread=_beginthreadex(nullptr,256u<<20,[](void* run)->unsigned{(*static_cast<const std::function<void()>*>(run))();return 0;},
                 const_cast<std::function<void()>*>(&work),STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr))jobs.push_back(reinterpret_cast<HANDLE>(thread));
         if(jobs.empty())work();
-        for(const auto job:jobs){WaitForSingleObject(job,INFINITE);CloseHandle(job);}
+        const bool reportProgress = std::getenv("MVM_SHADER_TIMES") != nullptr;
+        for (const auto job : jobs) {
+            while (WaitForSingleObject(job, reportProgress ? 60000 : INFINITE) == WAIT_TIMEOUT) {
+                std::lock_guard<std::mutex> lock(output);
+                std::cout << "Shader workers still running after " << (GetTickCount64() - started) / 1000
+                          << " s; " << reused.load() << " programs reused" << std::endl;
+            }
+            CloseHandle(job);
+        }
         // AO has its own source and sample-count macro. Match the runtime cache
         // key exactly instead of compiling these entries from the sky source.
         for(unsigned i=0;i<5;++i){

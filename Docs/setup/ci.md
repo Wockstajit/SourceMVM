@@ -1,7 +1,7 @@
 # Continuous integration
 
-[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on pull requests into `main` and
-`release/*`, on pushes to those branches, on merge queue groups, nightly at 03:41 UTC, and on
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on all pull requests, including stacked PRs,
+on pushes to `main` and `release/*`, on merge queue groups, nightly at 03:41 UTC, and on
 manual runs from the Actions tab. Branch protection requires only `ci-gate`. The branch and pull
 request policy is in [GitHub workflow and contribution policy](git-workflow.md). A green run does
 not prove that an in-game feature works.
@@ -15,7 +15,7 @@ is the source of truth for the path rules. In short:
 
 | Event | Mode | Jobs |
 | --- | --- | --- |
-| Pull request into `main` | fast | The jobs whose inputs the pull request changed (`merge-base...head`) |
+| Pull request into a non-release branch | fast | The jobs whose inputs the pull request changed (`merge-base...head`) |
 | Push to `main` | fast | The jobs whose inputs the push changed (`before..after`) |
 | Merge queue group | fast | Every job |
 | Nightly, manual, pull request into or push to `release/*` | full | Every job, with the shipping native build |
@@ -73,6 +73,13 @@ caches. Release lines and nightly runs use no compile cache.
 **`native-full-validation`** (full mode) is the shipping configuration: the `x64-deadlock-release`
 preset with the Visual Studio generator, `/MP`, MSBuild `--parallel 3`, and no compiler or shader
 cache. It catches anything the fast path could hide, such as a Visual Studio-only project problem.
+
+In fast mode the runner builds the shader bundle first with four workers, streams per-program
+timings and saves the verified bundle before the remaining native build. Fast runs also cache
+the WARP tests' compiled probe shaders. The tests still create the device, draw and check the
+results on every run. Full validation starts on a fresh runner with a three-hour job limit.
+On November 26 a hosted build spent 115 minutes preparing 118 shader programs (22 reused),
+and the receiver test took another 17 minutes.
 
 Both jobs build both hooks and run the same CTest suite. The four D3D11 render fixtures
 (`EnvironmentAtmosphereEdgeTests`, `EnvironmentRenderTests`, `RelightProbeGpuTests`,
