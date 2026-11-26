@@ -64,8 +64,9 @@ jobs:
       - name: Documentation integrity
         run: node --test Automation/tests/documentation-integrity-tests.mjs
 
-  # Every static regression test in Automation/tests (they read the sources, no game needed). Cheap,
-  # so every change runs it. The skipped files need game-extracted UI assets that are not in git.
+  # Every static regression test in Automation/tests, JS and Python (they read the sources, no game
+  # needed). Cheap, so every change runs it. The skipped files need game-extracted UI assets that
+  # are not in git.
   source-tests:
     runs-on: windows-2022
     steps:
@@ -74,6 +75,9 @@ jobs:
         with:
           node-version: 24
           check-latest: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Static source tests
         run: |
           $skip = @('ui-mockup-menu-fixture-tests.mjs', 'ui-source-sync-tests.mjs')
@@ -81,6 +85,10 @@ jobs:
           foreach ($test in Get-ChildItem Automation/tests -Filter '*-tests.mjs' | Sort-Object Name) {
             if ($skip -contains $test.Name) { Write-Host "skipped $($test.Name) (needs extracted CS2 UI assets)"; continue }
             node --test $test.FullName
+            if ($LASTEXITCODE -ne 0) { $failed += $test.Name }
+          }
+          foreach ($test in Get-ChildItem Automation/tests -Filter '*-tests.py' | Sort-Object Name) {
+            python $test.FullName
             if ($LASTEXITCODE -ne 0) { $failed += $test.Name }
           }
           if ($failed.Count) { Write-Host "Failed: $($failed -join ', ')"; exit 1 }

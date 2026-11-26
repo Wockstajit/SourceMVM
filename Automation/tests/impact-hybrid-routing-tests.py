@@ -16,10 +16,12 @@ assert "mode = FxMode::Less; // Impact On intentionally uses the reduced interna
 assert "ImpactHybridTargetLower(low)" in hook
 assert 'target.find("/impact_fx_ins/") != std::string::npos' in hook
 assert "(sequence % 10u) >= kInsurgencySmokeTrailKeepPerTen" in hook
-assert '"flying-trails-30pct"' in hook
-assert '"flying-trails-10pct"' not in hook
+# The kept trails are logged as "flying-trails" (the share comes from the constant below) and the
+# dropped ones as "flying-trails-stripped"; the old fixed-percentage labels are gone.
+assert '"flying-trails"' in hook and '"flying-trails-stripped"' in hook
+assert '"flying-trails-10pct"' not in hook and '"flying-trails-30pct"' not in hook
 internal = (ROOT / "AfxHookSource2/Filmmaker/Movie/ParticleFxInternal.h").read_text(encoding="utf-8")
-assert "kInsurgencySmokeTrailKeepPerTen = 3u" in internal
+assert "kInsurgencySmokeTrailKeepPerTen = 6u" in internal
 assert '"impact-puff-preserved"' in hook
 
 hybrid_rows = re.findall(r'FXRULE_IMPACT\("([^"]+)",\s*"([^"]+)",\s*"([^"]+)"\)', rules)
