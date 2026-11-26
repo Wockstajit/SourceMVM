@@ -48,6 +48,7 @@ R"CFJS(
     var existingSettings = $('#ConfigEditorSettingsRoot'); if (existingSettings) existingSettings.DeleteAsync(0);
     // The popover overlay is a top-level ctx child too (cfgOverlay in ConfigHudWidgetsJs.h).
     var existingOverlay = $('#ConfigHudOverlayRoot'); if (existingOverlay) existingOverlay.DeleteAsync(0);
+    var existingNodes = $('#NodesGraphOverlay'); if (existingNodes) existingNodes.DeleteAsync(0);
     var ctx = $.GetContextPanel();
 
     // Same theme tokens as CameraEditorJs.h, with the panel accent flipped to the theme's
@@ -652,7 +653,7 @@ R"CFJS(
     // everything that drives a value CS2 ALREADY HAS; ENVIRONMENT is the added renderer drawn on
     // top of it. They sit next to each other because the split between them is the thing the
     // operator has to hold in their head -- see the note at the top of ConfigHudEffectsTabJs.h.
-    var TABS = [['camera', T('CAMERA')], ['effects', T('EFFECTS')], ['environment', T('ENVIRONMENT')], ['ragdolls', T('RAGDOLLS')], ['bots', T('BOTS')]];
+    var TABS = [['camera', T('CAMERA')], ['effects', T('EFFECTS')], ['environment', T('ENVIRONMENT')], ['nodes', T('NODES')], ['ragdolls', T('RAGDOLLS')], ['bots', T('BOTS')]];
     var activeTab = 'camera';
     var configUiHydrated = false;
     var configWasEnabled = false;   // drives the one-shot panel entrance
@@ -761,14 +762,16 @@ R"CFJS(
     pageBots.style.flowChildren = 'down'; pageBots.style.width = '100%';
     var pageEnvironment = mk('Panel', scrollWrap);
     pageEnvironment.style.flowChildren = 'down'; pageEnvironment.style.width = '100%';
+    var pageNodes = mk('Panel', scrollWrap);
+    pageNodes.style.flowChildren = 'down'; pageNodes.style.width = '100%';
     // The search results replace the rail and the pane while a query is up.
     var pageSearch = mk('Panel', scrollWrap);
     pageSearch.style.flowChildren = 'down'; pageSearch.style.width = '100%';
     pageSearch.visible = false;
     pageCamera.__tabKey = 'camera'; pageEffects.__tabKey = 'effects';
-    pageEnvironment.__tabKey = 'environment'; pageRagdolls.__tabKey = 'ragdolls';
-    pageBots.__tabKey = 'bots';
-    var pages = { camera: pageCamera, effects: pageEffects, environment: pageEnvironment, ragdolls: pageRagdolls, bots: pageBots };
+    pageEnvironment.__tabKey = 'environment'; pageNodes.__tabKey = 'nodes';
+    pageRagdolls.__tabKey = 'ragdolls'; pageBots.__tabKey = 'bots';
+    var pages = { camera: pageCamera, effects: pageEffects, environment: pageEnvironment, nodes: pageNodes, ragdolls: pageRagdolls, bots: pageBots };
 
     // ---- the pinned footer ------------------------------------------------------------------
     // "Keep between demos" and the tab's RESET are STUCK TO THE BOTTOM of the column
@@ -790,9 +793,10 @@ R"CFJS(
     var footerEffects = mk('Panel', pinnedFooter);
     var footerRagdolls = mk('Panel', pinnedFooter);
     var footerEnvironment = mk('Panel', pinnedFooter);
+    var footerNodes = mk('Panel', pinnedFooter);
     var footerBots = mk('Panel', pinnedFooter);
     var pageFooters = { camera: footerCamera, effects: footerEffects,
-                        environment: footerEnvironment, ragdolls: footerRagdolls, bots: footerBots };
+                        environment: footerEnvironment, nodes: footerNodes, ragdolls: footerRagdolls, bots: footerBots };
     for (var fk in pageFooters) {
       pageFooters[fk].style.flowChildren = 'down';
       pageFooters[fk].style.width = '100%';
@@ -853,7 +857,9 @@ R"CFJS(
 #include "ConfigHudLightingTabJs.h"
 #include "ConfigHudAtmosphereTabJs.h"
 #include "ConfigHudWeatherSkyTabJs.h"
-// Shared EFFECTS footer (keep-between-demos toggle + per-sub-tab RESET). MUST follow all four
+#include "ConfigHudWorldWarpJs.h"
+#include "ConfigHudEventFxJs.h"
+// Shared EFFECTS footer (keep-between-demos toggle + per-sub-tab RESET). MUST follow all
 // sub-tab fragments: it parents to pageEffects, and Panorama flows siblings in creation order,
 // so this is what puts it BELOW whichever sub-page is showing.
 #include "ConfigHudEffectsResetJs.h"
@@ -863,6 +869,7 @@ R"CFJS(
 // must follow the fragments that build the tabs underneath it.
 #include "ConfigHudDeathAnimPickerJs.h"
 #include "ConfigHudEnvironmentTabJs.h"
+#include "ConfigHudNodesTabJs.h"
 // Global search. MUST follow every tab fragment: the index fills as their widgets build.
 #include "ConfigHudSearchJs.h"
 R"CFJS(
@@ -1409,6 +1416,11 @@ R"CFJS(
     // Editor Settings, drivable from `mirv_filmmaker config eval` the way the Camera Editor's
     // own gear is drivable through $.CamEditor.toggleSettings(). Synthetic mouse input does not
     // reach CS2, so without this the gear on the timeline band could only be tested by hand.
+    api.selectTab = function (tabName) {
+      tabName = evalArg(tabName);
+      if (pages[tabName]) { activeTab = tabName; applyTabs(); }
+      return activeTab;
+    };
     api.editorSettings = function (want) {
       if (want === 'open') settingsPopup.open();
       else if (want === 'close') settingsPopup.close('eval');

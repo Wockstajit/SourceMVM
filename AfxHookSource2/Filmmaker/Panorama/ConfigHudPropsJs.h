@@ -119,7 +119,7 @@ R"CFJS(
     var propsPreviewSerial = 0;
     var propsPreviewBox = mk('Panel', propsPage);
     propsPreviewBox.hittest = false; propsPreviewBox.hittestchildren = true;
-    propsPreviewBox.style.width = '100%'; propsPreviewBox.style.height = '230px';
+    propsPreviewBox.style.width = '100%'; propsPreviewBox.style.height = '170px';
     propsPreviewBox.style.marginTop = '10px';
     propsPreviewBox.style.backgroundColor = '#0b0e12ff';
     propsPreviewBox.style.border = '1px solid ' + S.tileBorder;
@@ -260,8 +260,7 @@ R"CFJS(
       propsLimit = Math.min(4000, propsLimit + PROPS_MORE);
       propsSearch();
     };
-    var propsListHint = lbl(propsPage, T('Click to preview · double-click to place. It follows your mouse over the view until you click.'), S.hint, 11);
-    propsListHint.style.marginTop = '6px'; propsListHint.style.whiteSpace = 'normal';
+    attachTip(propsResultLabel, T('Click to preview · double-click to place. It follows your mouse over the view until you click.'));
     var propsMessage = envNote(propsPage, '');
     propsMessage.style.color = '#e8b339ff';
     // Saved objects held back by the crash-loop guard (Props.cpp): load them again or drop them.

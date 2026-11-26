@@ -40,7 +40,12 @@ R"CFJS(
         [T('Point light on the camera'), function () { olAdd('point camera'); }, T('Glows all around the camera')],
         [T('Area light on the camera'), function () { olAdd('area camera'); }, T('A soft panel beside the lens')],
         null,
-        [T('Camera'), function () { olAdd('camera'); }, T('A viewpoint')]
+        [T('Camera'), function () { olAdd('camera'); }, T('A viewpoint')],
+        null,
+        [T('Text decal'), function () { cmd('mirv_filmmaker decals add text wall'); envSceneSec.__setPage(2); }, T('Project text onto a wall or floor')],
+        [T('Wall image / logo'), function () { cmd('mirv_filmmaker decals add image wall'); envSceneSec.__setPage(2); }, T('Project a PNG/JPG logo or poster')],
+        [T('Wall video'), function () { cmd('mirv_filmmaker decals add video wall'); envSceneSec.__setPage(2); }, T('Play a video projected onto a wall')],
+        [T('Arrow / Ground route'), function () { cmd('mirv_filmmaker decals add route floor'); envSceneSec.__setPage(2); }, T('Animate a painted route across the floor')]
       ], olAddBtn);
     });
     attachTip(olAddBtn, T('Adds a light or a camera ahead of the view and selects it. CS2 assets and your meshes come from the Library page.'));
@@ -219,6 +224,7 @@ R"CFJS(
     var olClip = '';
     keyHooks.push(function (name) {
       if (activeTab !== 'environment' || !cfgRails.environment || cfgRails.environment.sel !== 'env.scene') return;
+      if (typeof decalsViewActive === 'function' && decalsViewActive()) return; // Decals & Media's own keys
       if (name === 'paste') {
         var src = olFind(olClip);
         if (!src) return;
@@ -340,8 +346,8 @@ R"CFJS(
 
     var olUnder = mk('Panel', olPage);
     olUnder.style.width = '100%'; olUnder.style.flowChildren = 'right'; olUnder.style.marginTop = '6px';
-    var olHint = lbl(olUnder, T('Shift / Ctrl-click to pick several'), S.hint, 11);
-    olHint.style.width = 'fill-parent-flow(1.0)'; olHint.style.verticalAlign = 'center';
+    var olHint = mk('Panel', olUnder); olHint.hittest = false;
+    olHint.style.width = 'fill-parent-flow(1.0)'; olHint.style.height = '1px';
     var olGroupBtn = actionBtn(olUnder, T('New group from selection'), function () {
       var picked = olPicked();
       if (!picked.length) return;
@@ -349,12 +355,13 @@ R"CFJS(
       picked.forEach(function (i) { olSetGroup(i, name); });
       olOpen[name] = true; olSel = 'g:' + name; olMulti = {};
     });
+    attachTip(olGroupBtn, T('Shift / Ctrl-click to pick several'));
     var olUndoBtn = actionBtn(olUnder, T('Undo'), function () { propsCommand('undo'); }); // same history as Ctrl+Z
 
     // ---- the row ---------------------------------------------------------------------------------
     function olRow(o) {
       var r = mk('Panel', olRows);
-      r.style.width = '100%'; r.style.height = '30px'; r.style.flowChildren = 'right';
+      r.style.width = '100%'; r.style.height = '26px'; r.style.flowChildren = 'right';
       r.style.backgroundColor = o.selected ? '#7fe0d01a' : S.clear;
       r.style.opacity = o.dim ? '0.45' : '1';
       var pad = mk('Panel', r); pad.style.width = o.indent + 'px'; pad.style.height = '30px';

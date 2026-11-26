@@ -856,6 +856,49 @@ add_executable(KeybindsMathTests
 target_compile_features(KeybindsMathTests PRIVATE cxx_std_17)
 add_test(NAME KeybindsMathTests COMMAND KeybindsMathTests)
 
+
+add_executable(RenderPlayerMatteMathTests
+    ../Automation/tests/render-player-matte-math-tests.cpp
+    Filmmaker/Render/RenderPlayerMatteMath.h
+)
+target_compile_features(RenderPlayerMatteMathTests PRIVATE cxx_std_17)
+add_test(NAME RenderPlayerMatteMathTests COMMAND RenderPlayerMatteMathTests)
+
+add_executable(WorldWarpMathTests
+    ../Automation/tests/world-warp-math-tests.cpp
+    Filmmaker/WorldWarp/WorldWarpMath.h
+)
+target_compile_features(WorldWarpMathTests PRIVATE cxx_std_17)
+add_test(NAME WorldWarpMathTests COMMAND WorldWarpMathTests)
+
+add_executable(WorldWarpDxbcTests
+    ../Automation/tests/world-warp-dxbc-tests.cpp
+    Filmmaker/WorldWarp/WorldWarpDxbcMath.h
+)
+target_compile_features(WorldWarpDxbcTests PRIVATE cxx_std_17)
+target_link_libraries(WorldWarpDxbcTests PRIVATE d3d11 d3dcompiler)
+add_test(NAME WorldWarpDxbcTests COMMAND WorldWarpDxbcTests)
+
+add_executable(WorldDecalsMathTests
+    ../Automation/tests/world-decals-math-tests.cpp
+    Filmmaker/WorldDecals/WorldDecalsMath.h
+)
+target_compile_features(WorldDecalsMathTests PRIVATE cxx_std_17)
+add_test(NAME WorldDecalsMathTests COMMAND WorldDecalsMathTests)
+
+add_executable(EffectNodesMathTests
+    ../Automation/tests/effect-nodes-math-tests.cpp
+    Filmmaker/EffectNodes/EffectNodesMath.h
+)
+target_compile_features(EffectNodesMathTests PRIVATE cxx_std_17)
+add_test(NAME EffectNodesMathTests COMMAND EffectNodesMathTests)
+
+add_executable(EventFxMathTests
+    ../Automation/tests/event-fx-math-tests.cpp
+    Filmmaker/EventFx/EventFxMath.h
+)
+target_compile_features(EventFxMathTests PRIVATE cxx_std_17)
+add_test(NAME EventFxMathTests COMMAND EventFxMathTests)
 add_executable(SandTextureMathTests
     ../Automation/tests/sand-texture-math-tests.cpp
     Filmmaker/Environment/EnvironmentSandTextureMath.h

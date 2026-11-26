@@ -32,7 +32,9 @@
 #include "Filmmaker/Movie/MovieMode.h" // MovieMode_NativeCameraRoll: X / Z roll on CS2's free cam
 #include "Filmmaker/Movie/ViewFx.h"
 #include "Filmmaker/Movie/CameraShakeStack.h" // handheld / recoil shake layers
-#include "Filmmaker/Movie/CamPathShake.h"     // per-keyframe camera-path shake (frame shaker)
+#include "Filmmaker/Movie/CamPathShake.h"
+#include "Filmmaker/EventFx/EventFx.h"
+#include "Filmmaker/WorldWarp/WorldWarp.h"     // per-keyframe camera-path shake (frame shaker)
 #include "Filmmaker/Movie/ParticleFx.h"       // level-init handle-cache invalidation
 #include "Filmmaker/Movie/RagdollWeaponArmPhysics.h" // physical death-weapon recoil stage bridge
 #include "Filmmaker/Config/EffectsPersistence.h" // level-init: keep or drop EFFECTS state
@@ -768,6 +770,18 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 		owner.sceneCamera ? Filmmaker::SceneRig_LookThrough() : 0);
 	if (pathShakeApplied)
 		originOrAnglesOverriden = true;
+
+	// Event-driven FX camera impulse (flashbang / kill / HE / marker punch & shake).
+	if (Filmmaker::EventFx_ApplyCameraImpulse(curTime, Rx, Ry, Rz, Fov))
+		originOrAnglesOverriden = true;
+
+	// Little Planet 360 cubemap capture: cycle through the 6 cube faces in lock-step with BeforeUi.
+	if (Filmmaker::WorldWarp_WantsCubemap()) {
+		const float baseYaw = Ry;
+		const int cubeFace = Filmmaker::WorldWarp_PeekCubemapFace(baseYaw);
+		if (cubeFace >= 0 && Filmmaker::WorldWarp_OverrideCubemapFaceView(cubeFace, baseYaw, Rx, Ry, Rz, Fov))
+			originOrAnglesOverriden = true;
+	}
 
 	// Build one absolute camera-motion delta for CalcViewModelView. Its hook temporarily removes
 	// this delta from the viewmodel's eye inputs, then restores them after the engine has built
@@ -1909,7 +1923,12 @@ CON_COMMAND(mirv_skip, "for skipping through demos (uses demo_gototick)")
 #include "Filmmaker/Environment/EnvironmentWorld.h"
 extern void resetDefaultCloudColors();
 extern void resetCachedMaterials();
-namespace Filmmaker { void RenderPlayersOnlyGreen_OnLevelInit(); }
+namespace Filmmaker {
+	void RenderPlayersOnlyGreen_OnLevelInit();
+	void RenderPlayerMatte_OnLevelInit();
+	void EventFx_OnLevelInit();
+	namespace WorldDecals { void OnLevelInit(); }
+}
 
 static void *g_CS2_ClientIface = nullptr;
 static int g_ForceCommandReregisterFrames = 0;
@@ -1922,6 +1941,9 @@ void * new_CS2_Client_LevelInitPreEntity(void* This, void * pUnk1, void * pUnk2)
 	resetDefaultCloudColors();
 	resetCachedMaterials();
 	Filmmaker::RenderPlayersOnlyGreen_OnLevelInit();
+	Filmmaker::RenderPlayerMatte_OnLevelInit();
+	Filmmaker::WorldDecals::OnLevelInit();
+	Filmmaker::EventFx_OnLevelInit();
 	// Before the new level exists: drop cached particle-swap handles, which point into
 	// resources this teardown freed (see ParticleFx_OnLevelInit).
 	Filmmaker::ParticleFx_OnLevelInit();

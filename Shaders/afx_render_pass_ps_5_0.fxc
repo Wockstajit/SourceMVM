@@ -54,6 +54,17 @@ cbuffer PS_CONSTANT_BUFFER : register(b0)
 	float4 diff;          // x = diff threshold low, y = high (0..1 colour units), z = 1: target is sRGB
 };
 
+cbuffer PS_PLAYER_MATTE_BUFFER : register(b1)
+{
+	int4 pmCounts;           // x = hasTarget, y = targetBoneCount, z = otherCount, w = highlightOn
+	float4 pmTargetBounds;   // xyz = center, w = maxRadius
+	float4 pmTargetCapsule;  // xyz = feet, w = height
+	float4 pmHighlight;      // x = dimWorld, y = desatWorld, z = outlineStrength, w = unused
+	float4 pmHighlightTint;  // rgb = highlight tint
+	float4 pmTargetBones[16];// xyz = bone pos, w = sphere radius
+	float4 pmOtherCapsules[16]; // xyz = feet, w = height
+};
+
 Texture2D<float4> colorTex : register(t0);
 Texture2D<float> depthTex : register(t1);
 Texture2D<float4> refColorTex : register(t2);
@@ -220,6 +231,63 @@ float4 main(PS_INPUT i) : SV_TARGET
 	return c;
 }
 
+float PmCapsuleSdf(float3 p, float3 feet, float height, float radius)
+{
+	float pad = min(radius, height * 0.45);
+	float3 a = feet + float3(0.0, 0.0, pad);
+	float3 b = feet + float3(0.0, 0.0, max(pad, height - pad));
+	float3 ab = b - a;
+	float denom = dot(ab, ab);
+	float t = denom > 1e-6 ? saturate(dot(p - a, ab) / denom) : 0.0;
+	return length((a + ab * t) - p) - radius;
+}
+
+float PmEvaluatePlayer(float3 p)
+{
+	if (pmCounts.x == 0) return 0.0;
+	float3 bd = p - pmTargetBounds.xyz;
+	float maxR = pmTargetBounds.w > 1.0 ? pmTargetBounds.w : 96.0;
+	if (dot(bd, bd) > maxR * maxR) return 0.0;
+
+	float dTarget = 1e9;
+	int bones = pmCounts.y;
+	if (bones > 0) {
+		[loop] for (int i = 0; i < bones; ++i) {
+			float r = pmTargetBones[i].w > 1.0 ? pmTargetBones[i].w : 16.0;
+			dTarget = min(dTarget, length(p - pmTargetBones[i].xyz) - r);
+		}
+	} else {
+		float h = pmTargetCapsule.w > 1.0 ? pmTargetCapsule.w : 74.0;
+		dTarget = PmCapsuleSdf(p, pmTargetCapsule.xyz, h, 22.0);
+	}
+	if (dTarget > 32.0) return 0.0;
+
+	int others = pmCounts.z;
+	if (others > 0) {
+		float dOther = 1e9;
+		[loop] for (int j = 0; j < others; ++j) {
+			float oh = pmOtherCapsules[j].w > 1.0 ? pmOtherCapsules[j].w : 74.0;
+			dOther = min(dOther, PmCapsuleSdf(p, pmOtherCapsules[j].xyz, oh, 18.0));
+		}
+		float adv = dOther - dTarget;
+		return saturate((adv + 1.5) / 3.0);
+	}
+	return 1.0;
+}
+
+float SinglePlayerMaskAt(int2 px, bool hasWorldRef)
+{
+	float raw = LoadRaw(depthTex, px);
+	float3 p;
+	if (!WorldPos(px, raw, p)) return 0.0;
+	if (hasWorldRef) {
+		float here = dot(p - camera.xyz, forward.xyz);
+		float world = CameraDepth(worldDepthTex, px);
+		if (!(here < 1e29 && here < world - max(1.5, world * 0.004))) return 0.0;
+	}
+	return PmEvaluatePlayer(p);
+}
+
 float4 ComposePixel(PS_INPUT i)
 {
 	int2 px = int2(i.xyzw.xy);
@@ -235,6 +303,9 @@ float4 ComposePixel(PS_INPUT i)
 		float here = CameraDepth(depthTex, px);
 		float world = CameraDepth(worldDepthTex, px);
 		subject = (here < 1e29 && here < world - max(1.5, world * 0.004)) ? 1.0 : 0.0;
+	} else if (mask == 6) {
+		// Single selected player: pixel-exact player depth partitioned by 3D bone Voronoi ownership.
+		subject = SinglePlayerMaskAt(px, modeMask.w != 0);
 	} else if (mask == 1) {
 		// Background = the chroma-painted scene, or the sky: the players render repaints only scene
 		// materials, and the sky dome (a separate env_sky path) keeps its colour, so it is keyed by
@@ -285,6 +356,31 @@ float4 ComposePixel(PS_INPUT i)
 	}
 
 	if (mode == 4) {
+		// Crisp white-on-black alpha matte for compositing.
+		float m = saturate(subject);
+		return float4(m, m, m, 1.0);
+	}
+
+	if (mode == 5) {
+		// Live highlight-in-scene for the selected player: keep player vibrant, dim/desaturate world,
+		// and draw an optional edge highlight around the player silhouette.
+		float luma = dot(col.rgb, float3(0.2126, 0.7152, 0.0722));
+		float3 bg = lerp(col.rgb, float3(luma, luma, luma), saturate(pmHighlight.y));
+		bg *= (1.0 - saturate(pmHighlight.x) * 0.85);
+		float edge = 0.0;
+		if (pmHighlight.z > 0.01 && subject < 0.8) {
+			float n0 = SinglePlayerMaskAt(px + int2( 2,  0), modeMask.w != 0);
+			float n1 = SinglePlayerMaskAt(px + int2(-2,  0), modeMask.w != 0);
+			float n2 = SinglePlayerMaskAt(px + int2( 0,  2), modeMask.w != 0);
+			float n3 = SinglePlayerMaskAt(px + int2( 0, -2), modeMask.w != 0);
+			edge = saturate(max(max(n0, n1), max(n2, n3)) - subject);
+		}
+		float3 outRgb = lerp(bg, col.rgb, saturate(subject));
+		outRgb = lerp(outRgb, pmHighlightTint.rgb, edge * saturate(pmHighlight.z));
+		return float4(outRgb, 1.0);
+	}
+
+	if (mode == 6) {
 		float raw = useRef ? LoadRaw(refDepthTex, px) : LoadRaw(depthTex, px);
 		float r = floor(raw * 255.0) / 255.0;
 		float g = floor((raw - r) * 65025.0) / 255.0;

@@ -42,6 +42,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include "../EasterEggs/EasterEggs.h"
+#include "../WorldWarp/WorldWarp.h"
 
 #include <string>
 #include <vector>
@@ -430,6 +431,14 @@ bool RenderSessionDriver_Start(std::string& outError) {
 	// second check keeps the invariant even if a future caller bypasses the console grammar.
 	if (!Render_IsModalOpen()) {
 		outError = "the Render workspace is not open";
+		return false;
+	}
+
+	// Little Planet builds each picture from six views of one demo moment, rendered on six frames
+	// while the demo is held. A render job owns playback and records every frame, so it cannot hold
+	// the demo for the five extra views: the planet would stop updating for the whole take.
+	if (WorldWarp_WantsCubemap()) {
+		outError = "Little Planet cannot be rendered yet: it needs six views of each moment; turn World Effects off to render";
 		return false;
 	}
 

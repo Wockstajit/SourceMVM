@@ -122,6 +122,17 @@ Only Beauty + Everything can carry the game HUD, so the live view of every other
 
 EXR output (pre-tonemap HDR) records only the Beauty + Everything plate. `render pass depthdebug 1` records the raw depth sample in Depth passes (r + g/255 + b/65025), which helps diagnose depth decoding.
 
+## Selected player
+
+`Selected player` isolates one picked player from the crowd, and its Matte column records that
+player's matte. The player is picked in the `PER-PLAYER MATTE` card or with
+`mirv_filmmaker render player pick <controller> | spectated | clear`; the card can also highlight
+the pick in the scene. The same pick drives Player Matte nodes in [Effect Nodes](effect-nodes.md).
+
+A queued shot keeps the player it was queued with: queueing a shot needs a pick when it has a
+Selected player pass, each shot picks its own player again before it renders, and the pick from
+before the queue comes back when the queue ends.
+
 ## Known limits
 
 - Normals are reconstructed from depth, so they are geometric. Normal maps and bump detail are not in them. Alpha-to-coverage surfaces (glass) take the nearest covered MSAA sample. That makes them deterministic, but solid in Depth and Normal.

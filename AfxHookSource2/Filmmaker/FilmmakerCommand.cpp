@@ -68,6 +68,10 @@
 #include "Environment/EnvironmentScene.h"
 #include "Heatmap/RoundHeatmap.h" // "heatmap": where the round's players walked, on the floor
 #include "AltEnvironment/AltEnvironment.h" // "altenv": the demo plays on another map
+#include "WorldWarp/WorldWarp.h"
+#include "WorldDecals/WorldDecals.h"
+#include "EffectNodes/EffectNodes.h"
+#include "EventFx/EventFx.h"
 #include "Config/FilmmakerSettingsStore.h"
 #include "Config/EffectsPersistence.h" // "effects": carry EFFECTS settings across a demo change
 #include "Render/RenderCommand.h"
@@ -333,6 +337,14 @@ CON_COMMAND(mirv_filmmaker, "Browse and play CS2 demos (filmmaker tool).") {
 		Filmmaker::Heatmap::RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "altenv")) {
 		Filmmaker::AltEnvironment::RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "worldwarp")) {
+		Filmmaker::WorldWarp_RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "decals")) {
+		Filmmaker::WorldDecals::RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "nodes")) {
+		Filmmaker::EffectNodes::RunCommand(argc, args, cmd);
+	} else if (0 == _stricmp(sub, "eventfx")) {
+		Filmmaker::EventFx_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "ragdollphys")) {
 		Filmmaker::RagdollPhysics_RunCommand(argc, args, cmd);
 	} else if (0 == _stricmp(sub, "deathanim")) {
