@@ -100,7 +100,12 @@ R"CFJS(
     var evCopies = evSlider(T('Copies'), 'copies', 1, 6, 0, '', T('More of the same effect, scattered around the point.'));
     var evSpread = evSlider(T('Spread'), 'spread', 0, 600, 0, 'u', T('How far apart the copies land.'));
     var evDelay = evSlider(T('Delay'), 'delay', 0, 5, 2, 's', T('Waits this long after the event.'));
-    var evLife = evSlider(T('Keep for'), 'life', 0, 30, 1, 's', T('How long the effects stay before they are removed. 0 uses each effect\'s own length.'));
+    var evLife = sliderRow(evInsp, {
+      label: T('Keep for'), min: 0, max: 30, decimals: 1, unit: 's',
+      tip: T('How long the effects stay before they are removed. 0 uses each effect\'s own length.'),
+      format: function (v) { return v <= 0 ? T('Auto') : v.toFixed(1) + 's'; },
+      onChange: function (v) { evSet('life', v); }
+    });
 
     subHead(evInsp, T('Light and camera'));
     var evLight = togglePill(evInsp, T('Light burst'),

@@ -714,6 +714,9 @@ R"CFJS(
       olAssetBox.visible = !!it && it.kind === 'asset';
       var olIsFx = !!it && it.kind === 'asset' && /\.vpcf$/i.test(it.model || '');
       olFxBox.visible = olIsFx;
+      // A particle effect has no size and nothing to stand on.
+      olAssetSize.row.visible = !olIsFx;
+      olAssetSolid.row.visible = !olIsFx;
       if (olIsFx) {
         olFxPlay.sync(it.play || '-');
         olFxLife.sync(it.playLife || 0);
