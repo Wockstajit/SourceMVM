@@ -127,6 +127,8 @@ struct EventPreset {
 	bool lightBurst = false;
 	bool lightFlashStyle = false; // true = white flash light, false = warm blast light
 	float shake = 0.0f;    // 0..1 camera shake, weaker with distance from the camera
+	float shakeSpeed = 0.0f;  // Hz; 0 = auto (follows `shake`: a light shake is slow, a hard one quick)
+	float shakeLength = 0.0f; // seconds; 0 = auto (a light shake is short, a hard one long)
 };
 
 inline float Clamp(float v, float lo, float hi) {
@@ -206,7 +208,15 @@ inline float EvaluateEnvelope(double ageSec, float attackSec, float decaySec) {
 	return inv * inv;
 }
 
-inline constexpr float kShakeAttack = 0.02f, kShakeDecay = 0.7f;
+inline constexpr float kShakeAttack = 0.02f;
+// The speed and length a preset's shake runs at: its own choice, or (0, Auto) what its strength
+// suggests -- 4 Hz and a third of a second for a nudge up to 14 Hz and over a second for a blast.
+inline float ShakeHz(float strength, float chosen) {
+	return chosen > 0.0f ? Clamp(chosen, 1.0f, 30.0f) : 4.0f + 10.0f * Clamp(strength, 0.0f, 1.0f);
+}
+inline float ShakeSeconds(float strength, float chosen) {
+	return chosen > 0.0f ? Clamp(chosen, 0.1f, 5.0f) : 0.35f + 0.85f * Clamp(strength, 0.0f, 1.0f);
+}
 
 // How much of a preset's shake reaches a camera `distance` units from the blast: all of it up
 // close, fading to a fifth by 2000 units. A blast with no position shakes fully.
@@ -218,6 +228,8 @@ inline float ShakeFalloff(float distance) {
 struct ActiveShake {
 	double start = 0.0;
 	float strength = 0.0f; // 0..1, falloff applied
+	float hz = 8.0f;       // how fast it swings
+	float seconds = 0.7f;  // how long it lasts
 	uint32_t seed = 1;
 	bool useWallClock = false;
 };
@@ -231,14 +243,15 @@ inline ShakeFrame EvaluateShakes(const std::vector<ActiveShake>& shakes, double 
 	ShakeFrame out;
 	for (const ActiveShake& s : shakes) {
 		const double age = (s.useWallClock ? wallTime : demoTime) - s.start;
-		const float env = EvaluateEnvelope(age, kShakeAttack, kShakeDecay) * Clamp(s.strength, 0.0f, 1.0f);
+		const float env = EvaluateEnvelope(age, kShakeAttack, s.seconds) * Clamp(s.strength, 0.0f, 1.0f);
 		if (env <= 1e-4f) continue;
 		out.active = true;
-		const float phase = (float)age * 14.0f * 2.0f * kPi;
+		// Two swings a little apart in speed on each axis, so it rolls instead of buzzing.
+		const float phase = (float)age * s.hz * 2.0f * kPi;
 		const float k = (float)(s.seed % 97u) * 0.37f;
-		out.pitch += std::sin(phase + k) * 3.0f * env;
-		out.yaw += std::cos(phase * 0.83f + k * 1.7f) * 2.2f * env;
-		out.roll += std::sin(phase * 1.19f + k * 2.3f) * 2.0f * env;
+		out.pitch += (0.7f * std::sin(phase + k) + 0.3f * std::sin(phase * 0.53f + k * 3.1f)) * 5.0f * env;
+		out.yaw += (0.7f * std::cos(phase * 0.83f + k * 1.7f) + 0.3f * std::sin(phase * 0.41f + k)) * 3.5f * env;
+		out.roll += std::sin(phase * 0.71f + k * 2.3f) * 2.5f * env;
 	}
 	return out;
 }

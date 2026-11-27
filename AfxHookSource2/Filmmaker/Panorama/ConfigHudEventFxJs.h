@@ -176,6 +176,20 @@ R"CFJS(
       tip: T('Shakes the camera, less the farther it is from the effect. 0 is off.'),
       onChange: function (v) { evSet('shake', (v / 100).toFixed(2)); }
     });
+    // How the shake moves, in one row under its strength. Auto follows the strength: a light shake
+    // swings slowly and briefly, a hard one quickly and for longer (EventFxMath.h ShakeHz).
+    var EV_SHAKE_SPEEDS = [['0', T('Auto')], ['4', T('Slow')], ['8', T('Medium')], ['14', T('Fast')], ['20', T('Very fast')]];
+    var EV_SHAKE_LENGTHS = [['0', T('Auto')], ['0.35', T('Short')], ['0.8', T('Medium')], ['1.5', T('Long')], ['2.5', T('Very long')]];
+    function evNearest(items, v) {
+      var best = items[0][0];
+      for (var i = 0; i < items.length; i++) if (Math.abs(parseFloat(items[i][0]) - v) < Math.abs(parseFloat(best) - v)) best = items[i][0];
+      return best;
+    }
+    var evRowS = evCells(evInsp, 2);
+    var evShakeSpeed = evNarrow(dropdownRow(evRowS[0], T('Speed'), EV_SHAKE_SPEEDS, function (k) { evSet('shakeSpeed', k); }));
+    var evShakeLength = evNarrow(dropdownRow(evRowS[1], T('Length'), EV_SHAKE_LENGTHS, function (k) { evSet('shakeLength', k); }));
+    attachTip(evShakeSpeed.row, T('How fast the camera swings. Auto: slower for a light shake, quicker for a hard one.'));
+    attachTip(evShakeLength.row, T('How long the shake lasts. Auto: shorter for a light shake, longer for a hard one.'));
     var evRowE = evCells(evInsp, 2);
     var evLight = togglePill(evRowE[0], T('Light burst'),
       T('A real CS2 light flashes where the effect plays.'),
@@ -220,6 +234,8 @@ R"CFJS(
       evDelay.sync(sel.delay || 0);
       evLife.sync(sel.life || 0);
       evShake.sync(Math.round((sel.shake || 0) * 100));
+      evShakeSpeed.sync(evNearest(EV_SHAKE_SPEEDS, sel.shakeSpeed || 0));
+      evShakeLength.sync(evNearest(EV_SHAKE_LENGTHS, sel.shakeLength || 0));
       evLight.set(!!sel.lightBurst);
       evLightStyle.sync(sel.lightFlash ? '1' : '0');
     });

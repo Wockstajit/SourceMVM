@@ -82,9 +82,14 @@ void TestPlanSpawns() {
 }
 
 void TestShake() {
-	CHECK(EvaluateEnvelope(-0.1, kShakeAttack, kShakeDecay) == 0.0f);
-	CHECK(std::fabs(EvaluateEnvelope(kShakeAttack, kShakeAttack, kShakeDecay) - 1.0f) < 1e-4f);
-	CHECK(EvaluateEnvelope(2.0, kShakeAttack, kShakeDecay) == 0.0f);
+	CHECK(EvaluateEnvelope(-0.1, kShakeAttack, 0.7f) == 0.0f);
+	CHECK(std::fabs(EvaluateEnvelope(kShakeAttack, kShakeAttack, 0.7f) - 1.0f) < 1e-4f);
+	CHECK(EvaluateEnvelope(2.0, kShakeAttack, 0.7f) == 0.0f);
+	// Auto: a light shake is slow and short, a hard one quick and long; a choice overrides it.
+	CHECK(ShakeHz(0.1f, 0.0f) < ShakeHz(0.9f, 0.0f));
+	CHECK(ShakeSeconds(0.1f, 0.0f) < ShakeSeconds(0.9f, 0.0f));
+	CHECK(ShakeHz(0.9f, 4.0f) == 4.0f && ShakeSeconds(0.1f, 2.5f) == 2.5f);
+	CHECK(ShakeHz(1.0f, 0.0f) <= 14.0f && ShakeHz(0.0f, 0.0f) >= 4.0f);
 	CHECK(ShakeFalloff(0.0f) == 1.0f);
 	CHECK(ShakeFalloff(1250.0f) > 0.45f && ShakeFalloff(1250.0f) < 0.55f);
 	CHECK(ShakeFalloff(99999.0f) == 0.2f);
@@ -93,6 +98,10 @@ void TestShake() {
 	CHECK(f.active);
 	CHECK(std::fabs(f.pitch) + std::fabs(f.yaw) + std::fabs(f.roll) > 0.1f);
 	CHECK(!EvaluateShakes({ s }, 12.0, 0.0).active);
+	// A long shake is still going where a short one has stopped.
+	ActiveShake longer = s; longer.seconds = 2.5f;
+	CHECK(!EvaluateShakes({ s }, 11.0, 0.0).active);
+	CHECK(EvaluateShakes({ longer }, 11.0, 0.0).active);
 	s.strength = 0.0f;
 	CHECK(!EvaluateShakes({ s }, 10.1, 0.0).active);
 }

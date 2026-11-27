@@ -16,7 +16,7 @@ which effects play, and where:
 | Delay | Seconds after the event |
 | Keep for | Seconds before the effects are removed; 0 uses each effect's own length. Looping fire would otherwise burn forever |
 | Light burst | A real CS2 light flashes at the point (warm blast or white flash) |
-| Camera shake | Off by default; weaker the farther the camera is from the effect |
+| Camera shake | Off by default; weaker the farther the camera is from the effect. **Speed** (slow to very fast) and **Length** (short to very long) sit under it; on **Auto** both follow the strength, so a light shake swings slowly and briefly and a hard one quickly and for longer |
 
 **Test** plays the preset in front of the camera on the wall clock, so it plays while the demo is
 paused. **Place in world** puts the preset's effects at the crosshair as Scene Objects that play

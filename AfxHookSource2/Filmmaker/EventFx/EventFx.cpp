@@ -163,6 +163,8 @@ void StartFiring(const Firing& f) {
 		EventFx::ActiveShake s;
 		s.start = now; s.seed = seed; s.useWallClock = f.wallClock;
 		s.strength = p.shake * EventFx::ShakeFalloff(std::sqrt(dx * dx + dy * dy + dz * dz));
+		s.hz = EventFx::ShakeHz(p.shake, p.shakeSpeed);
+		s.seconds = EventFx::ShakeSeconds(p.shake, p.shakeLength);
 		std::lock_guard<std::mutex> lock(g_mutex);
 		if (g_shakes.size() >= 16) g_shakes.erase(g_shakes.begin());
 		g_shakes.push_back(s);
@@ -313,7 +315,7 @@ void EventFx_RunMainThreadFrame() {
 		firings.swap(g_firings);
 		g_shakes.erase(std::remove_if(g_shakes.begin(), g_shakes.end(), [now, wall](const EventFx::ActiveShake& s) {
 			const double age = (s.useWallClock ? wall : now) - s.start;
-			return age < -0.5 || age > (double)(EventFx::kShakeAttack + EventFx::kShakeDecay) + 0.05;
+			return age < -0.5 || age > (double)(EventFx::kShakeAttack + s.seconds) + 0.05;
 		}), g_shakes.end());
 		g_hasShakes.store(!g_shakes.empty(), std::memory_order_release);
 		// The precache rule: every system an enabled preset can spawn is loaded once the level has
@@ -397,6 +399,8 @@ void EventFx_AppendStateJson(std::ostringstream& out) {
 		j.BoolField("lightBurst", p.lightBurst);
 		j.BoolField("lightFlash", p.lightFlashStyle);
 		j.DoubleField("shake", p.shake);
+		j.DoubleField("shakeSpeed", p.shakeSpeed);
+		j.DoubleField("shakeLength", p.shakeLength);
 		j.EndObject();
 	}
 	j.EndArray();
@@ -409,7 +413,7 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		advancedfx::Message(
 			"%s eventfx on|off|toggle|reset\n"
 			"%s eventfx test <id> | select <id> | enable <id> <0|1> | add | remove <id> | place <id>\n"
-			"%s eventfx set <id> trigger|effect0|effect1|effect2|where|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|name <value>\n"
+			"%s eventfx set <id> trigger|effect0|effect1|effect2|where|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|shakeSpeed|shakeLength|name <value>\n"
 			"%s eventfx effects  (the effects a preset can spawn)\n",
 			cmd, cmd, cmd, cmd);
 		return;
@@ -517,6 +521,8 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		else if (0 == _stricmp(f, "lightBurst")) p->lightBurst = fv > 0.5f;
 		else if (0 == _stricmp(f, "lightFlash")) p->lightFlashStyle = fv > 0.5f;
 		else if (0 == _stricmp(f, "shake")) p->shake = Clamp(fv, 0.0f, 1.0f);
+		else if (0 == _stricmp(f, "shakeSpeed")) p->shakeSpeed = fv <= 0.0f ? 0.0f : Clamp(fv, 1.0f, 30.0f);
+		else if (0 == _stricmp(f, "shakeLength")) p->shakeLength = fv <= 0.0f ? 0.0f : Clamp(fv, 0.1f, 5.0f);
 		else if (0 == _stricmp(f, "name")) { std::string n = val; for (int i = 6; i < argc; ++i) { n += ' '; n += args->ArgV(i); } p->name = n.substr(0, 40); }
 		else { advancedfx::Warning("%s eventfx: unknown field '%s'.\n", cmd, f); return; }
 		g_warmed.clear(); // a new effect is loaded before it can fire
