@@ -42,6 +42,8 @@ cbuffer NodeConstants : register(b0) {
     float4 pmCapsule;    // feet xyz, height
     float4 pmBones[16];
     float4 pmOthers[16];
+    float4 smokes[8];    // the smoke grenades: center xyz, radius
+    int4   smokeInfo;    // smoke count, 0, 0, 0
 };
 
 Texture2D<float4> colorIn : register(t0);
@@ -276,6 +278,38 @@ float PeopleAt(float2 uv) {
     return saturate(1.0 - d / 6.0);
 }
 
+// How much smoke hides a point from the camera: 0 clear, 1 fully behind it. Each smoke grenade is a
+// sphere; what counts is the length of smoke the view ray crosses before it reaches the point.
+float SmokeCover(float3 w) {
+    float3 o = cameraTime.xyz, d = w - o;
+    float len = length(d);
+    if (len < 1e-3) return 0.0;
+    d /= len;
+    float cover = 0.0;
+    [loop] for (int s = 0; s < smokeInfo.x; ++s) {
+        float r = smokes[s].w;
+        float3 oc = o - smokes[s].xyz;
+        float b = dot(oc, d), h = b * b - (dot(oc, oc) - r * r);
+        if (h <= 0.0) continue;
+        h = sqrt(h);
+        float t0 = max(-b - h, 0.0), t1 = min(-b + h, len);
+        if (t1 > t0) cover = max(cover, saturate((t1 - t0) / (0.6 * r)));
+    }
+    return cover;
+}
+
+// 1 near a player's body (the picked one or any other). A pixel in front of the world reference but
+// far from every player is a plant that swayed between the two renders, a dropped gun or a lagged
+// edge, not a person. With no player positions at all, the reference alone decides.
+float NearAnyPlayer(float3 w) {
+    if (pmCounts.x == 0 && pmCounts.z == 0) return 1.0;
+    float d = 1e9;
+    if (pmCounts.x != 0) d = CapsuleSdf(w, pmCapsule.xyz, pmCapsule.w > 1.0 ? pmCapsule.w : 74.0, 24.0);
+    [loop] for (int j = 0; j < pmCounts.z; ++j)
+        d = min(d, CapsuleSdf(w, pmOthers[j].xyz, pmOthers[j].w > 1.0 ? pmOthers[j].w : 74.0, 24.0));
+    return d < 14.0 ? 1.0 : 0.0;
+}
+
 )HLSL"
 // Split: MSVC caps one raw string literal near 16 KB (C2026); adjacent literals concatenate.
 R"HLSL(
@@ -297,15 +331,21 @@ float MaskPS(VsOut i) : SV_Target {
         m = (d > 1e29) ? 1.0 : smoothstep(p0.x - max(p0.y, 1.0), p0.x + max(p0.y, 1.0), d);
         if (p0.z > 0.5) m = 1.0 - m;
     } else if (type == 2) {
-        // PlayerMatte: selectedOnly=p0.x, feather=p0.y, invert=p0.z
+        // PlayerMatte: selectedOnly=p0.x, feather=p0.y, invert=p0.z, see through smoke=p0.w,
+        // first-person arms=p1.x
         float3 w;
         if (WorldAtUv(i.uv, w)) {
             float here = dot(w - cameraTime.xyz, camFwd.xyz);
             float isPlayer = (depthInfo.w > 0.5)
-                ? InFrontOfWorld(w)
+                ? InFrontOfWorld(w) * NearAnyPlayer(w)
                 : ((here < 900.0) ? SelectedPlayerWeight(w) : 0.0);
             if (isPlayer > 0.01 && p0.x > 0.5)
                 isPlayer *= SelectedPlayerWeight(w);
+            // The first-person arms and gun are drawn within a few dozen units of the camera, and
+            // are not in the world reference either: they filled with the players unless asked for.
+            if (here < 48.0 && p1.x < 0.5) isPlayer = 0.0;
+            // A player behind a smoke stays hidden, as in the game, unless the node sees through it.
+            if (p0.w < 0.5) isPlayer *= 1.0 - SmokeCover(w);
             m = isPlayer;
         }
         if (p0.z > 0.5) m = 1.0 - m;
@@ -1346,6 +1386,8 @@ struct Constants {
 	float pmCapsule[4];
 	float pmBones[16][4];
 	float pmOthers[16][4];
+	float smokes[8][4];
+	int smokeInfo[4];
 };
 static_assert(sizeof(Constants) % 16 == 0, "cb alignment");
 
@@ -1548,6 +1590,14 @@ void EndDevice() {
 	g_gpu = {};
 }
 
+// The smoke grenades for this frame (render thread): Player Matte hides a player behind one.
+namespace { float g_smokes[8][4] = {}; int g_smokeCount = 0; }
+void SetSmokes(const float* spheres, int count) {
+	g_smokeCount = (std::max)(0, (std::min)(count, 8));
+	std::memset(g_smokes, 0, sizeof(g_smokes));
+	if (spheres) std::memcpy(g_smokes, spheres, sizeof(float) * 4 * g_smokeCount);
+}
+
 bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, ID3D11ShaderResourceView* worldDepthSrv,
 	const float* refWorldToClip, float refDepthMin, float refDepthMax,
@@ -1654,6 +1704,8 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 			baseCb.pmOthers[i][k] = pm.otherCapsules[i][k];
 		}
 	}
+	baseCb.smokeInfo[0] = g_smokeCount;
+	std::memcpy(baseCb.smokes, g_smokes, sizeof(g_smokes));
 
 	ID3D11ShaderResourceView* nullSrvs[7] = {};
 

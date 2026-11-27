@@ -3846,6 +3846,17 @@ public:
                         if (nodesRun) {
                             AfxRenderPass::WorldReferenceView refView;
                             ID3D11ShaderResourceView* refDepth = AfxRenderPass::WorldDepthReferenceSrv(refView);
+                            {
+                                // The smokes, so a Player Matte never shows a player through one.
+                                const auto& smokes = g_EnvironmentFrame.active ? g_EnvironmentFrame.smokes : g_LensSmokes;
+                                float spheres[8 * 4] = {};
+                                const int count = (int)(std::min)(smokes.size(), (size_t)8);
+                                for (int s = 0; s < count; ++s) {
+                                    spheres[s * 4] = smokes[s].center.x; spheres[s * 4 + 1] = smokes[s].center.y;
+                                    spheres[s * 4 + 2] = smokes[s].center.z; spheres[s * 4 + 3] = smokes[s].radius;
+                                }
+                                Filmmaker::EffectNodes::SetSmokes(spheres, count);
+                            }
                             Filmmaker::EffectNodes::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                                 refDepth, refView.worldToClip, refView.depthMin, refView.depthMax,
                                 f.hasWorldToClip ? f.worldToClip.data() : nullptr,
@@ -9308,10 +9319,10 @@ void RenderSystemDX11_EngineThread_Prepare() {
         memcpy(environmentWorldToClip.data(), g_WorldToScreenMatrix.m, sizeof(g_WorldToScreenMatrix.m));
         auto environmentFrame = Filmmaker::Environment::CaptureFrame(environmentProjection, environmentWorldToClip);
         environmentFrame.exporting = AfxStreams_IsRcording() && !Filmmaker::Relight::PreviewCapture();
-        // Depth of field blurs a smoke at its own distance, so it needs the smokes even while the
-        // Environment, which collects them for its own frame, is off.
+        // Depth of field blurs a smoke at its own distance, and a Player Matte hides a player behind
+        // one, so both need the smokes even while the Environment, which collects them, is off.
         std::vector<Filmmaker::Environment::SmokeVolume> lensSmokes;
-        if (!environmentFrame.active && Filmmaker::LensFx_DofOn())
+        if (!environmentFrame.active && (Filmmaker::LensFx_DofOn() || Filmmaker::EffectNodes::Active()))
             Filmmaker::Environment::CaptureSmokeVolumes(lensSmokes);
         queue.Push([frame = std::move(environmentFrame), smokes = std::move(lensSmokes)]() mutable {
             g_EnvironmentFrame = std::move(frame);

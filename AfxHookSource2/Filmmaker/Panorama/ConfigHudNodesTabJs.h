@@ -327,7 +327,8 @@ R"CFJS(
     var NODE_SCHEMAS = {
       depth_range:  [[0, T('Near'), 0, 4000, 0, 'u'], [1, T('Far'), 50, 8000, 0, 'u'], [2, T('Softness'), 1, 1000, 0, 'u'], [3, T('Invert mask'), 0, 1, 0, '', true]],
       sky_mask:     [[0, T('Sky cutoff'), 2000, 28000, 0, 'u'], [1, T('Softness'), 10, 4000, 0, 'u'], [2, T('Invert mask'), 0, 1, 0, '', true]],
-      player_matte: [[0, T('Picked player only'), 0, 1, 0, '', true], [2, T('Invert (select world)'), 0, 1, 0, '', true]],
+      player_matte: [[0, T('Picked player only'), 0, 1, 0, '', true], [2, T('Invert (select world)'), 0, 1, 0, '', true],
+        [3, T('See through smoke'), 0, 1, 0, '', true], [4, T('First-person arms'), 0, 1, 0, '', true]],
       fog_mask:     [[0, T('Fog start'), 0, 3000, 0, 'u'], [1, T('Fog end'), 100, 8000, 0, 'u'], [2, T('Density'), 0.1, 4, 2, 'x'], [3, T('Invert mask'), 0, 1, 0, '', true]],
       luma_key:     [[0, T('Threshold'), 0, 1, 2, ''], [1, T('Softness'), 0.01, 0.5, 2, ''], [2, T('Invert mask'), 0, 1, 0, '', true]],
       mask_combine: [[0, T('Op (0 Union, 1 Intersect, 2 Sub, 3 Inv)'), 0, 3, 0, '']],

@@ -2254,6 +2254,8 @@
  "Sky cutoff": "하늘 컷오프",
  "Picked player only": "선택한 플레이어만",
  "Invert (select world)": "반전(배경 선택)",
+ "See through smoke": "연막 너머 보기",
+ "First-person arms": "1인칭 팔",
  "Fog start": "안개 시작",
  "Fog end": "안개 끝",
  "Threshold": "임계값",

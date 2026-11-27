@@ -8,6 +8,9 @@ namespace Filmmaker::EffectNodes {
 
 void BeginDevice(ID3D11Device* device);
 void EndDevice();
+// This frame's smoke grenades as spheres (x, y, z, radius; up to 8), so Player Matte hides a player
+// behind a smoke. Render thread, before Render.
+void SetSmokes(const float* spheres, int count);
 
 bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	ID3D11DepthStencilView* depth, ID3D11ShaderResourceView* worldDepthSrv,

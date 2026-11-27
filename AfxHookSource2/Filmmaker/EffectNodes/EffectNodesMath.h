@@ -305,7 +305,8 @@ struct Node {
 	// Up to 8 numeric parameters per node (meaning defined by NodeType):
 	// DepthRange:  [0]=near(100), [1]=far(1400), [2]=softness(150), [3]=invert(0)
 	// SkyMask:     [0]=cutoff(18000), [1]=softness(500), [2]=invert(0)
-	// PlayerMatte: [0]=selectedOnly(0=all,1=selected), [1]=feather(1.0), [2]=invert(0)
+	// PlayerMatte: [0]=selectedOnly(0=all,1=selected), [1]=feather(1.0), [2]=invert(0),
+	//              [3]=see through smoke(0: a smoke hides a player), [4]=first-person arms(0: left out)
 	// FogMask:     [0]=start(300), [1]=end(2600), [2]=density(1.0), [3]=invert(0)
 	// LumaKey:     [0]=threshold(0.65), [1]=softness(0.15), [2]=invert(0)
 	// MaskCombine: [0]=op(0=union,1=intersect,2=subtract,3=invert)

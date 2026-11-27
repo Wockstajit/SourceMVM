@@ -173,3 +173,19 @@ test('node cards carry their settings and parse choice lists', () => {
   assert.match(js, /if \(fresh && ngOverlaps\(\)\) ngTidyPending = true;/);
   assert.match(js, /tbtn\(T\('Arrange'\), function \(\) \{ ngTidy\(\); \}\);/);
 });
+
+// A Player Matte keeps to the players: what stands in front of the world reference must also be near a
+// player's body (plants sway between the two renders), the first-person arms and gun stay out unless
+// asked for, and a smoke hides a player unless the node sees through it.
+test('Player Matte ignores swaying plants and the viewmodel, and smoke hides players', () => {
+  const render = read('AfxHookSource2/Filmmaker/EffectNodes/EffectNodesRender.cpp');
+  const hooks = read('AfxHookSource2/RenderSystemDX11Hooks.cpp');
+  const matte = read('AfxHookSource2/Filmmaker/Render/RenderPlayerMatte.cpp');
+  assert.match(render, /\? InFrontOfWorld\(w\) \* NearAnyPlayer\(w\)/);
+  assert.match(render, /if \(here < 48\.0 && p1\.x < 0\.5\) isPlayer = 0\.0;/);
+  assert.match(render, /if \(p0\.w < 0\.5\) isPlayer \*= 1\.0 - SmokeCover\(w\);/);
+  assert.match(hooks, /Filmmaker::EffectNodes::SetSmokes\(spheres, count\);/);
+  assert.match(hooks, /\(Filmmaker::LensFx_DofOn\(\) \|\| Filmmaker::EffectNodes::Active\(\)\)/);
+  assert.match(matte, /WorldDecals::AnyEnabled\(\) \|\| nodes;/);
+  assert.match(nodes, /\[3, T\('See through smoke'\), 0, 1, 0, '', true\], \[4, T\('First-person arms'\), 0, 1, 0, '', true\]/);
+});

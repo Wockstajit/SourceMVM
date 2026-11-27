@@ -2254,6 +2254,8 @@
  "Sky cutoff": "空のカットオフ",
  "Picked player only": "選んだプレイヤーのみ",
  "Invert (select world)": "反転（背景を選択）",
+ "See through smoke": "スモーク越しに見る",
+ "First-person arms": "一人称視点の腕",
  "Fog start": "霧の開始",
  "Fog end": "霧の終了",
  "Threshold": "しきい値",

@@ -95,6 +95,14 @@ Player Matte nodes isolate the player picked for the Selected player pass
 ([render passes](filmmaker_render_passes.md)), or every player while `selectedOnly` is off or nobody
 is picked. The two player presets follow the pick.
 
+A Player Matte keeps to the players' bodies. A pixel that stands in front of the world reference
+also has to be near a player (their positions come from `RenderPlayerMatte`), because a plant that
+sways between the scene and the reference render, or a dropped gun, is in front of it too. The
+first-person arms and gun (within 48 units of the camera) are left out unless **First-person arms**
+is on. A smoke grenade hides a player behind it, as in the game, unless **See through smoke** is on:
+each smoke is a sphere (the same ones depth of field uses), and the mask fades by how much smoke the
+view ray crosses before it reaches the player.
+
 ## The live player mask
 
 A Player Matte compares the scene depth with a World Only depth, so a graph with one adds a second

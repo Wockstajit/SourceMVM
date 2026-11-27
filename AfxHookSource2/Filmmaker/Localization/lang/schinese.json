@@ -2254,6 +2254,8 @@
  "Sky cutoff": "天空截断",
  "Picked player only": "仅选中的玩家",
  "Invert (select world)": "反转（选择环境）",
+ "See through smoke": "透过烟雾",
+ "First-person arms": "第一人称手臂",
  "Fog start": "雾起始",
  "Fog end": "雾结束",
  "Threshold": "阈值",
