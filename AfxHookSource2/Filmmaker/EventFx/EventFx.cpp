@@ -88,7 +88,11 @@ bool PlayerPosition(int userid, bool eye, float out[3]) {
 	} __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
-// bomb_exploded carries no position: the planted bomb is still there when it fires.
+// bomb_exploded carries no position, and by the time it fires the planted bomb entity is often
+// gone (seen in a demo, 2026-11-27). So bomb_planted remembers where the planter stood; the
+// planted_c4 entity is still tried first.
+bool g_bombKnown = false;
+float g_bombPos[3] = {0, 0, 0};
 bool BombPosition(float out[3]) {
 	__try {
 		const int highest = (std::min)(GetHighestEntityIndex(), 32768);
@@ -98,7 +102,9 @@ bool BombPosition(float out[3]) {
 			if (cls && !std::strcmp(cls, "planted_c4")) { e->GetOrigin(out[0], out[1], out[2]); return Finite3(out); }
 		}
 	} __except (EXCEPTION_EXECUTE_HANDLER) {}
-	return false;
+	if (!g_bombKnown) return false;
+	std::memcpy(out, g_bombPos, sizeof(g_bombPos));
+	return true;
 }
 
 // A little ahead of the camera, where an effect with no place of its own shows.
@@ -208,6 +214,7 @@ void EventFx_OnLevelInit() {
 	g_shakes.clear();
 	g_recentTriggers.clear();
 	g_warmed.clear();
+	g_bombKnown = false;
 	g_levelSince = GetTickCount64();
 	g_lastDemoTick = -1;
 	g_lastDemoTime = -1.0;
@@ -222,6 +229,18 @@ void EventFx_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 	const bool isGrenade = !std::strcmp(name, "flashbang_detonate") || !std::strcmp(name, "hegrenade_detonate")
 		|| !std::strcmp(name, "smokegrenade_detonate") || !std::strcmp(name, "inferno_startburn");
 	const bool isBomb = !std::strcmp(name, "bomb_exploded");
+	if (!std::strcmp(name, "bomb_planted")) {
+		JsonValue planted;
+		const JsonValue* v = EventDataToJson(event, planted) ? planted.Find("userid") : nullptr;
+		float at[3];
+		if (v && PlayerPosition(v->AsInt(-1), false, at)) {
+			std::lock_guard<std::mutex> lock(g_mutex);
+			std::memcpy(g_bombPos, at, sizeof(at));
+			g_bombKnown = true;
+		}
+		return;
+	}
+	if (!std::strcmp(name, "round_start")) { std::lock_guard<std::mutex> lock(g_mutex); g_bombKnown = false; return; }
 	if (!isDeath && !isGrenade && !isBomb) return;
 
 	bool headshot = false, hasPos = false, hasHead = false;
