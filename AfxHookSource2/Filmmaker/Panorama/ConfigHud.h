@@ -118,6 +118,7 @@ private:
 	short m_symViewEdit = -1;      // "viewedit" -- ConfigHudPropsGizmoJs.h, the ENVIRONMENT tab is up
 	short m_symWinRect = -1;       // "winrect" -- ModuleWindowJs.h, the MODULAR window in client px
 	short m_symWinFront = -1;      // "winfront" -- "1" while it is the window drawn on top
+	short m_symGraphRect = -1;     // "graphrect" -- ConfigHudNodesTabJs.h, the node graph window in client px
 	// Last preview rect parsed from the JS-published "previewrect" (normalised window fractions).
 	bool m_previewValid = false;
 	bool m_demoScaleActive = false;

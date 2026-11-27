@@ -399,8 +399,10 @@ R"CFJS(
     var NG_TITLE_H = 30, NG_GRIP = 18, NODE_W = 176, NODE_HDR = 24, NODE_H = 80, NG_PIN = 12;
     var ngWin = null, ngTitleBar = null, ngCanvas = null, ngWireLayer = null, ngNodeLayer = null, ngLiveLayer = null;
     var ngGrip = null, ngNoteLbl = null, ngTitleBtns = [];
-    var ngRect = null, ngRectSig = '', ngStoredSeen = null;
-    var ngPan = { x: 0, y: 0 }, ngFramed = false;
+    var ngRect = null, ngRectSig = '', ngStoredSeen = null, ngPendingStore = null, ngPendingFrames = 0, ngPubRect = null;
+    // The graph's view: pan in graph units, and a zoom applied to the wire, node and live layers
+    // (scale about their top-left), so a canvas point is graph = point / zoom - pan.
+    var ngPan = { x: 0, y: 0 }, ngFramed = false, ngZoom = 1, ngZoomApplied = -1;
     var ngCards = {}, ngNodes = [], ngEdges = [], ngSelected = -1;
     var ngGesture = null, ngLastLmb = false, ngLastRmb = false, ngPendingFrom = -1;
     var ngDragPos = {};               // id -> {x, y, until}: where a dropped node shows until the state agrees
@@ -443,7 +445,8 @@ R"CFJS(
       ngCards = {}; ngWireSig = ''; ngRectSig = ''; ngLiveSegs = [];
       ngWin = mk('Panel', cfgOverlay()); ngWin.hittest = true; ngWin.hittestchildren = true;
       ngWin.visible = false; ngWin.style.zIndex = '0';
-      ngWin.style.backgroundColor = '#0b0e13f7'; ngWin.style.border = '1px solid ' + NODES_ACCENT + '66';
+      // See-through, so the shot under the graph stays visible; the cards and title bar stay solid.
+      ngWin.style.backgroundColor = 'rgba(11,14,19,0.45)'; ngWin.style.border = '1px solid ' + NODES_ACCENT + '66';
       ngWin.style.borderRadius = '6px'; ngWin.style.flowChildren = 'down'; ngWin.style.overflow = 'clip';
       ngWin.style.boxShadow = '#000000cc 0px 10px 30px 0px';
       ngWin.SetPanelEvent('onactivate', function () {});
@@ -469,13 +472,22 @@ R"CFJS(
 
       ngCanvas = mk('Panel', ngWin); ngCanvas.hittest = true; ngCanvas.hittestchildren = false;
       ngCanvas.style.width = '100%'; ngCanvas.style.height = 'fill-parent-flow(1.0)'; ngCanvas.style.overflow = 'clip';
-      ngCanvas.style.backgroundColor = '#0a0c10ff';
+      ngCanvas.style.backgroundColor = 'rgba(8,10,14,0.35)';
       ngWireLayer = mk('Panel', ngCanvas); ngWireLayer.hittest = false;
       ngWireLayer.style.width = '100%'; ngWireLayer.style.height = '100%';
       ngNodeLayer = mk('Panel', ngCanvas); ngNodeLayer.hittest = false;
       ngNodeLayer.style.width = '100%'; ngNodeLayer.style.height = '100%';
       ngLiveLayer = mk('Panel', ngCanvas); ngLiveLayer.hittest = false;
       ngLiveLayer.style.width = '100%'; ngLiveLayer.style.height = '100%';
+      // Scaled about the top-left, and never clipped to their own (scaled) box: the canvas clips.
+      // Panorama clips children to a panel's own layout box before its transform applies, so a
+      // layer the size of the canvas, scaled down, cut the graph off at the scaled edge. The
+      // layers are far larger than any graph; the canvas does the clipping.
+      [ngWireLayer, ngNodeLayer, ngLiveLayer].forEach(function (l) {
+        l.style.transformOrigin = '0% 0%'; l.style.overflow = 'noclip noclip';
+        l.style.width = '12000px'; l.style.height = '12000px';
+      });
+      ngZoomApplied = -1;
       ngGrip = mk('Panel', ngCanvas); ngGrip.hittest = false;
       ngGrip.style.width = NG_GRIP + 'px'; ngGrip.style.height = NG_GRIP + 'px';
       ngGrip.style.horizontalAlign = 'right'; ngGrip.style.verticalAlign = 'bottom';
@@ -498,6 +510,12 @@ R"CFJS(
     }
     function ngReadStored(s) {
       var v = s && s.ui && s.ui['nodes.graph'];
+      // Our own write is in flight: until it arrives the state still holds the rect from before
+      // the drag, and reading that back made the window jump back and forth on release.
+      if (ngPendingStore !== null) {
+        if (v === ngPendingStore || ++ngPendingFrames > 240) { ngStoredSeen = ngPendingStore; ngPendingStore = null; }
+        return null;
+      }
       if (!v || v === ngStoredSeen) return null;
       ngStoredSeen = v;
       var p = String(v).split('_').map(function (q) { return parseFloat(q); });
@@ -506,7 +524,7 @@ R"CFJS(
     }
     function ngPersistRect() {
       var v = [ngRect.x, ngRect.y, ngRect.w, ngRect.h].map(function (q) { return Math.round(q); }).join('_');
-      ngStoredSeen = v;
+      ngStoredSeen = v; ngPendingStore = v; ngPendingFrames = 0;
       cmd('mirv_filmmaker settings ui nodes.graph ' + v);
     }
     function ngApplyRect() {
@@ -533,7 +551,7 @@ R"CFJS(
     }
     function ngCanvasCentre() {
       var c = ngCanvasSize();
-      return { x: Math.round(c.w / 2 - ngPan.x - NODE_W / 2), y: Math.round(c.h / 2 - ngPan.y - NODE_H / 2) };
+      return { x: Math.round(c.w / 2 / ngZoom - ngPan.x - NODE_W / 2), y: Math.round(c.h / 2 / ngZoom - ngPan.y - NODE_H / 2) };
     }
     function ngInPanel(p, mx, my) {
       if (!p || !cfgValid(p) || !p.visible || !p.GetPositionWithinWindow) return false;
@@ -545,9 +563,19 @@ R"CFJS(
       var c = ngCanvasSize(); if (!(c.w > 0)) return;
       var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       ngNodes.forEach(function (n) { var p = ngPosOf(n); x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + NODE_W); y1 = Math.max(y1, p.y + NODE_H); });
-      ngPan.x = Math.round((c.w - (x1 - x0)) / 2 - x0);
-      ngPan.y = Math.round((c.h - (y1 - y0)) / 2 - y0);
+      // Zoom out until the whole graph fits with a margin (never in past 100%), then centre it.
+      var margin = 40;
+      ngZoom = Math.max(0.3, Math.min(1, (c.w - margin) / Math.max(x1 - x0, 1), (c.h - margin) / Math.max(y1 - y0, 1)));
+      ngPan.x = Math.round((c.w / ngZoom - (x1 - x0)) / 2 - x0);
+      ngPan.y = Math.round((c.h / ngZoom - (y1 - y0)) / 2 - y0);
       ngFramed = true;
+      ngApplyZoom();
+    }
+    function ngApplyZoom() {
+      if (!ngNodeLayer || ngZoomApplied === ngZoom) return;
+      ngZoomApplied = ngZoom;
+      var t = ngZoom === 1 ? 'none' : ('scale3d(' + ngZoom.toFixed(4) + ',' + ngZoom.toFixed(4) + ',1)');
+      [ngWireLayer, ngNodeLayer, ngLiveLayer].forEach(function (l) { if (l && cfgValid(l)) l.style.transform = t; });
     }
 
     // What lies under a canvas point (graph coordinates): a pin, a node, a wire, or nothing.
@@ -556,12 +584,12 @@ R"CFJS(
         var n = ngNodes[i];
         if (n.type !== 'output') {
           var o = ngPinAt(n, 'out');
-          if (Math.abs(g.x - o.x) <= NG_PIN && Math.abs(g.y - o.y) <= NG_PIN) return { kind: 'out', n: n };
+          if (Math.abs(g.x - o.x) <= NG_PIN / ngZoom && Math.abs(g.y - o.y) <= NG_PIN / ngZoom) return { kind: 'out', n: n };
         }
         var ins = ngInputs(n);
         for (var k = 0; k < ins.length; k++) {
           var ip = ngPinAt(n, ins[k]);
-          if (Math.abs(g.x - ip.x) <= NG_PIN && Math.abs(g.y - ip.y) <= NG_PIN) return { kind: 'in', n: n, port: ins[k] };
+          if (Math.abs(g.x - ip.x) <= NG_PIN / ngZoom && Math.abs(g.y - ip.y) <= NG_PIN / ngZoom) return { kind: 'in', n: n, port: ins[k] };
         }
       }
       for (var j = ngNodes.length - 1; j >= 0; j--) {
@@ -570,7 +598,7 @@ R"CFJS(
       }
       for (var w = 0; w < ngWirePolys.length; w++) {
         var pts = ngWirePolys[w].pts;
-        for (var s2 = 0; s2 + 1 < pts.length; s2++) if (ngSegDist(g, pts[s2], pts[s2 + 1]) < 6) return { kind: 'wire', e: ngWirePolys[w].e };
+        for (var s2 = 0; s2 + 1 < pts.length; s2++) if (ngSegDist(g, pts[s2], pts[s2 + 1]) < 6 / ngZoom) return { kind: 'wire', e: ngWirePolys[w].e };
       }
       return null;
     }
@@ -671,7 +699,10 @@ R"CFJS(
     function ngPaintCard(n) {
       var c = ngCardFor(n), acc = ngAccentOf(n), sel = n.id === ngSelected;
       var pending = ngPendingFrom === n.id || (ngGesture && ngGesture.kind === 'wire' && ngGesture.from === n.id);
-      var sig = [n.label, n.type, n.enabled, sel, pending, ngHotPin.indexOf(n.id + ':') === 0 ? ngHotPin : ''].join('|');
+      // The inputs' wired state is part of it: a connect from the inspector or a disconnect from a
+      // wire's menu changes nothing else on the card, and the pin has to fill or empty with it.
+      var wired = (ngEdgeInto(n.id, 0) ? 1 : 0) + (ngEdgeInto(n.id, 1) ? 2 : 0);
+      var sig = [n.label, n.type, n.enabled, sel, pending, wired, ngHotPin.indexOf(n.id + ':') === 0 ? ngHotPin : ''].join('|');
       if (sig !== c.sig) {
         c.sig = sig;
         c.card.style.backgroundColor = sel ? '#1c2230ff' : '#141922ff';
@@ -852,12 +883,22 @@ R"CFJS(
       if (name === 'delete') nodesCmd('remove ' + n.id);
       else if (name === 'duplicate') nodesCmd('duplicate ' + n.id);
     });
-    // The wheel over the graph pans it (and never scrolls the column under it). From api.wheel.
+    // The wheel over the graph, as in Blender and Nuke: it zooms about the pointer (25% to 200%);
+    // Shift+wheel pans sideways and Ctrl+wheel up and down. It never scrolls the column under the
+    // window. Over the open add menu it scrolls the menu. From api.wheel.
     function ngWheel(notches) {
-      // Over the open add menu the wheel scrolls its list, three rows a notch.
-      if (ngAdd && st && ngInPanel(ngAdd.list, st.mx, st.my)) { ngAddScroll(-notches * 78); return true; }
-      if (!ngWin || !ngWin.visible || !st || !ngInPanel(ngWin, st.mx, st.my)) return false;
-      ngPan.y += notches * 60;
+      if (!st) return false;
+      var mx = ngSim ? ngSim.mx : st.mx, my = ngSim ? ngSim.my : st.my;
+      if (ngAdd && ngInPanel(ngAdd.list, mx, my)) { ngAddScroll(-notches * 78); return true; }
+      if (!ngWin || !ngWin.visible || !ngInPanel(ngWin, mx, my)) return false;
+      if (st.shift) { ngPan.x += notches * 60 / ngZoom; return true; }
+      if (st.ctrl) { ngPan.y += notches * 60 / ngZoom; return true; }
+      var cp = ngToCanvas(mx, my); if (!cp) return true;
+      var gx = cp.x / ngZoom - ngPan.x, gy = cp.y / ngZoom - ngPan.y;
+      ngZoom = Math.max(0.25, Math.min(2, ngZoom * Math.pow(1.15, notches)));
+      // The graph point under the pointer stays under it.
+      ngPan.x = cp.x / ngZoom - gx; ngPan.y = cp.y / ngZoom - gy;
+      ngApplyZoom();
       return true;
     }
 )CFJS"
@@ -866,7 +907,22 @@ R"CFJS(
     // Automation: a pointer fed over netcon instead of the OS cursor, so the gestures can be driven
     // without moving the user's mouse. $.ConfigHud.nodesPointer(x, y, lmb, rmb); no arguments ends it.
     var ngSim = null;
+    // True when (x, y) is on the visible graph window: Config's own raw-cursor controls (slider
+    // drags) must not start through it.
+    function ngCovers(x, y) { return !!(ngWin && cfgValid(ngWin) && ngWin.visible && ngInPanel(ngWin, x, y)); }
+    // The window's rect in client px for the C++ click router (UiLayout NodeGraph): a press or a
+    // notch on it is the graph's, not the game's or Config's underneath. Empty while hidden.
+    function ngPublishRect() {
+      var r = '';
+      if (ngWin && cfgValid(ngWin) && ngWin.visible && ngWin.GetPositionWithinWindow) {
+        var q = ngWin.GetPositionWithinWindow();
+        var w = ngWin.actuallayoutwidth || 0, h = ngWin.actuallayoutheight || 0;
+        if (q && w > 0 && h > 0) r = Math.round(q.x) + ' ' + Math.round(q.y) + ' ' + Math.round(w) + ' ' + Math.round(h);
+      }
+      if (r !== ngPubRect) { ngPubRect = r; root.SetAttributeString('graphrect', r); }
+    }
     function ngPump(s) {
+      ngPublishRect();
       if (ngSim && s) s = { mx: ngSim.mx, my: ngSim.my, lmb: ngSim.lmb, rmb: ngSim.rmb, cursor: true, ui: s.ui };
       if (ngSim && s) { cfgCursorX = s.mx; cfgCursorY = s.my; }   // menus open at the fed pointer
       if (!ngWin || !cfgValid(ngWin) || !ngWin.visible || !s || typeof s.mx !== 'number') {
@@ -877,7 +933,7 @@ R"CFJS(
       var down = lmb && !ngLastLmb, up = !lmb && ngLastLmb, rdown = rmb && !ngLastRmb;
       ngLastLmb = lmb; ngLastRmb = rmb;
       var cp = ngToCanvas(s.mx, s.my); if (!cp) return;
-      var g = { x: cp.x - ngPan.x, y: cp.y - ngPan.y };
+      var g = { x: cp.x / ngZoom - ngPan.x, y: cp.y / ngZoom - ngPan.y };
       var inWin = ngInPanel(ngWin, s.mx, s.my), inCanvas = ngInPanel(ngCanvas, s.mx, s.my);
       var overPopover = !!(cfgDropOpen && cfgColorOverRect(cfgDropOpen.list, s.mx, s.my));
       var hit = (inCanvas && !overPopover) ? ngHit(g) : null;
@@ -911,7 +967,7 @@ R"CFJS(
         var dx = (s.mx - ngGesture.mx) / sc, dy = (s.my - ngGesture.my) / sc;
         if (Math.abs(dx) + Math.abs(dy) > 3) ngGesture.moved = true;
         if (ngGesture.kind === 'node' && ngGesture.moved) { ngGesture.nx = Math.round(g.x - ngGesture.ox); ngGesture.ny = Math.round(g.y - ngGesture.oy); }
-        else if (ngGesture.kind === 'pan') { ngPan.x = Math.round(ngGesture.px + dx); ngPan.y = Math.round(ngGesture.py + dy); }
+        else if (ngGesture.kind === 'pan') { ngPan.x = Math.round(ngGesture.px + dx / ngZoom); ngPan.y = Math.round(ngGesture.py + dy / ngZoom); }
         else if (ngGesture.kind === 'move') { ngRect.x = ngGesture.r.x + dx; ngRect.y = ngGesture.r.y + dy; ngClampRect(ngRect); }
         else if (ngGesture.kind === 'size') { ngRect.w = ngGesture.r.w + dx; ngRect.h = ngGesture.r.h + dy; ngClampRect(ngRect); }
       }
@@ -948,6 +1004,7 @@ R"CFJS(
       ngHotPin = hp;
 
       ngApplyRect();
+      ngApplyZoom();
       ngSyncCards();
       ngDrawWires();
       if (ngGesture && ngGesture.kind === 'wire') {

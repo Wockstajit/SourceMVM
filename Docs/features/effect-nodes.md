@@ -17,14 +17,15 @@ bar (it lives in Config's overlay layer). It shows only while CONFIG is open on 
 | Drag from an output pin to an input | Connect them; the input's old wire is replaced |
 | Drop a wire on empty space | Pick a node from the add menu; it arrives wired to that output |
 | Drag from a connected input | Pick its wire up again |
-| Drag empty space, or turn the wheel | Pan |
+| Drag empty space | Pan |
+| Wheel / Shift+wheel / Ctrl+wheel | Zoom about the pointer (25% to 200%) / pan sideways / pan up and down |
 | Right-click a node | On or off, Duplicate, Disconnect, Delete |
 | Right-click a wire | Disconnect |
 | Right-click empty space, or **+ Add node** | The add menu: type to search, Enter adds the first match |
 | Delete / Ctrl+D | Delete / duplicate the selected node (not Final Output) |
 | Title bar / corner | Move / resize the window; it remembers both (`nodes.graph`) |
 
-**Frame all** fits every node in the window, and the window frames the graph the first time it opens,
+**Frame all** zooms out until every node fits in the window (never past 100%), and the window frames the graph the first time it opens,
 so Final Output is never left off screen. A wire that makes no sense is refused with the reason in
 the title bar: a mask cannot be an image input (Final Output's or an effect's port 0), an image
 cannot be a mask input, and no wire may close a loop (`CheckConnect` in EffectNodesMath.h).

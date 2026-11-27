@@ -55,6 +55,54 @@ test('clicking a mask input or a list row restyles the buttons instead of rebuil
   assert.match(list, /var setSig = nodes\.map\(function \(n\) \{ return n\.id; \}\)\.join/);
 });
 
+test('Frame all zooms out until the whole graph fits, and the pointer maps through the zoom', () => {
+  const frame = grab('ngFrameAll');
+  assert.match(frame, /ngZoom = Math\.max\(0\.3, Math\.min\(1, \(c\.w - margin\) \/ Math\.max\(x1 - x0, 1\), \(c\.h - margin\) \/ Math\.max\(y1 - y0, 1\)\)\);/);
+  assert.match(frame, /ngPan\.x = Math\.round\(\(c\.w \/ ngZoom - \(x1 - x0\)\) \/ 2 - x0\);/);
+  assert.match(grab('ngPump'), /var g = \{ x: cp\.x \/ ngZoom - ngPan\.x, y: cp\.y \/ ngZoom - ngPan\.y \};/);
+  assert.match(grab('ngApplyZoom'), /scale3d\(/);
+});
+
+test('the wheel zooms about the pointer; Shift and Ctrl pan', () => {
+  const wheel = grab('ngWheel');
+  assert.match(wheel, /if \(st\.shift\) \{ ngPan\.x \+= notches \* 60 \/ ngZoom; return true; \}/);
+  assert.match(wheel, /if \(st\.ctrl\) \{ ngPan\.y \+= notches \* 60 \/ ngZoom; return true; \}/);
+  assert.match(wheel, /ngZoom = Math\.max\(0\.25, Math\.min\(2, ngZoom \* Math\.pow\(1\.15, notches\)\)\);/);
+  assert.match(wheel, /ngPan\.x = cp\.x \/ ngZoom - gx; ngPan\.y = cp\.y \/ ngZoom - gy;/);
+});
+
+test('clicks and notches on the graph window stay on it, in either layout', () => {
+  const pub = grab('ngPublishRect');
+  assert.match(pub, /root\.SetAttributeString\('graphrect', r\)/);
+  assert.match(grab('ngPump'), /function ngPump\(s\) \{\s*ngPublishRect\(\);/);
+  const cpp = read('AfxHookSource2/Filmmaker/Panorama/ConfigHud.cpp');
+  assert.match(cpp, /UiLayout_SetPanelRectString\(UiPanel::NodeGraph, m_bridge\.GetAttributeString\(m_root, m_symGraphRect, ""\)\.c_str\(\)\);/);
+  assert.match(cpp, /void ConfigHud::OnExit\(\) \{\s*\/\/[^\n]*\n\s*UiLayout_SetPanelRect\(UiPanel::NodeGraph, 0, 0, 0, 0\);/);
+  const layout = read('AfxHookSource2/Filmmaker/Panorama/UiLayout.cpp');
+  assert.match(layout, /if \(Contains\(g_rects\[\(int\)UiPanel::NodeGraph\], x, y\)\) return UiPanel::NodeGraph;/);
+  const movie = read('AfxHookSource2/Filmmaker/Movie/MovieMode.cpp');
+  assert.match(movie, /in\.onPanel = UiLayout_PanelAt\(x, y\) == UiPanel::NodeGraph;/);
+  assert.match(movie, /at == UiPanel::NodeGraph\) && ConfigHud_Enabled\(\)\) \{ ConfigHud_PushWheel/);
+  const widgets = read('AfxHookSource2/Filmmaker/Panorama/ConfigHudWidgetsJs.h');
+  assert.match(widgets, /cfgOverPanel\(host, mx, my\) && !ngCovers\(mx, my\)\)/);
+});
+
+test('a moved or resized window does not read its old rect back while the save is in flight', () => {
+  const rd = grab('ngReadStored');
+  assert.match(rd, /if \(ngPendingStore !== null\) \{/);
+  assert.match(grab('ngPersistRect'), /ngPendingStore = v;/);
+});
+
+test('the zoomed layers are far larger than the canvas, so nothing clips at the scaled edge', () => {
+  assert.match(js, /l\.style\.width = '12000px'; l\.style\.height = '12000px';/);
+});
+
+test('a node card repaints when one of its inputs is wired or unwired', () => {
+  const paint = grab('ngPaintCard');
+  assert.match(paint, /var wired = \(ngEdgeInto\(n\.id, 0\) \? 1 : 0\) \+ \(ngEdgeInto\(n\.id, 1\) \? 2 : 0\);/);
+  assert.match(paint, /var sig = \[[^\]]*\bwired\b[^\]]*\]\.join/);
+});
+
 test('the graph nodes list scrolls inside a fixed box', () => {
   assert.match(js, /var nodesWell = scrollWell\(nodesSec, 6 \* 32\);/);
 });

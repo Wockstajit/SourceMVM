@@ -21,7 +21,9 @@ namespace advancedfx { class ICommandArgs; }
 
 namespace Filmmaker {
 
-enum class UiPanel { None = 0, Header, Config, Editor };
+// NodeGraph: CONFIG's node graph editor window (ConfigHudNodesTabJs.h), in either layout. It draws
+// above everything else, so a point on it is the graph's, never the game's or a window's below.
+enum class UiPanel { None = 0, Header, Config, Editor, NodeGraph };
 
 // The stored choice. UiLayout_Modular is safe from any thread; the other two run on the main
 // thread, and MainThreadFrame (once a frame, before the panels pump) picks up a change written
@@ -34,7 +36,7 @@ void UiLayout_MainThreadFrame();
 void UiLayout_SetPanelRect(UiPanel panel, int x, int y, int w, int h);
 // Parses "x y w h" as the scripts publish it; an empty or malformed string clears the rect.
 void UiLayout_SetPanelRectString(UiPanel panel, const char* xywh);
-// The topmost panel at (x, y): the header first, then whichever window was pressed last. Any
+// The topmost panel at (x, y): the node graph, then the header, then whichever window was pressed last. Any
 // thread. None when nothing is there (or x / y is negative).
 UiPanel UiLayout_PanelAt(int x, int y);
 // Which window draws on top when the two overlap. Main thread (the scripts report it).
