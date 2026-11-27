@@ -175,6 +175,42 @@ void TestConnectRules() {
 	CHECK(DefaultLinkPort(NodeType::Glow, NodeType::DepthRange) == -1);
 }
 
+// Every node type has a token that round-trips and is exactly one of mask, effect or output, and
+// Mask Feather reads the mask on its one input and compiles after it.
+void TestEveryTypeIsWired() {
+	for (int i = 0; i < (int)NodeType::Count; ++i) {
+		const NodeType t = (NodeType)i;
+		NodeType back = NodeType::Output;
+		CHECK(NodeTypeFromToken(NodeTypeToken(t), back) && back == t);
+		const int kinds = (IsMaskNode(t) ? 1 : 0) + (IsEffectNode(t) ? 1 : 0) + (t == NodeType::Output ? 1 : 0);
+		CHECK(kinds == 1);
+	}
+	NodeGraph g;
+	g.enabled = true;
+	g.nodes.push_back(MakeDefaultNode(1, NodeType::RadialMask, 0, 0));
+	g.nodes.push_back(MakeDefaultNode(2, NodeType::MaskFeather, 0, 0));
+	g.nodes.push_back(MakeDefaultNode(3, NodeType::Vignette, 0, 0));
+	g.nodes.push_back(MakeDefaultNode(4, NodeType::Output, 0, 0));
+	g.nextNodeId = 5;
+	CHECK(CheckConnect(g, 1, 2, 0) == ConnectCheck::Ok);
+	CHECK(CheckConnect(g, 1, 2, 1) == ConnectCheck::NoSuchPort);
+	CHECK(CheckConnect(g, 3, 2, 0) == ConnectCheck::ImageIntoMask);
+	CHECK(DefaultLinkPort(NodeType::RadialMask, NodeType::MaskFeather) == 0);
+	g.edges.push_back(Edge{ 1, 1, 0, 2, 0 });
+	g.edges.push_back(Edge{ 2, 2, 0, 3, 1 });
+	g.edges.push_back(Edge{ 3, 3, 0, 4, 0 });
+	CompiledPlan p = CompileGraph(g);
+	CHECK(p.steps.size() == 3);
+	if (p.steps.size() == 3) {
+		CHECK(p.steps[0].type == NodeType::RadialMask);
+		CHECK(p.steps[1].type == NodeType::MaskFeather);
+		CHECK(p.steps[1].maskSlotA == p.steps[0].outMaskSlot);
+		CHECK(p.steps[1].outMaskSlot >= 0 && p.steps[1].outMaskSlot != p.steps[1].maskSlotA);
+		CHECK(p.steps[2].type == NodeType::Vignette);
+		CHECK(p.steps[2].maskSlotA == p.steps[1].outMaskSlot);
+	}
+}
+
 int main() {
 	TestStarterPresetsCompileCleanly();
 	TestPlayerPresetsFollowThePick();
@@ -184,6 +220,7 @@ int main() {
 	TestTooManyLiveMasksAreDroppedNotOverwritten();
 	TestDisabledGraphProducesNoSteps();
 	TestConnectRules();
+	TestEveryTypeIsWired();
 	if (g_failed) {
 		std::cerr << g_failed << " EffectNodesMathTests failed\n";
 		return 1;

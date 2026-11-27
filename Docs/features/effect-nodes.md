@@ -2,7 +2,7 @@
 
 `CONFIG > NODES` builds a post-process graph: mask nodes pick a part of the frame, effect nodes
 change it, and the Output node mixes the result over the scene. The tab holds the starter presets,
-a search over every node type to add, the graph's nodes in a list that scrolls inside its own box,
+a search over every node type to add (grouped into masks and effects), the graph's nodes in a list that scrolls inside its own box,
 and the selected node's inspector.
 
 ## The graph editor
@@ -31,9 +31,28 @@ cannot be a mask input, and no wire may close a loop (`CheckConnect` in EffectNo
 
 | Kind | Nodes |
 | --- | --- |
-| Masks | Depth Range, Sky Mask, Player Matte, Fog Mask, Luma Key, Mask Combine (union, intersect or subtract of two masks, or invert) |
-| Effects | Color Grade, Glow, Outline, Distortion. Port 0 is the image, port 1 the mask |
+| Masks from the scene | Depth Range, Sky Mask, Player Matte, Fog Mask, Height Mask (a band of world height), Edge Mask (where depth jumps), Around Player (a sphere around the picked player, or what the camera looks at) |
+| Masks from the picture | Luma Key, Hue Key (one colour), Radial Mask, Box Mask, Gradient Mask, Noise Mask (drifting, animated) |
+| Masks from masks | Mask Combine (union, intersect or subtract of two masks, or invert), Mask Feather (blur a mask, then grow or shrink it) |
+| Colour | Color Grade, Lift Gamma Gain, Tonemap (filmic, soft or punchy), Split Tone, Hue Shift, Duotone, Color Fill (normal, multiply, screen, overlay or add) |
+| Light and lens | Glow, Glare (streaks, four or six point stars, ghosts, fog glow), Halation, Light Rays, Vignette, Depth Fog, Lens Distortion, Chromatic Aberration, Film Grain |
+| Blur and bend | Blur, Depth Blur (focus distance and range), Directional Blur, Radial Blur (zoom or spin), Tilt Shift, Sharpen, Distortion, Refraction (moving noise, or bending at a mask's edges) |
+| Stylise | Cel Shade (banded shading, ink on depth and crease edges, hatching: the comic look of Borderlands), Ink Lines, Kuwahara (painted), Outline, Posterize, Pixelate, Halftone, Mirror, Invert |
+| Devices and damage | Night Vision, Thermal, Film Damage, Analog Damage (VHS), Scanlines, Glitch |
 | Output | Final mix (`p[0]`) |
+
+Every effect takes the image on port 0 and an optional mask on port 1, and blends its result over
+the image by mask times Mix. The type numbers are what the shaders switch on (`NodeType` in
+EffectNodesMath.h); new types are appended and existing numbers never move.
+
+Night Vision and Thermal are modelled on the real devices. Night Vision lifts the shadows the way an
+image intensifier does, sparkles with scintillation that is strongest in the dark, blooms bright
+sources into halos, and shows one or two tubes with a faint honeycomb and a falloff at the rim.
+Thermal maps a heat estimate (surfaces by the light they hold, the sky cold, people hot with a halo)
+through White Hot, Black Hot, Ironbow or Sepia, with a soft, noisy sensor and an optional scope.
+Thermal with people heat turned up needs the world reference render, like a Player Matte. The tube
+or scope sway, the scintillation and Analog Damage's tape jitter run on the wall clock (`stepInfo.w`),
+so they keep moving while the demo is paused.
 
 Presets: color the subject and desaturate the world, glow through the fog, player neon outline,
 depth haze and grade, sky tint and subject pop. Each one is an ordinary graph to edit afterwards.

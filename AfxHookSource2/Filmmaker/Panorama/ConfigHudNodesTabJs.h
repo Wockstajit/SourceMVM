@@ -48,10 +48,54 @@ R"CFJS(
       { t: 'fog_mask', name: T('Fog Mask'), mask: true, keys: 'fog haze atmosphere' },
       { t: 'luma_key', name: T('Luma Key'), mask: true, keys: 'luma brightness highlights shadows key' },
       { t: 'mask_combine', name: T('Mask Combine'), mask: true, keys: 'combine merge union intersect subtract invert' },
+      { t: 'mask_feather', name: T('Mask Feather'), mask: true, keys: 'feather blur soften grow shrink expand choke' },
+      { t: 'height_mask', name: T('Height Mask'), mask: true, keys: 'height altitude water ground floor level z' },
+      { t: 'hue_key', name: T('Hue Key'), mask: true, keys: 'hue color colour key chroma select' },
+      { t: 'radial_mask', name: T('Radial Mask'), mask: true, keys: 'radial circle ellipse spot center shape' },
+      { t: 'box_mask', name: T('Box Mask'), mask: true, keys: 'box rectangle square shape window letterbox' },
+      { t: 'gradient_mask', name: T('Gradient Mask'), mask: true, keys: 'gradient ramp linear graduated top bottom' },
+      { t: 'edge_mask', name: T('Edge Mask'), mask: true, keys: 'edge silhouette contour depth lines' },
+      { t: 'noise_mask', name: T('Noise Mask'), mask: true, keys: 'noise clouds random flicker smoke animated' },
+      { t: 'player_radius', name: T('Around Player'), mask: true, keys: 'around player sphere radius near proximity focus' },
       { t: 'grade', name: T('Color Grade'), mask: false, keys: 'grade color colour saturation contrast exposure temperature' },
       { t: 'glow', name: T('Glow'), mask: false, keys: 'glow bloom light' },
       { t: 'outline', name: T('Outline'), mask: false, keys: 'outline edge stroke' },
-      { t: 'distortion', name: T('Distortion'), mask: false, keys: 'distortion distort ripple heat haze chromatic warp' }
+      { t: 'distortion', name: T('Distortion'), mask: false, keys: 'distortion distort ripple heat haze chromatic warp' },
+      { t: 'lift_gamma_gain', name: T('Lift Gamma Gain'), mask: false, keys: 'lift gamma gain wheels shadows midtones highlights resolve' },
+      { t: 'hue_shift', name: T('Hue Shift'), mask: false, keys: 'hue shift rotate vibrance saturation colour color' },
+      { t: 'duotone', name: T('Duotone'), mask: false, keys: 'duotone gradient map two tone tint' },
+      { t: 'color_fill', name: T('Color Fill'), mask: false, keys: 'color colour fill tint overlay multiply screen solid' },
+      { t: 'blur', name: T('Blur'), mask: false, keys: 'blur soft defocus smooth' },
+      { t: 'depth_blur', name: T('Depth Blur'), mask: false, keys: 'depth blur focus dof bokeh lens' },
+      { t: 'sharpen', name: T('Sharpen'), mask: false, keys: 'sharpen crisp detail unsharp' },
+      { t: 'vignette', name: T('Vignette'), mask: false, keys: 'vignette corners dark edges frame' },
+      { t: 'film_grain', name: T('Film Grain'), mask: false, keys: 'film grain noise texture analog' },
+      { t: 'light_rays', name: T('Light Rays'), mask: false, keys: 'light rays god rays sun shafts volumetric' },
+      { t: 'depth_fog', name: T('Depth Fog'), mask: false, keys: 'depth fog haze mist atmosphere distance' },
+      { t: 'posterize', name: T('Posterize'), mask: false, keys: 'posterize bands levels cel toon' },
+      { t: 'pixelate', name: T('Pixelate'), mask: false, keys: 'pixelate mosaic censor blocks retro' },
+      { t: 'halftone', name: T('Halftone'), mask: false, keys: 'halftone dots comic print' },
+      { t: 'ink_lines', name: T('Ink Lines'), mask: false, keys: 'ink lines sketch toon edges comic drawing' },
+      { t: 'scanlines', name: T('Scanlines'), mask: false, keys: 'scanlines crt tv retro monitor vhs' },
+      { t: 'glitch', name: T('Glitch'), mask: false, keys: 'glitch datamosh digital rgb split error' },
+      { t: 'thermal', name: T('Thermal'), mask: false, keys: 'thermal heat infrared predator false color' },
+      { t: 'night_vision', name: T('Night Vision'), mask: false, keys: 'night vision nvg green goggles' },
+      { t: 'invert', name: T('Invert'), mask: false, keys: 'invert negative' },
+      { t: 'tonemap', name: T('Tonemap'), mask: false, keys: 'tonemap filmic aces exposure contrast curve' },
+      { t: 'split_tone', name: T('Split Tone'), mask: false, keys: 'split tone teal orange shadows highlights tint grade' },
+      { t: 'glare', name: T('Glare'), mask: false, keys: 'glare streaks star anamorphic flare ghosts fog glow bloom' },
+      { t: 'halation', name: T('Halation'), mask: false, keys: 'halation film red glow highlights bleed' },
+      { t: 'lens_distortion', name: T('Lens Distortion'), mask: false, keys: 'lens distortion barrel pincushion fisheye dispersion' },
+      { t: 'chromatic_aberration', name: T('Chromatic Aberration'), mask: false, keys: 'chromatic aberration fringe rgb lens' },
+      { t: 'directional_blur', name: T('Directional Blur'), mask: false, keys: 'directional motion blur streak speed' },
+      { t: 'radial_blur', name: T('Radial Blur'), mask: false, keys: 'radial zoom spin blur speed' },
+      { t: 'tilt_shift', name: T('Tilt Shift'), mask: false, keys: 'tilt shift miniature blur band' },
+      { t: 'refraction', name: T('Refraction'), mask: false, keys: 'refraction glass water heat distort cloak predator' },
+      { t: 'kuwahara', name: T('Kuwahara'), mask: false, keys: 'kuwahara paint painterly oil watercolor' },
+      { t: 'cel_shade', name: T('Cel Shade'), mask: false, keys: 'cel shade toon comic borderlands outline hatching ink' },
+      { t: 'mirror', name: T('Mirror'), mask: false, keys: 'mirror kaleidoscope symmetry flip' },
+      { t: 'film_damage', name: T('Film Damage'), mask: false, keys: 'film damage scratches dust flicker old weave' },
+      { t: 'analog_damage', name: T('Analog Damage'), mask: false, keys: 'analog damage vhs tape tracking retro' }
     ];
     function ngTypeMatches(ty, q) {
       if (!q) return true;
@@ -60,13 +104,16 @@ R"CFJS(
     }
     // The input a new node takes from a wire dropped on empty space (DefaultLinkPort in
     // EffectNodesMath.h): a mask lands on the mask input, an image on the image input.
+    function ngIsMaskProcessor(t) { return t === 'mask_combine' || t === 'mask_feather'; }
     function ngLinkPort(fromNode, ty) {
       if (!fromNode) return 0;
-      if (ty.t === 'mask_combine') return fromNode.mask ? 0 : -1;
+      if (ngIsMaskProcessor(ty.t)) return fromNode.mask ? 0 : -1;
       if (ty.mask) return -1;
       return fromNode.mask ? 1 : 0;
     }
 
+)CFJS"
+R"CFJS(
     var NODE_PRESETS = [
       ['color_subject_desat_world', T('Color subject, desaturate world')],
       ['glow_through_fog', T('Glow through the fog')],
@@ -74,8 +121,13 @@ R"CFJS(
       ['sky_grade_heat_haze', T('Sky grade & heat haze')],
       ['depth_spotlight', T('Depth spotlight')]
     ];
-    var nodesPresetGrid = optionGrid(nodesSec, T('Starter presets'), NODE_PRESETS, 2, '',
-      function (k) { nodesCmd('preset ' + k); }, 12);
+    // A dropdown like the other preset pickers; it shows the preset the graph was last loaded from.
+    var nodesPresetDrop = dropdownRow(nodesSec, T('Starter presets'), NODE_PRESETS,
+      function (k) { nodesCmd('preset ' + k); }, { placeholder: T('Choose…') });
+    var nodesPresetGrid = { sync: function (key) {
+      var known = NODE_PRESETS.some(function (it) { return it[0] === key; });
+      if (known) nodesPresetDrop.sync(key); else nodesPresetDrop.setText(T('Choose…'), true);
+    } };
 
     var nodesGraphBtn = wideBtn(nodesSec, T('Open Graph Editor'), function () {
       nodesCmd('canvas toggle');
@@ -108,22 +160,34 @@ R"CFJS(
       nodesAddPaint();
     });
     // Two to a line, each line split by fill-parent-flow so no cell can wrap under its neighbour.
-    var nodesAddGrid = mk('Panel', nodesSec); nodesAddGrid.hittest = false; nodesAddGrid.hittestchildren = true;
-    nodesAddGrid.style.width = '100%'; nodesAddGrid.style.flowChildren = 'down'; nodesAddGrid.style.marginTop = '4px';
+    // About ten buttons show at once; the rest scroll inside the box (the wheel over it), or the
+    // search narrows them.
+    var nodesAddWell = scrollWell(nodesSec, 5 * 35 + 22);
+    var nodesAddGrid = nodesAddWell.inner;
+    nodesAddWell.clip.style.marginTop = '4px';
     function nodesAddFill() {
       nodesAddGrid.RemoveAndDeleteChildren();
       var shown = NODE_TYPES.filter(function (ty) { return ngTypeMatches(ty, nodesAddQuery); });
-      var line = null;
+      var line = null, lastMask = null, col = 0;
       for (var i = 0; i < shown.length; i++) (function (ty, i) {
-        if (i % 2 === 0) {
+        if (!nodesAddQuery && lastMask !== ty.mask) {
+          lastMask = ty.mask; col = 0;
+          var h = lbl(nodesAddGrid, ty.mask ? T('Masks') : T('Effects'), S.muted, 10); h.hittest = false;
+          h.style.fontWeight = 'bold'; h.style.letterSpacing = '1px'; h.style.margin = '4px 0px 3px 2px';
+        }
+        var nextSame = i + 1 < shown.length && (nodesAddQuery || shown[i + 1].mask === ty.mask);
+        if (col % 2 === 0) {
           line = mk('Panel', nodesAddGrid); line.hittest = false; line.hittestchildren = true;
           line.style.width = '100%'; line.style.flowChildren = 'right'; line.style.marginBottom = '4px';
         }
         var b = btn(line, '+ ' + ty.name, function () { nodesCmd('add ' + ty.t); }, (ty.mask ? NG_MASK : NG_FX) + 'ff');
-        b.style.width = 'fill-parent-flow(1.0)'; b.style.marginRight = (i % 2 === 0 && i < shown.length - 1) ? '4px' : '0px';
+        b.style.width = 'fill-parent-flow(1.0)'; b.style.marginRight = (col % 2 === 0 && nextSame) ? '4px' : '0px';
         b.__lbl.style.horizontalAlign = 'center';
+        col++;
       })(shown[i], i);
       if (!shown.length) { var none = lbl(nodesAddGrid, T('No results'), S.muted, 12); none.style.marginTop = '4px'; }
+      nodesAddWell.reset();
+      $.Schedule(0, function () { try { nodesAddWell.apply(); } catch (e) {} });
     }
     nodesAddFill(); nodesAddPaint();
 
@@ -214,9 +278,59 @@ R"CFJS(
       glow:         [[0, T('Threshold'), 0, 1, 2, ''], [1, T('Intensity'), 0, 4, 2, 'x'], [2, T('Radius'), 2, 36, 0, 'px'], [6, T('Mix'), 0, 1, 2, '']],
       outline:      [[0, T('Thickness'), 1, 10, 1, 'px'], [1, T('Edge threshold'), 0.05, 0.8, 2, ''], [5, T('Opacity'), 0, 1, 2, '']],
       distortion:   [[0, T('Mode (0 Rip, 1 Haze, 2 Rad, 3 Chr)'), 0, 3, 0, ''], [1, T('Strength'), 0, 2, 2, ''], [2, T('Scale'), 2, 40, 0, ''], [3, T('Speed'), 0, 10, 1, ''], [4, T('Chromatic'), 0, 2, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
-      output:       [[0, T('Master mix'), 0, 1, 2, '']]
+      output:       [[0, T('Master mix'), 0, 1, 2, '']],
+      height_mask:  [[0, T('Min height'), -2000, 4000, 0, 'u'], [1, T('Max height'), -2000, 4000, 0, 'u'], [2, T('Softness'), 1, 500, 0, 'u'], [3, T('Invert mask'), 0, 1, 0, '', true]],
+      hue_key:      [[0, T('Hue'), 0, 360, 0, '°'], [1, T('Hue range'), 1, 180, 0, '°'], [2, T('Softness'), 0, 90, 0, '°'], [3, T('Min saturation'), 0, 1, 2, ''], [4, T('Invert mask'), 0, 1, 0, '', true]],
+      radial_mask:  [[0, T('Center X'), 0, 1, 2, ''], [1, T('Center Y'), 0, 1, 2, ''], [2, T('Radius'), 0, 1.5, 2, ''], [3, T('Softness'), 0, 1, 2, ''], [4, T('Aspect'), 0.2, 4, 2, 'x'], [5, T('Invert mask'), 0, 1, 0, '', true]],
+      gradient_mask:[[0, T('Angle'), 0, 360, 0, '°'], [1, T('Position'), 0, 1, 2, ''], [2, T('Softness'), 0, 1, 2, ''], [3, T('Invert mask'), 0, 1, 0, '', true]],
+      edge_mask:    [[0, T('Threshold'), 0.005, 0.5, 3, ''], [1, T('Thickness'), 0.5, 6, 1, 'px'], [2, T('Invert mask'), 0, 1, 0, '', true]],
+      noise_mask:   [[0, T('Scale'), 0.5, 40, 1, ''], [1, T('Speed'), 0, 5, 2, ''], [2, T('Threshold'), 0, 1, 2, ''], [3, T('Softness'), 0, 1, 2, ''], [4, T('Invert mask'), 0, 1, 0, '', true]],
+      player_radius:[[0, T('Radius'), 10, 3000, 0, 'u'], [1, T('Softness'), 1, 2000, 0, 'u'], [2, T('Invert mask'), 0, 1, 0, '', true]],
+      mask_feather: [[0, T('Radius'), 0, 40, 1, 'px'], [1, T('Grow'), -1, 1, 2, ''], [2, T('Invert mask'), 0, 1, 0, '', true]],
+      blur:         [[0, T('Radius'), 0, 40, 1, 'px'], [1, T('Mix'), 0, 1, 2, '']],
+      sharpen:      [[0, T('Amount'), 0, 3, 2, ''], [1, T('Radius'), 0.5, 6, 1, 'px'], [2, T('Mix'), 0, 1, 2, '']],
+      vignette:     [[0, T('Strength'), 0, 1, 2, ''], [1, T('Radius'), 0, 1.5, 2, ''], [2, T('Softness'), 0, 1.5, 2, ''], [3, T('Red'), 0, 1, 2, ''], [4, T('Green'), 0, 1, 2, ''], [5, T('Blue'), 0, 1, 2, ''], [6, T('Mix'), 0, 1, 2, '']],
+      film_grain:   [[0, T('Amount'), 0, 0.5, 2, ''], [1, T('Size'), 0.5, 6, 1, 'px'], [2, T('Color'), 0, 1, 2, ''], [3, T('Mix'), 0, 1, 2, '']],
+      posterize:    [[0, T('Levels'), 2, 16, 0, ''], [1, T('Mix'), 0, 1, 2, '']],
+      pixelate:     [[0, T('Size'), 1, 64, 0, 'px'], [1, T('Mix'), 0, 1, 2, '']],
+      duotone:      [[0, T('Shadow red'), 0, 1, 2, ''], [1, T('Shadow green'), 0, 1, 2, ''], [2, T('Shadow blue'), 0, 1, 2, ''], [3, T('Highlight red'), 0, 1, 2, ''], [4, T('Highlight green'), 0, 1, 2, ''], [5, T('Highlight blue'), 0, 1, 2, ''], [6, T('Mix'), 0, 1, 2, '']],
+      lift_gamma_gain: [[0, T('Lift'), -0.5, 0.5, 2, ''], [1, T('Gamma'), 0.2, 3, 2, ''], [2, T('Gain'), 0, 3, 2, ''], [3, T('Saturation'), 0, 2.5, 2, 'x'], [4, T('Mix'), 0, 1, 2, '']],
+      hue_shift:    [[0, T('Hue'), -180, 180, 0, '°'], [1, T('Saturation'), 0, 2.5, 2, 'x'], [2, T('Vibrance'), -1, 1, 2, ''], [3, T('Mix'), 0, 1, 2, '']],
+      depth_fog:    [[0, T('Fog start'), 0, 5000, 0, 'u'], [1, T('Fog end'), 50, 20000, 0, 'u'], [2, T('Density'), 0.1, 4, 2, 'x'], [3, T('Red'), 0, 1, 2, ''], [4, T('Green'), 0, 1, 2, ''], [5, T('Blue'), 0, 1, 2, ''], [6, T('Mix'), 0, 1, 2, '']],
+      light_rays:   [[0, T('Threshold'), 0, 1, 2, ''], [1, T('Strength'), 0, 3, 2, ''], [2, T('Length'), 0, 1, 2, ''], [3, T('Center X'), 0, 1, 2, ''], [4, T('Center Y'), 0, 1, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
+      scanlines:    [[0, T('Lines'), 60, 1200, 0, ''], [1, T('Strength'), 0, 1, 2, ''], [2, T('Curvature'), 0, 1, 2, ''], [3, T('Speed'), 0, 10, 1, ''], [4, T('Mix'), 0, 1, 2, '']],
+      glitch:       [[0, T('Strength'), 0, 1, 2, ''], [1, T('Size'), 4, 120, 0, 'px'], [2, T('Speed'), 0.1, 30, 1, ''], [3, T('RGB split'), 0, 2, 2, ''], [4, T('Mix'), 0, 1, 2, '']],
+      thermal:      [[0, T('Palette (0 White hot, 1 Black hot, 2 Ironbow, 3 Sepia)'), 0, 3, 0, ''], [1, T('Contrast'), 0.2, 3, 2, 'x'],
+                     [2, T('People heat'), 0, 1, 2, ''], [3, T('Noise'), 0, 1, 2, ''], [4, T('Blur'), 0, 6, 1, 'px'],
+                     [5, T('Scope (0 Off, 1 Circle, 2 Reticle)'), 0, 2, 0, ''], [6, T('Sway'), 0, 2, 2, ''], [7, T('Mix'), 0, 1, 2, '']],
+      night_vision: [[0, T('Gain'), 0.5, 12, 2, 'x'], [1, T('Scintillation'), 0, 1, 2, ''], [2, T('Halo'), 0, 2, 2, ''],
+                     [3, T('Tube (0 Full frame, 1 One tube, 2 Two tubes)'), 0, 2, 0, ''], [4, T('White phosphor'), 0, 1, 0, '', true],
+                     [5, T('Sway'), 0, 2, 2, ''], [6, T('Mix'), 0, 1, 2, '']],
+      ink_lines:    [[0, T('Threshold'), 0.01, 0.6, 2, ''], [1, T('Strength'), 0, 2, 2, ''], [2, T('Paper'), 0, 1, 2, ''], [3, T('Mix'), 0, 1, 2, '']],
+      invert:       [[0, T('Mix'), 0, 1, 2, '']],
+      halftone:     [[0, T('Size'), 2, 40, 0, 'px'], [1, T('Angle'), 0, 90, 0, '°'], [2, T('Mix'), 0, 1, 2, '']],
+      depth_blur:   [[0, T('Focus distance'), 10, 5000, 0, 'u'], [1, T('Focus range'), 10, 3000, 0, 'u'], [2, T('Radius'), 0, 24, 1, 'px'], [3, T('Mix'), 0, 1, 2, '']],
+      box_mask:     [[0, T('Center X'), 0, 1, 2, ''], [1, T('Center Y'), 0, 1, 2, ''], [2, T('Width'), 0, 1.5, 2, ''], [3, T('Height'), 0, 1.5, 2, ''], [4, T('Angle'), -180, 180, 0, '°'], [5, T('Softness'), 0, 0.5, 3, ''], [6, T('Invert mask'), 0, 1, 0, '', true]],
+      lens_distortion: [[0, T('Distortion'), -1, 1, 2, ''], [1, T('Dispersion'), 0, 0.3, 3, ''], [2, T('Fit to frame'), 0, 1, 0, '', true], [3, T('Mix'), 0, 1, 2, '']],
+      directional_blur: [[0, T('Angle'), 0, 360, 0, '°'], [1, T('Length'), 0, 200, 0, 'px'], [2, T('Mix'), 0, 1, 2, '']],
+      radial_blur:  [[0, T('Center X'), 0, 1, 2, ''], [1, T('Center Y'), 0, 1, 2, ''], [2, T('Amount'), 0, 1, 2, ''], [3, T('Spin'), 0, 1, 0, '', true], [4, T('Mix'), 0, 1, 2, '']],
+      glare:        [[0, T('Type (0 Streaks, 1 Star 4, 2 Star 6, 3 Ghosts, 4 Fog glow)'), 0, 4, 0, ''], [1, T('Threshold'), 0, 1, 2, ''], [2, T('Length'), 0, 0.6, 2, ''], [3, T('Intensity'), 0, 4, 2, 'x'], [4, T('Warmth'), -1, 1, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
+      halation:     [[0, T('Threshold'), 0, 1, 2, ''], [1, T('Radius'), 2, 60, 0, 'px'], [2, T('Intensity'), 0, 3, 2, 'x'], [3, T('Red'), 0, 1, 2, ''], [4, T('Green'), 0, 1, 2, ''], [5, T('Blue'), 0, 1, 2, ''], [6, T('Mix'), 0, 1, 2, '']],
+      chromatic_aberration: [[0, T('Amount'), 0, 30, 1, 'px'], [1, T('Lateral'), 0, 1, 0, '', true], [2, T('Clear centre'), 0, 1, 0, '', true], [3, T('Mix'), 0, 1, 2, '']],
+      kuwahara:     [[0, T('Radius'), 1, 12, 1, 'px'], [1, T('Mix'), 0, 1, 2, '']],
+      cel_shade:    [[0, T('Bands'), 2, 8, 0, ''], [1, T('Outline'), 0.5, 6, 1, 'px'], [2, T('Outline strength'), 0, 1, 2, ''], [3, T('Depth edges'), 0.005, 0.3, 3, ''], [4, T('Crease edges'), 0.05, 1, 2, ''], [5, T('Hatching'), 0, 1, 2, ''], [6, T('Saturation'), 0, 2.5, 2, 'x'], [7, T('Mix'), 0, 1, 2, '']],
+      refraction:   [[0, T('Strength'), 0, 3, 2, ''], [1, T('Scale'), 0.5, 40, 1, ''], [2, T('Speed'), 0, 5, 2, ''], [3, T('Chromatic'), 0, 2, 2, ''], [4, T('Bend at mask edges'), 0, 1, 0, '', true], [5, T('Mix'), 0, 1, 2, '']],
+      film_damage:  [[0, T('Scratches'), 0, 1, 2, ''], [1, T('Dust'), 0, 1, 2, ''], [2, T('Flicker'), 0, 1, 2, ''], [3, T('Gate weave'), 0, 1, 2, ''], [4, T('Age'), 0, 1, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
+      tilt_shift:   [[0, T('Focus'), 0, 1, 2, ''], [1, T('Band'), 0, 1, 2, ''], [2, T('Blur'), 0, 30, 1, 'px'], [3, T('Saturation'), 0, 2.5, 2, 'x'], [4, T('Mix'), 0, 1, 2, '']],
+      tonemap:      [[0, T('Exposure'), -3, 3, 2, 'EV'], [1, T('Contrast'), 0.2, 2.5, 2, 'x'], [2, T('Curve (0 Filmic, 1 Soft, 2 Punchy)'), 0, 2, 0, ''], [3, T('Mix'), 0, 1, 2, '']],
+      split_tone:   [[0, T('Shadow hue'), 0, 360, 0, '°'], [1, T('Shadow amount'), 0, 1, 2, ''], [2, T('Highlight hue'), 0, 360, 0, '°'], [3, T('Highlight amount'), 0, 1, 2, ''], [4, T('Balance'), -1, 1, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
+      mirror:       [[0, T('Mode (0 Left to right, 1 Top to bottom, 2 Kaleidoscope)'), 0, 2, 0, ''], [1, T('Segments'), 2, 16, 0, ''], [2, T('Angle'), 0, 360, 0, '°'], [3, T('Mix'), 0, 1, 2, '']],
+      analog_damage: [[0, T('Tracking'), 0, 1, 2, ''], [1, T('Noise'), 0, 1, 2, ''], [2, T('Color bleed'), 0, 2, 2, ''], [3, T('Wobble'), 0, 2, 2, ''], [4, T('Mix'), 0, 1, 2, '']],
+      color_fill:   [[0, T('Red'), 0, 1, 2, ''], [1, T('Green'), 0, 1, 2, ''], [2, T('Blue'), 0, 1, 2, ''], [3, T('Blend (0 Normal, 1 Multiply, 2 Screen, 3 Overlay, 4 Add)'), 0, 4, 0, ''], [4, T('Mix'), 0, 1, 2, '']]
     };
 
+)CFJS"
+R"CFJS(
     var nodeInspBuiltId = -1, nodeInspBuiltType = '', nodeInspControls = [];
     function rebuildNodeInspector(n) {
       nodeParamHost.RemoveAndDeleteChildren();
@@ -308,15 +422,16 @@ R"CFJS(
     }
     // Ports a node takes, and where its pins sit (graph coordinates).
     function ngInputs(n) {
-      if (n.type === 'output') return [0];
+      if (n.type === 'output' || n.type === 'mask_feather') return [0];
       if (n.type === 'mask_combine') return [0, 1];
       return n.mask ? [] : [0, 1];
     }
     function ngPortLabel(n, port) {
       if (n.type === 'mask_combine') return port === 0 ? T('Mask A') : T('Mask B');
+      if (n.type === 'mask_feather') return T('Mask');
       return port === 0 ? T('Image') : T('Mask');
     }
-    function ngPortIsMask(n, port) { return n.type === 'mask_combine' || (n.type !== 'output' && port === 1); }
+    function ngPortIsMask(n, port) { return ngIsMaskProcessor(n.type) || (n.type !== 'output' && port === 1); }
     function ngPinAt(n, which) {
       var p = ngPosOf(n);
       if (which === 'out') return { x: p.x + NODE_W, y: p.y + NODE_HDR + 18 };
@@ -629,15 +744,19 @@ R"CFJS(
       sbox.style.backgroundColor = '#0d1015ff'; sbox.style.borderRadius = '3px';
       var si = lbl(sbox, '⌕', S.muted, 13); si.hittest = false; si.style.verticalAlign = 'center'; si.style.marginRight = '8px';
       var sl = lbl(sbox, '', S.value, 12); sl.hittest = false; sl.style.verticalAlign = 'center';
-      var host = mk('Panel', list); host.hittest = false; host.hittestchildren = true;
+      // Ten rows show; the rest scroll with the wheel over the menu (ngWheel), or typing narrows them.
+      var clip = mk('Panel', list); clip.hittest = false; clip.hittestchildren = true;
+      clip.style.width = '100%'; clip.style.overflow = 'clip'; clip.style.flowChildren = 'down';
+      var host = mk('Panel', clip); host.hittest = false; host.hittestchildren = true;
       host.style.width = '100%'; host.style.flowChildren = 'down';
+      host.style.height = 'fit-children'; host.style.overflow = 'noclip noclip';
       var menu = { field: list, list: list, __menu: true, __lastLmb: true,
         __setOpen: function (open) {
           if (open) return;
           try { list.DeleteAsync(0); } catch (e) {}
           if (ngAdd && ngAdd.list === list) { ngAdd = null; root.SetAttributeString('textcapture', '0'); }
         } };
-      ngAdd = { list: list, sl: sl, host: host, q: '', at: at, link: linkFrom, first: null };
+      ngAdd = { list: list, sl: sl, clip: clip, host: host, q: '', at: at, link: linkFrom, first: null, y: 0, h: 0 };
       cfgDropOpen = menu;
       cfgTextOwner = list; root.SetAttributeString('textcapture', '1');
       ngAddFill();
@@ -654,7 +773,7 @@ R"CFJS(
     function ngAddFill() {
       var a = ngAdd; if (!a) return;
       a.sl.text = a.q ? (a.q + '|') : '|';
-      a.host.RemoveAndDeleteChildren(); a.first = null;
+      a.host.RemoveAndDeleteChildren(); a.first = null; a.y = 0; a.h = 0;
       var from = a.link > 0 ? ngNodeById(a.link) : null;
       var shown = NODE_TYPES.filter(function (ty) { return ngTypeMatches(ty, a.q) && (!from || ngLinkPort(from, ty) >= 0); });
       var lastMask = null;
@@ -663,9 +782,11 @@ R"CFJS(
           lastMask = ty.mask;
           var h = lbl(a.host, ty.mask ? T('Masks') : T('Effects'), S.muted, 10); h.hittest = false;
           h.style.fontWeight = 'bold'; h.style.letterSpacing = '1px'; h.style.margin = '4px 0px 2px 8px';
+          h.style.height = '14px'; a.h += 20;
         }
         var o = mk('Panel', a.host); o.hittest = true;
         o.style.flowChildren = 'right'; o.style.width = '100%'; o.style.height = '26px';
+        a.h += 26;
         o.style.paddingLeft = '8px'; o.style.borderRadius = '3px';
         var dot = mk('Panel', o); dot.hittest = false; dot.style.width = '8px'; dot.style.height = '8px';
         dot.style.borderRadius = '4px'; dot.style.verticalAlign = 'center'; dot.style.marginRight = '9px';
@@ -676,7 +797,16 @@ R"CFJS(
         o.SetPanelEvent('onmouseout', function () { o.style.backgroundColor = (a.first === ty) ? '#ffffff10' : S.clear; });
         o.SetPanelEvent('onactivate', function () { ngAddPick(ty); });
       });
-      if (!shown.length) { var none = lbl(a.host, T('No results'), S.muted, 12); none.hittest = false; none.style.margin = '4px 8px'; }
+      if (!shown.length) { var none = lbl(a.host, T('No results'), S.muted, 12); none.hittest = false; none.style.margin = '4px 8px'; a.h += 26; }
+      ngAddScroll(0);
+    }
+    var NG_ADD_ROWS = 10;
+    function ngAddScroll(dy) {
+      var a = ngAdd; if (!a) return;
+      var view = Math.min(a.h, NG_ADD_ROWS * 26);
+      a.y = Math.max(0, Math.min(a.y + dy, a.h - view));
+      a.clip.style.height = view + 'px';
+      a.host.style.marginTop = (-Math.round(a.y)) + 'px';
     }
     function ngAddPick(ty) {
       var a = ngAdd; if (!a) return;
@@ -724,6 +854,8 @@ R"CFJS(
     });
     // The wheel over the graph pans it (and never scrolls the column under it). From api.wheel.
     function ngWheel(notches) {
+      // Over the open add menu the wheel scrolls its list, three rows a notch.
+      if (ngAdd && st && ngInPanel(ngAdd.list, st.mx, st.my)) { ngAddScroll(-notches * 78); return true; }
       if (!ngWin || !ngWin.visible || !st || !ngInPanel(ngWin, st.mx, st.my)) return false;
       ngPan.y += notches * 60;
       return true;

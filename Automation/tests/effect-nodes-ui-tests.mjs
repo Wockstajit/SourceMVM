@@ -61,7 +61,8 @@ test('the graph nodes list scrolls inside a fixed box', () => {
 
 test('the add search matches names and keywords and only offers nodes a dropped wire can feed', () => {
   const ctx = vm.createContext({ T: (s) => s });
-  vm.runInContext(/var NODE_TYPES = \[[\s\S]*?\];/.exec(js)[0] + grab('ngTypeMatches') + grab('ngLinkPort'), ctx);
+  vm.runInContext(/var NODE_TYPES = \[[\s\S]*?\];/.exec(js)[0] + /function ngIsMaskProcessor[^\n]*\n/.exec(js)[0]
+    + grab('ngTypeMatches') + grab('ngLinkPort'), ctx);
   const find = (t) => ctx.NODE_TYPES.find((x) => x.t === t);
   assert.equal(ctx.ngTypeMatches(find('glow'), 'bloom'), true);
   assert.equal(ctx.ngTypeMatches(find('grade'), 'SATUR'), true);
@@ -72,6 +73,25 @@ test('the add search matches names and keywords and only offers nodes a dropped 
   assert.equal(ctx.ngLinkPort(mask, find('mask_combine')), 0);
   assert.equal(ctx.ngLinkPort(image, find('mask_combine')), -1);
   assert.equal(ctx.ngLinkPort(image, find('depth_range')), -1);
+  assert.equal(ctx.ngLinkPort(mask, find('mask_feather')), 0);
+  assert.equal(ctx.ngLinkPort(image, find('vignette')), 0);
+  assert.equal(ctx.ngTypeMatches(find('light_rays'), 'god'), true);
+});
+
+test('every node type the tab offers exists in the model, with an inspector schema', () => {
+  const math = read('AfxHookSource2/Filmmaker/EffectNodes/EffectNodesMath.h');
+  const types = [...js.matchAll(/\{ t: '([a-z_]+)', name:/g)].map((m) => m[1]);
+  assert.ok(types.length >= 38, 'only ' + types.length + ' node types');
+  const schemas = /var NODE_SCHEMAS = \{([\s\S]*?)\n    \};/.exec(js)[1];
+  for (const t of types) {
+    assert.match(math, new RegExp('return "' + t + '";'), t + ' has no token in EffectNodesMath.h');
+    assert.match(schemas, new RegExp('\\b' + t + ':\\s*\\['), t + ' has no inspector schema');
+  }
+});
+
+test('Starter presets is a dropdown, like the other preset pickers', () => {
+  assert.match(js, /var nodesPresetDrop = dropdownRow\(nodesSec, T\('Starter presets'\), NODE_PRESETS,/);
+  assert.doesNotMatch(js, /optionGrid\(nodesSec, T\('Starter presets'\)/);
 });
 
 test('the model refuses wires that would leave Final Output dark, and can duplicate and unlink', () => {

@@ -13,6 +13,7 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -32,7 +33,7 @@ cbuffer NodeConstants : register(b0) {
     float4 depthInfo;    // minDepth, maxDepth, reversed, hasWorldDepth
     float4 cameraTime;   // cam xyz, demoTime
     float4 camFwd;       // fwd xyz, hasMaskA
-    float4 stepInfo;     // nodeType, hasMaskB, masterMix, 0
+    float4 stepInfo;     // nodeType, hasMaskB, masterMix, wall-clock seconds (keeps moving while paused)
     float4 refInfo;      // the reference's minDepth, maxDepth
     float4 p0;           // params[0..3]
     float4 p1;           // params[4..7]
@@ -162,6 +163,104 @@ float SelectedPlayerWeight(float3 p) {
     return 1.0;
 }
 
+// ---- helpers for the later nodes ----
+float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+float Hash21(float2 p) { p = frac(p * float2(123.34, 456.21)); p += dot(p, p + 45.32); return frac(p.x * p.y); }
+float Noise3(float3 p) {
+    float3 i0 = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float2 o = float2(0.0, 1.0);
+    float z0 = i0.z * 17.0, z1 = z0 + 17.0;
+    float a = lerp(lerp(Hash21(i0.xy + o.xx + z0), Hash21(i0.xy + o.yx + z0), f.x),
+                   lerp(Hash21(i0.xy + o.xy + z0), Hash21(i0.xy + o.yy + z0), f.x), f.y);
+    float c = lerp(lerp(Hash21(i0.xy + o.xx + z1), Hash21(i0.xy + o.yx + z1), f.x),
+                   lerp(Hash21(i0.xy + o.xy + z1), Hash21(i0.xy + o.yy + z1), f.x), f.y);
+    return lerp(a, c, f.z);
+}
+float Fbm(float3 p) {
+    float v = 0.0, amp = 0.5;
+    // Each octave turned ~37 degrees, so the lattice of the value noise does not show as blocks.
+    [unroll] for (int o = 0; o < 4; ++o) {
+        v += Noise3(p) * amp;
+        p = float3(p.x * 0.8 - p.y * 0.6, p.x * 0.6 + p.y * 0.8, p.z) * 2.03 + 11.7;
+        amp *= 0.5;
+    }
+    return v / 0.9375;
+}
+float3 RgbToHsv(float3 c) {
+    float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    float4 q = c.g < c.b ? float4(c.bg, K.wz) : float4(c.gb, K.xy);
+    float4 r = c.r < q.x ? float4(q.xyw, c.r) : float4(c.r, q.yzx);
+    float d = r.x - min(r.w, r.y);
+    return float3(abs(r.z + (r.w - r.y) / (6.0 * d + 1e-10)), d / (r.x + 1e-10), r.x);
+}
+float3 HsvToRgb(float3 c) {
+    float3 p = abs(frac(c.xxx + float3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+    return c.z * lerp(float3(1.0, 1.0, 1.0), saturate(p - 1.0), c.y);
+}
+// A soft disc of 25 taps, `rad` pixels across.
+float3 BlurAt(float2 uv, float rad) {
+    float2 tx = max(rad, 0.0) / max(dims.xy, float2(1.0, 1.0));
+    float3 acc = colorIn.SampleLevel(linearClamp, uv, 0).rgb;
+    float wsum = 1.0;
+    [unroll] for (int r = 1; r <= 3; ++r) {
+        [unroll] for (int a = 0; a < 8; ++a) {
+            float ang = (float(a) + 0.5 * float(r)) * 0.78539816;
+            float2 o = float2(cos(ang), sin(ang)) * (float(r) / 3.0) * tx;
+            float wt = 1.0 - float(r - 1) * 0.25;
+            acc += colorIn.SampleLevel(linearClamp, saturate(uv + o), 0).rgb * wt;
+            wsum += wt;
+        }
+    }
+    return acc / wsum;
+}
+// Where the camera looks: the scene point at the centre of the frame, or 300 units ahead.
+float3 FocusPoint() {
+    float3 w;
+    if (WorldAtUv(float2(0.5, 0.5), w)) return w;
+    return cameraTime.xyz + camFwd.xyz * 300.0;
+}
+float DistOrFar(float2 uv) { return min(CameraDistAtUv(uv), 1e5); }
+float RealTime() { return stepInfo.w; }
+// A head-held device's drift: slow and uneven (two unrelated noises), with a faint fast tremor.
+float2 Sway(float t, float amount) {
+    float2 s = float2(Noise3(float3(t * 0.31, 1.7, 0.0)), Noise3(float3(4.2, t * 0.27, 0.0))) - 0.5;
+    s += (float2(Noise3(float3(t * 2.3, 9.1, 0.0)), Noise3(float3(3.3, t * 2.1, 0.0))) - 0.5) * 0.12;
+    return s * 0.05 * amount;
+}
+// 1 inside a scope or goggle tube (mode 1 one tube, 2 two overlapping tubes), soft at the rim.
+// rimDist: 0 at the centre, 1 at the rim.
+float TubeMask(float2 uv, float2 c, int mode, out float rimDist) {
+    float aspect = dims.x / max(dims.y, 1.0);
+    float R = 0.46;
+    float2 d0 = (uv - c) * float2(aspect, 1.0);
+    float r = length(d0);
+    if (mode == 2) { r = min(length(d0 - float2(-0.25, 0.0)), length(d0 - float2(0.25, 0.0))); R = 0.44; }
+    rimDist = r / R;
+    return 1.0 - smoothstep(R - 0.012, R + 0.004, r);
+}
+// Surface normal rebuilt from depth: the cross of the slopes to the right and down.
+float3 NormalAtUv(float2 uv, float2 tx) {
+    float3 c, x, y;
+    if (!WorldAtUv(uv, c) || !WorldAtUv(saturate(uv + float2(tx.x, 0)), x) || !WorldAtUv(saturate(uv + float2(0, tx.y)), y))
+        return float3(0, 0, 0);
+    return normalize(cross(x - c, y - c) + 1e-6);
+}
+// 1 on a player: through the world reference when the graph has one, else from the player capsules.
+float PeopleAt(float2 uv) {
+    float3 w;
+    if (!WorldAtUv(uv, w)) return 0.0;
+    if (depthInfo.w > 0.5) return InFrontOfWorld(w);
+    float d = 1e9;
+    if (pmCounts.x != 0) d = CapsuleSdf(w, pmCapsule.xyz, pmCapsule.w > 1.0 ? pmCapsule.w : 74.0, 16.0);
+    [loop] for (int j = 0; j < pmCounts.z; ++j)
+        d = min(d, CapsuleSdf(w, pmOthers[j].xyz, pmOthers[j].w > 1.0 ? pmOthers[j].w : 74.0, 16.0));
+    return saturate(1.0 - d / 6.0);
+}
+
+)HLSL"
+// Split: MSVC caps one raw string literal near 16 KB (C2026); adjacent literals concatenate.
+R"HLSL(
 // ---- Mask Evaluation Pass (writes R8_UNORM) ----
 float MaskPS(VsOut i) : SV_Target {
     int type = int(stepInfo.x + 0.5);
@@ -213,10 +312,95 @@ float MaskPS(VsOut i) : SV_Target {
         else if (op == 1) m = min(a, b);
         else if (op == 2) m = saturate(a - b);
         else m = 1.0 - a;
+    } else if (type == 11) {
+        // HeightMask: a band of world height (z). min=p0.x, max=p0.y, softness=p0.z, invert=p0.w
+        float3 w;
+        if (WorldAtUv(i.uv, w)) {
+            float s = max(p0.z, 1.0);
+            m = smoothstep(p0.x - s, p0.x + s, w.z) * (1.0 - smoothstep(p0.y - s, p0.y + s, w.z));
+        }
+        if (p0.w > 0.5) m = 1.0 - m;
+    } else if (type == 12) {
+        // HueKey: hue=p0.x deg, range=p0.y, softness=p0.z, min saturation=p0.w, invert=p1.x
+        float3 hsv = RgbToHsv(saturate(colorIn.SampleLevel(linearClamp, i.uv, 0).rgb));
+        float dh = abs(frac((hsv.x * 360.0 - p0.x) / 360.0 + 0.5) - 0.5) * 360.0;
+        m = 1.0 - smoothstep(p0.y, p0.y + max(p0.z, 0.5), dh);
+        m *= smoothstep(p0.w * 0.5, max(p0.w, 0.001), hsv.y);
+        if (p1.x > 0.5) m = 1.0 - m;
+    } else if (type == 13) {
+        // RadialMask: center=p0.xy, radius=p0.z, softness=p0.w, aspect=p1.x, invert=p1.y
+        float2 d = i.uv - p0.xy;
+        d.x *= (dims.x / max(dims.y, 1.0)) / max(p1.x, 0.05);
+        m = 1.0 - smoothstep(p0.z, p0.z + max(p0.w, 0.001), length(d));
+        if (p1.y > 0.5) m = 1.0 - m;
+    } else if (type == 14) {
+        // GradientMask: angle=p0.x deg, position=p0.y, softness=p0.z, invert=p0.w
+        float a = radians(p0.x);
+        float t = dot(i.uv - 0.5, float2(cos(a), sin(a))) + 0.5;
+        float s = max(p0.z, 0.001) * 0.5;
+        m = smoothstep(p0.y - s, p0.y + s, t);
+        if (p0.w > 0.5) m = 1.0 - m;
+    } else if (type == 15) {
+        // EdgeMask: where depth jumps (silhouettes, corners). threshold=p0.x, thickness=p0.y px, invert=p0.z
+        float2 tx = max(p0.y, 0.5) / max(dims.xy, float2(1.0, 1.0));
+        float dc = DistOrFar(i.uv);
+        float gx = abs(DistOrFar(saturate(i.uv + float2(tx.x, 0))) - DistOrFar(saturate(i.uv - float2(tx.x, 0))));
+        float gy = abs(DistOrFar(saturate(i.uv + float2(0, tx.y))) - DistOrFar(saturate(i.uv - float2(0, tx.y))));
+        float rel = (gx + gy) / max(dc, 20.0);
+        m = smoothstep(p0.x * 0.5, max(p0.x, 0.005), rel);
+        if (p0.z > 0.5) m = 1.0 - m;
+    } else if (type == 16) {
+        // NoiseMask: drifting cloudy noise. scale=p0.x, speed=p0.y, threshold=p0.z, softness=p0.w, invert=p1.x
+        float2 q = i.uv * float2(dims.x / max(dims.y, 1.0), 1.0) * max(p0.x, 0.1);
+        float n = Fbm(float3(q, cameraTime.w * p0.y));
+        float s = max(p0.w, 0.001) * 0.5;
+        m = smoothstep(p0.z - s, p0.z + s, n);
+        if (p1.x > 0.5) m = 1.0 - m;
+    } else if (type == 17) {
+        // PlayerRadius: a sphere around the picked player (or what the camera looks at).
+        // radius=p0.x, softness=p0.y, invert=p0.z
+        float3 w;
+        if (WorldAtUv(i.uv, w)) {
+            float3 c = pmCounts.x != 0 ? (pmCounts.y > 0 ? pmBounds.xyz : pmCapsule.xyz + float3(0, 0, 36))
+                                       : FocusPoint();
+            m = 1.0 - smoothstep(p0.x, p0.x + max(p0.y, 1.0), length(w - c));
+        }
+        if (p0.z > 0.5) m = 1.0 - m;
+    } else if (type == 18) {
+        // MaskFeather: blur the mask on port 0, then grow or shrink it. radius=p0.x px, grow=p0.y, invert=p0.z
+        if (camFwd.w > 0.5) {
+            float2 tx = max(p0.x, 0.0) / max(dims.xy, float2(1.0, 1.0));
+            float acc = maskA.SampleLevel(linearClamp, i.uv, 0), wsum = 1.0;
+            [unroll] for (int r = 1; r <= 3; ++r) {
+                [unroll] for (int a = 0; a < 8; ++a) {
+                    float ang = (float(a) + 0.5 * float(r)) * 0.78539816;
+                    float2 o = float2(cos(ang), sin(ang)) * (float(r) / 3.0) * tx;
+                    acc += maskA.SampleLevel(linearClamp, saturate(i.uv + o), 0);
+                    wsum += 1.0;
+                }
+            }
+            float a0 = acc / wsum, g = clamp(p0.y, -0.95, 0.95);
+            float thr = 0.5 - g * 0.45;
+            m = abs(g) < 0.01 ? a0 : smoothstep(thr - 0.2, thr + 0.2, a0);
+        }
+        if (p0.z > 0.5) m = 1.0 - m;
+    } else if (type == 39) {
+        // BoxMask: center=p0.xy, size=p0.zw (frame fractions), angle=p1.x deg, softness=p1.y, invert=p1.z
+        float a = radians(p1.x);
+        float aspect = dims.x / max(dims.y, 1.0);
+        float2 d = (i.uv - p0.xy) * float2(aspect, 1.0);
+        float2 q = float2(cos(a) * d.x + sin(a) * d.y, -sin(a) * d.x + cos(a) * d.y);
+        float2 e = abs(q) - float2(p0.z * aspect, p0.w) * 0.5;
+        float sd = length(max(e, 0.0)) + min(max(e.x, e.y), 0.0);
+        float s = max(p1.y, 0.0005);
+        m = 1.0 - smoothstep(-s, s, sd);
+        if (p1.z > 0.5) m = 1.0 - m;
     }
     return saturate(m);
 }
 
+)HLSL"
+R"HLSL(
 // ---- Effect Processing Pass ----
 float4 EffectPS(VsOut i) : SV_Target {
     int type = int(stepInfo.x + 0.5);
@@ -308,6 +492,488 @@ float4 EffectPS(VsOut i) : SV_Target {
         dcol.b = colorIn.SampleLevel(linearClamp, saturate(duv - dir), 0).b;
         outRgb = lerp(src.rgb, dcol, saturate(m * p1.y));
     }
+
+    // The later effects: each sets `fx` and its mix; the mask and mix blend it over the input.
+)HLSL"
+R"HLSL(
+    float3 fx = src.rgb;
+    float mixv = -1.0;
+    float aspect = dims.x / max(dims.y, 1.0);
+    if (type == 19) {
+        // Blur: radius=p0.x px, mix=p0.y
+        fx = BlurAt(i.uv, p0.x); mixv = p0.y;
+    } else if (type == 20) {
+        // Sharpen: amount=p0.x, radius=p0.y px, mix=p0.z
+        fx = src.rgb + (src.rgb - BlurAt(i.uv, max(p0.y, 0.5))) * p0.x * 2.0; mixv = p0.z;
+    } else if (type == 21) {
+        // Vignette: strength=p0.x, radius=p0.y, softness=p0.z, color=p0.w/p1.x/p1.y, mix=p1.z
+        float2 d = (i.uv - 0.5) * float2(aspect, 1.0) / sqrt(aspect * aspect * 0.25 + 0.25);
+        float v = smoothstep(p0.y - p0.z * 0.5, p0.y + p0.z * 0.5, length(d));
+        fx = lerp(src.rgb, float3(p0.w, p1.x, p1.y), saturate(v * p0.x)); mixv = p1.z;
+    } else if (type == 22) {
+        // FilmGrain: amount=p0.x, size=p0.y px, color=p0.z, mix=p0.w
+        float2 cell = floor(i.uv * dims.xy / max(p0.y, 0.5));
+        float t = floor(cameraTime.w * 24.0);
+        float mono = Hash21(cell + t * 7.13) - 0.5;
+        float3 col = float3(Hash21(cell + t * 3.7 + 1.1), Hash21(cell + t * 5.3 + 2.2), Hash21(cell + t * 9.1 + 3.3)) - 0.5;
+        float3 g = lerp(float3(mono, mono, mono), col, saturate(p0.z));
+        float l = Luma(src.rgb);
+        fx = src.rgb + g * p0.x * 2.0 * (0.4 + 0.6 * (1.0 - abs(l - 0.5) * 2.0)); mixv = p0.w;
+    } else if (type == 23) {
+        // Posterize: levels=p0.x, mix=p0.y
+        float lv = max(p0.x, 2.0);
+        fx = floor(saturate(src.rgb) * lv + 0.5) / lv; mixv = p0.y;
+    } else if (type == 24) {
+        // Pixelate: cell=p0.x px, mix=p0.y
+        float c = max(p0.x, 1.0);
+        float2 uvp = (floor(i.uv * dims.xy / c) + 0.5) * c / max(dims.xy, float2(1.0, 1.0));
+        fx = colorIn.SampleLevel(linearClamp, saturate(uvp), 0).rgb; mixv = p0.y;
+    } else if (type == 25) {
+        // Duotone: shadows=p0.xyz, highlights=p0.w/p1.x/p1.y, mix=p1.z
+        fx = lerp(p0.xyz, float3(p0.w, p1.x, p1.y), saturate(Luma(src.rgb))); mixv = p1.z;
+    } else if (type == 26) {
+        // LiftGammaGain: lift=p0.x, gamma=p0.y, gain=p0.z, saturation=p0.w, mix=p1.x
+        float3 c = saturate(src.rgb);
+        c = saturate(c * p0.z + p0.x * (1.0 - c));
+        c = pow(c, 1.0 / max(p0.y, 0.05));
+        float l = Luma(c);
+        fx = lerp(float3(l, l, l), c, p0.w); mixv = p1.x;
+    } else if (type == 27) {
+        // HueShift: degrees=p0.x, saturation=p0.y, vibrance=p0.z, mix=p0.w
+        float3 hsv = RgbToHsv(saturate(src.rgb));
+        hsv.x = frac(hsv.x + p0.x / 360.0);
+        hsv.y = saturate(hsv.y * p0.y);
+        hsv.y = saturate(hsv.y + p0.z * hsv.y * (1.0 - hsv.y));
+        fx = HsvToRgb(hsv); mixv = p0.w;
+    } else if (type == 28) {
+        // DepthFog: start=p0.x, end=p0.y, density=p0.z, color=p0.w/p1.x/p1.y, mix=p1.z
+        float d = CameraDistAtUv(i.uv);
+        float f = d > 1e29 ? 1.0 : saturate((d - p0.x) / max(p0.y - p0.x, 1.0));
+        f = 1.0 - exp(-f * max(p0.z, 0.01) * 2.5);
+        fx = lerp(src.rgb, float3(p0.w, p1.x, p1.y), f); mixv = p1.z;
+    } else if (type == 29) {
+        // LightRays: threshold=p0.x, strength=p0.y, length=p0.z, center=p0.w/p1.x, mix=p1.y
+        float2 stepUv = (float2(p0.w, p1.x) - i.uv) * saturate(p0.z) / 16.0;
+        float2 uv = i.uv;
+        float3 acc = float3(0, 0, 0);
+        float decay = 1.0;
+        [unroll] for (int s = 0; s < 16; ++s) {
+            uv += stepUv;
+            float3 c = colorIn.SampleLevel(linearClamp, saturate(uv), 0).rgb;
+            float hl = smoothstep(p0.x, 1.0, Luma(c));
+            acc += c * hl * hl * decay;
+            decay *= 0.92;
+        }
+        // 9.9 is the decay's total weight: the rays are an average of the highlights they cross.
+        fx = src.rgb + acc / 9.9 * p0.y * 0.7; mixv = p1.y;
+    } else if (type == 30) {
+        // Scanlines: lines=p0.x, strength=p0.y, curvature=p0.z, roll=p0.w, mix=p1.x
+        float2 c = i.uv - 0.5;
+        c *= 1.0 + dot(c, c) * p0.z;
+        float2 uv = c + 0.5;
+        float inside = all(uv >= 0.0) && all(uv <= 1.0) ? 1.0 : 0.0;
+        float3 col = colorIn.SampleLevel(linearClamp, saturate(uv), 0).rgb;
+        float scan = sin((uv.y + cameraTime.w * p0.w * 0.05) * max(p0.x, 10.0) * 3.14159);
+        fx = col * (1.0 - p0.y * (0.5 + 0.5 * scan)) * inside; mixv = p1.x;
+    } else if (type == 31) {
+        // Glitch: strength=p0.x, block=p0.y px, speed=p0.z, rgb split=p0.w, mix=p1.x
+        float t = floor(cameraTime.w * max(p0.z, 0.1));
+        float row = floor(i.uv.y * dims.y / max(p0.y, 4.0));
+        float h = Hash21(float2(row, t));
+        float shift = h > 1.0 - p0.x * 0.5 ? (Hash21(float2(t, row + 3.0)) - 0.5) * 0.12 * p0.x : 0.0;
+        float2 uv = saturate(i.uv + float2(shift, 0));
+        float split = p0.w * 0.008 * (0.3 + p0.x);
+        fx = float3(colorIn.SampleLevel(linearClamp, saturate(uv + float2(split, 0)), 0).r,
+                    colorIn.SampleLevel(linearClamp, uv, 0).g,
+                    colorIn.SampleLevel(linearClamp, saturate(uv - float2(split, 0)), 0).b);
+        mixv = p1.x;
+    } else if (type == 32) {
+        // Thermal: palette=p0.x, contrast=p0.y, people heat=p0.z, noise=p0.w, blur=p1.x, scope=p1.y,
+        // sway=p1.z, mix=p1.w
+        float rt = RealTime();
+        int scope = int(p1.y + 0.5);
+        float2 c = float2(0.5, 0.5) + (scope > 0 ? Sway(rt, p1.z) : float2(0, 0));
+        float rim = 0.0;
+        float inScope = scope > 0 ? TubeMask(i.uv, c, 1, rim) : 1.0;
+        // A microbolometer resolves little: a soft picture.
+        float3 img = BlurAt(i.uv, max(p1.x, 0.0));
+        float d = CameraDistAtUv(i.uv);
+        // A temperature stand-in: surfaces by the light they hold (sunlit walls are warm), the sky
+        // cold, and everything drifting toward the air's temperature with distance.
+        float heat = d > 1e29 ? 0.03 : lerp(0.08 + 0.42 * pow(saturate(Luma(img)), 1.3), 0.18, saturate(d / 9000.0) * 0.6);
+        // People run hot, with the warm bloom thermal cameras show around them.
+        if (p0.z > 0.001) {
+            float body = PeopleAt(i.uv);
+            float2 tx = 6.0 / max(dims.xy, float2(1.0, 1.0));
+            float nearBody = (PeopleAt(saturate(i.uv + float2(tx.x, 0))) + PeopleAt(saturate(i.uv - float2(tx.x, 0)))
+                            + PeopleAt(saturate(i.uv + float2(0, tx.y))) + PeopleAt(saturate(i.uv - float2(0, tx.y)))) * 0.25;
+            // Skin and clothes are not one temperature: the picture's own shading varies the body.
+            heat = lerp(heat, 0.72 + 0.26 * Luma(img), saturate(body * p0.z));
+            heat += nearBody * 0.1 * p0.z * (1.0 - body);
+        }
+        heat = saturate((heat - 0.4) * max(p0.y, 0.05) + 0.4);
+        // Sensor noise: temporal grain and faint fixed column stripes.
+        float2 px = floor(i.uv * dims.xy);
+        heat += ((Hash21(px + floor(rt * 30.0) * 11.3) - 0.5) * 0.06 + (Hash21(float2(px.x, 7.0)) - 0.5) * 0.02) * p0.w * 3.0;
+        heat = saturate(heat);
+        int pal = int(p0.x + 0.5);
+        if (pal == 1) fx = float3(1.0, 1.0, 1.0) - heat;
+        else if (pal == 2) {
+            // Ironbow: black, deep blue, magenta, orange, yellow, white.
+            float3 k0 = float3(0.0, 0.0, 0.02), k1 = float3(0.12, 0.0, 0.45), k2 = float3(0.65, 0.05, 0.55),
+                   k3 = float3(0.95, 0.35, 0.05), k4 = float3(1.0, 0.82, 0.15), k5 = float3(1.0, 1.0, 0.92);
+            float s = heat * 5.0;
+            fx = s < 1.0 ? lerp(k0, k1, s) : s < 2.0 ? lerp(k1, k2, s - 1.0) : s < 3.0 ? lerp(k2, k3, s - 2.0)
+               : s < 4.0 ? lerp(k3, k4, s - 3.0) : lerp(k4, k5, s - 4.0);
+        } else if (pal == 3) fx = lerp(float3(0.03, 0.02, 0.01), float3(1.0, 0.84, 0.5), heat) + float3(0.0, 0.0, 0.0);
+        else fx = float3(heat, heat, heat);
+        if (scope > 0) {
+            fx *= 1.0 - 0.35 * smoothstep(0.6, 1.0, rim);
+            if (scope == 2) {
+                // A thin red reticle: a cross with a gap and a centre dot.
+                float2 dp = (i.uv - c) * dims.xy;
+                float reach = dims.y * 0.3;
+                float hv = step(abs(dp.x), 1.0) * step(14.0, abs(dp.y)) * step(abs(dp.y), reach);
+                float hh = step(abs(dp.y), 1.0) * step(14.0, abs(dp.x)) * step(abs(dp.x), reach);
+                float dotc = step(length(dp), 2.0);
+                fx = lerp(fx, float3(1.0, 0.22, 0.15), saturate(hv + hh + dotc));
+            }
+            fx *= inScope;
+        }
+        mixv = p1.w;
+    } else if (type == 33) {
+        // NightVision: gain=p0.x, scintillation=p0.y, halo=p0.z, tube=p0.w, phosphor=p1.x, sway=p1.y, mix=p1.z
+        float rt = RealTime();
+        int tube = int(p0.w + 0.5);
+        float2 c = float2(0.5, 0.5) + (tube > 0 ? Sway(rt, p1.y) : float2(0, 0));
+        float rim = 0.0;
+        float inTube = tube > 0 ? TubeMask(i.uv, c, tube, rim) : 1.0;
+        if (tube == 0) rim = length((i.uv - 0.5) * float2(aspect, 1.0)) / 0.9;
+        // The tube's optics: a little barrel toward the rim, and a softer picture than the screen.
+        float2 suv = saturate(c + (i.uv - c) * (1.0 - 0.06 * rim * rim));
+        float l = Luma(BlurAt(suv, 1.2));
+        // Image intensification: shadows lifted, highlights rolled off, then the tube's steep
+        // contrast, which keeps the blacks deep (a daylight scene must not wash out to mint).
+        float v = pow(saturate(1.0 - exp(-l * max(p0.x, 0.1) * 1.4)), 1.8) * 1.1;
+        // Bright sources bloom into wide halos.
+        float halo = smoothstep(0.55, 1.0, Luma(BlurAt(suv, 10.0))) * 0.6 + smoothstep(0.45, 1.0, Luma(BlurAt(suv, 28.0))) * 0.7;
+        v += halo * p0.z;
+        // Automatic brightness control breathing.
+        v *= 1.0 + 0.04 * (Noise3(float3(rt * 3.1, 0.0, 0.0)) - 0.5);
+        // Scintillation: per-pixel sparkle at about 60 Hz, strongest in the dark.
+        float2 px = floor(i.uv * dims.xy);
+        float f = floor(rt * 60.0);
+        float n1 = Hash21(px + f * 13.7), n2 = Hash21(px * 1.37 + f * 7.1 + 3.0);
+        v += ((n1 + n2 - 1.0) * 0.35 + pow(n1, 24.0) * 2.5) * p0.y * (0.35 + (1.0 - saturate(v)));
+        // The microchannel plate's faint honeycomb, and the falloff toward the tube's rim.
+        v *= 1.0 - 0.035 * (0.5 + 0.5 * sin(px.x * 1.9) * sin(px.y * 1.9 + px.x * 0.95));
+        v *= 1.0 - 0.45 * smoothstep(0.55, 1.0, rim);
+        v = max(v, 0.0);
+        // Phosphor ramp: near-black, the tube's colour in the midtones, pale where it saturates.
+        // P43 green, or the cool grey-white of white-phosphor tubes.
+        float3 k0 = p1.x > 0.5 ? float3(0.008, 0.01, 0.016) : float3(0.0, 0.016, 0.006);
+        float3 k1 = p1.x > 0.5 ? float3(0.40, 0.45, 0.50) : float3(0.09, 0.60, 0.15);
+        float3 k2 = p1.x > 0.5 ? float3(0.92, 0.96, 1.0) : float3(0.76, 1.0, 0.70);
+        float sv = saturate(v);
+        fx = (sv < 0.6 ? lerp(k0, k1, sv / 0.6) : lerp(k1, k2, (sv - 0.6) / 0.4)) + k2 * max(v - 1.0, 0.0) * 0.3;
+        fx *= inTube;
+        mixv = p1.z;
+    } else if (type == 34) {
+        // InkLines: threshold=p0.x, strength=p0.y, paper=p0.z, mix=p0.w
+        float2 tx = 1.0 / max(dims.xy, float2(1.0, 1.0));
+        float l00 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(-1, -1)), 0).rgb);
+        float l10 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(0, -1)), 0).rgb);
+        float l20 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(1, -1)), 0).rgb);
+        float l01 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(-1, 0)), 0).rgb);
+        float l21 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(1, 0)), 0).rgb);
+        float l02 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(-1, 1)), 0).rgb);
+        float l12 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(0, 1)), 0).rgb);
+        float l22 = Luma(colorIn.SampleLevel(linearClamp, saturate(i.uv + tx * float2(1, 1)), 0).rgb);
+        float gx = (l20 + 2.0 * l21 + l22) - (l00 + 2.0 * l01 + l02);
+        float gy = (l02 + 2.0 * l12 + l22) - (l00 + 2.0 * l10 + l20);
+        float e = smoothstep(p0.x, p0.x * 2.0 + 0.01, sqrt(gx * gx + gy * gy)) * p0.y;
+        float pl = Luma(src.rgb);
+        float3 base = lerp(src.rgb, float3(0.96, 0.94, 0.88) * (0.75 + 0.25 * pl), saturate(p0.z));
+        fx = base * (1.0 - saturate(e)); mixv = p0.w;
+    } else if (type == 35) {
+        // Invert: mix=p0.x
+        fx = 1.0 - saturate(src.rgb); mixv = p0.x;
+    } else if (type == 36) {
+        // Halftone: dot=p0.x px, angle=p0.y deg, mix=p0.z
+        float a = radians(p0.y), cs = cos(a), sn = sin(a);
+        float2 px = i.uv * dims.xy;
+        float2 rp = float2(cs * px.x + sn * px.y, -sn * px.x + cs * px.y);
+        float c = max(p0.x, 2.0);
+        float2 cellC = (floor(rp / c) + 0.5) * c;
+        float2 back = float2(cs * cellC.x - sn * cellC.y, sn * cellC.x + cs * cellC.y);
+        float3 cc = colorIn.SampleLevel(linearClamp, saturate(back / max(dims.xy, float2(1.0, 1.0))), 0).rgb;
+        float r = sqrt(saturate(1.0 - Luma(cc))) * 0.72;
+        float dotv = 1.0 - smoothstep(r - 0.06, r + 0.06, length(frac(rp / c) - 0.5));
+        fx = lerp(float3(0.97, 0.96, 0.92), cc * 0.45, dotv); mixv = p0.z;
+    } else if (type == 37) {
+        // DepthBlur: focus=p0.x, range=p0.y, max radius=p0.z px, mix=p0.w
+        float d = CameraDistAtUv(i.uv);
+        float coc = d > 1e29 ? 1.0 : saturate((abs(d - p0.x) - p0.y * 0.5) / max(p0.y, 1.0));
+        fx = BlurAt(i.uv, p0.z * coc); mixv = p0.w;
+    } else if (type == 38) {
+        // ColorFill: color=p0.xyz, blend=p0.w (0 normal,1 multiply,2 screen,3 overlay,4 add), mix=p1.x
+        float3 c = p0.xyz, s = saturate(src.rgb);
+        int bm = int(p0.w + 0.5);
+        fx = bm == 1 ? s * c
+           : bm == 2 ? 1.0 - (1.0 - s) * (1.0 - c)
+           : bm == 3 ? lerp(2.0 * s * c, 1.0 - 2.0 * (1.0 - s) * (1.0 - c), step(0.5, s))
+           : bm == 4 ? s + c
+           : c;
+        mixv = p1.x;
+    }
+)HLSL"
+R"HLSL(
+    if (type == 40) {
+        // LensDistortion: distortion=p0.x, dispersion=p0.y, fit=p0.z, mix=p0.w
+        float2 o = i.uv - 0.5;
+        float r2 = dot(o * float2(aspect, 1.0), o * float2(aspect, 1.0)) / (aspect * aspect * 0.25 + 0.25);
+        float fit = p0.z > 0.5 ? 1.0 / (1.0 + max(p0.x, 0.0)) : 1.0;
+        fx = float3(colorIn.SampleLevel(linearClamp, saturate(0.5 + o * (1.0 + (p0.x + p0.y) * r2) * fit), 0).r,
+                    colorIn.SampleLevel(linearClamp, saturate(0.5 + o * (1.0 + p0.x * r2) * fit), 0).g,
+                    colorIn.SampleLevel(linearClamp, saturate(0.5 + o * (1.0 + (p0.x - p0.y) * r2) * fit), 0).b);
+        mixv = p0.w;
+    } else if (type == 41) {
+        // DirectionalBlur: angle=p0.x deg, length=p0.y px, mix=p0.z
+        float a = radians(p0.x);
+        float2 dir = float2(cos(a), sin(a)) * max(p0.y, 0.0) / max(dims.xy, float2(1.0, 1.0));
+        float3 acc = float3(0, 0, 0);
+        [unroll] for (int s = 0; s < 16; ++s) acc += colorIn.SampleLevel(linearClamp, saturate(i.uv + dir * (float(s) / 15.0 - 0.5)), 0).rgb;
+        fx = acc / 16.0; mixv = p0.z;
+    } else if (type == 42) {
+        // RadialBlur: center=p0.xy, amount=p0.z, mode=p0.w (0 zoom, 1 spin), mix=p1.x
+        float3 acc = float3(0, 0, 0);
+        int md = int(p0.w + 0.5);
+        [unroll] for (int s = 0; s < 16; ++s) {
+            float t = float(s) / 15.0;
+            float2 uv;
+            if (md == 1) {
+                float ang = (t - 0.5) * p0.z * 0.6;
+                float2 d = (i.uv - p0.xy) * float2(aspect, 1.0);
+                uv = p0.xy + float2(cos(ang) * d.x - sin(ang) * d.y, sin(ang) * d.x + cos(ang) * d.y) / float2(aspect, 1.0);
+            } else uv = p0.xy + (i.uv - p0.xy) * (1.0 - p0.z * t);
+            acc += colorIn.SampleLevel(linearClamp, saturate(uv), 0).rgb;
+        }
+        fx = acc / 16.0; mixv = p1.x;
+    } else if (type == 43) {
+        // Glare: type=p0.x, threshold=p0.y, length=p0.z, intensity=p0.w, warmth=p1.x, mix=p1.y
+        int gt = int(p0.x + 0.5);
+        float3 tint = lerp(float3(0.75, 0.85, 1.15), float3(1.15, 0.9, 0.7), saturate(p1.x * 0.5 + 0.5));
+        float3 add = float3(0, 0, 0);
+        if (gt <= 2) {
+            // Streaks (anamorphic, two rays) or a star of four or six rays from every highlight.
+            int rays = gt == 0 ? 2 : (gt == 1 ? 4 : 6);
+            float base = gt == 0 ? 0.0 : (gt == 1 ? 0.785398 : 0.523599);
+            [loop] for (int r = 0; r < rays; ++r) {
+                float ang = base + 6.2831853 * float(r) / float(rays);
+                float2 dir = float2(cos(ang), sin(ang) * aspect) * p0.z;
+                [unroll] for (int s = 1; s <= 12; ++s) {
+                    float t = float(s) / 12.0;
+                    float3 cc = colorIn.SampleLevel(linearClamp, saturate(i.uv - dir * t), 0).rgb;
+                    // Only true highlights throw a streak (squared, so a bright sky edge stays quiet).
+                    float hl = smoothstep(p0.y, 1.0, Luma(cc));
+                    add += cc * hl * hl * (1.0 - t) * (1.0 - t);
+                }
+            }
+            // 3.51 is the falloff's weight per ray: the streaks average, they do not pile up.
+            add *= 1.6 / (3.51 * float(rays));
+        } else if (gt == 3) {
+            // Ghosts: tinted reflections of the highlights mirrored through the centre.
+            float sc[5] = { 0.45, 0.85, 1.35, -0.7, 0.2 };
+            float3 tc[5] = { float3(1.0, 0.6, 0.3), float3(0.4, 0.8, 1.0), float3(0.7, 1.0, 0.5), float3(1.0, 0.4, 0.8), float3(0.9, 0.9, 1.0) };
+            [unroll] for (int k = 0; k < 5; ++k) {
+                float2 uvg = 0.5 - (i.uv - 0.5) * sc[k];
+                float3 cc = colorIn.SampleLevel(linearClamp, saturate(uvg), 0).rgb;
+                float edge = 1.0 - smoothstep(0.25, 0.7, length(uvg - 0.5));
+                add += cc * smoothstep(p0.y, p0.y + 0.15, Luma(cc)) * tc[k] * edge * 0.35;
+            }
+        } else {
+            // Fog glow: a wide soft bloom.
+            float3 bb = BlurAt(i.uv, p0.z * 120.0);
+            add = bb * smoothstep(p0.y - 0.2, p0.y + 0.2, Luma(bb));
+        }
+        fx = src.rgb + add * tint * p0.w; mixv = p1.y;
+    } else if (type == 44) {
+        // Halation: threshold=p0.x, radius=p0.y px, intensity=p0.z, color=p0.w/p1.x/p1.y, mix=p1.z.
+        // Film's red-orange glow that bleeds AROUND highlights, less on them.
+        float hb = smoothstep(p0.x, p0.x + 0.25, Luma(BlurAt(i.uv, p0.y * 0.5))) * 0.5
+                 + smoothstep(p0.x, p0.x + 0.25, Luma(BlurAt(i.uv, p0.y))) * 0.7;
+        float self = smoothstep(p0.x, 1.0, Luma(src.rgb));
+        float3 col = float3(p0.w, p1.x, p1.y) * hb * p0.z * (1.0 - 0.5 * self);
+        fx = 1.0 - (1.0 - src.rgb) * (1.0 - saturate(col)); mixv = p1.z;
+    } else if (type == 45) {
+        // ChromaticAberration: amount=p0.x px, mode=p0.y (0 radial, 1 lateral), clear centre=p0.z, mix=p0.w
+        float2 o = i.uv - 0.5;
+        float2 dir = int(p0.y + 0.5) == 1 ? float2(1.0, 0.0) : normalize(o + 1e-5);
+        float amt = p0.x / max(dims.x, 1.0) * (p0.z > 0.5 ? saturate(length(o * float2(aspect, 1.0)) * 2.2) : 1.0);
+        fx = float3(colorIn.SampleLevel(linearClamp, saturate(i.uv + dir * amt), 0).r, src.g,
+                    colorIn.SampleLevel(linearClamp, saturate(i.uv - dir * amt), 0).b);
+        mixv = p0.w;
+    } else if (type == 46) {
+        // Kuwahara: radius=p0.x px, mix=p0.y. Each pixel takes the mean of whichever of its four
+        // quadrants varies least, so flat regions merge and edges stay: a painted look.
+        float2 tx = max(p0.x, 1.0) / 3.0 / max(dims.xy, float2(1.0, 1.0));
+        float best = 1e9;
+        [unroll] for (int q = 0; q < 4; ++q) {
+            float2 sgn = float2((q & 1) ? 1.0 : -1.0, (q & 2) ? 1.0 : -1.0);
+            float3 s1 = float3(0, 0, 0), s2 = float3(0, 0, 0);
+            [unroll] for (int y = 0; y < 4; ++y) {
+                [unroll] for (int x = 0; x < 4; ++x) {
+                    float3 cc = colorIn.SampleLevel(linearClamp, saturate(i.uv + float2(x, y) * sgn * tx), 0).rgb;
+                    s1 += cc; s2 += cc * cc;
+                }
+            }
+            float3 mean = s1 / 16.0, vr = s2 / 16.0 - mean * mean;
+            float v = vr.r + vr.g + vr.b;
+            if (v < best) { best = v; fx = mean; }
+        }
+        mixv = p0.y;
+    }
+)HLSL"
+R"HLSL(
+    if (type == 47) {
+        // CelShade (a comic look like Borderlands): bands=p0.x, outline=p0.y px, outline strength=p0.z,
+        // depth edges=p0.w, normal edges=p1.x, hatching=p1.y, saturation=p1.z, mix=p1.w
+        float2 tx = max(p0.y, 0.5) / max(dims.xy, float2(1.0, 1.0));
+        // Shading in flat bands; the colour kept and pushed more saturated, like comic print.
+        float l = Luma(src.rgb);
+        float bands = max(p0.x, 2.0);
+        float lb = lerp((floor(l * bands) + 0.5) / bands, l, 0.15);
+        float3 col = src.rgb * (lb / max(l, 1e-3));
+        float lc = Luma(col);
+        col = saturate(lerp(float3(lc, lc, lc), col, p1.z));
+        // Ink where depth jumps (silhouettes) and where the surface turns (creases).
+        float dc = DistOrFar(i.uv);
+        float lap = abs(DistOrFar(saturate(i.uv - float2(tx.x, 0))) + DistOrFar(saturate(i.uv + float2(tx.x, 0)))
+                      + DistOrFar(saturate(i.uv - float2(0, tx.y))) + DistOrFar(saturate(i.uv + float2(0, tx.y))) - 4.0 * dc) / max(dc, 20.0);
+        float edgeD = smoothstep(p0.w, p0.w * 2.0 + 0.001, lap);
+        float2 ntx = 1.0 / max(dims.xy, float2(1.0, 1.0));
+        float3 nc = NormalAtUv(i.uv, ntx);
+        float crease = (1.0 - dot(NormalAtUv(saturate(i.uv - float2(tx.x, 0)), ntx), NormalAtUv(saturate(i.uv + float2(tx.x, 0)), ntx)))
+                     + (1.0 - dot(NormalAtUv(saturate(i.uv - float2(0, tx.y)), ntx), NormalAtUv(saturate(i.uv + float2(0, tx.y)), ntx)));
+        float edgeN = dot(nc, nc) < 0.5 ? 0.0 : smoothstep(p1.x, p1.x * 2.0 + 0.001, crease * 0.5);
+        float ink = saturate(max(edgeD, edgeN) * p0.z);
+        // Pen hatching in the darker bands: one diagonal, then a cross-hatch in the darkest.
+        float2 px = i.uv * dims.xy;
+        float h1 = 1.0 - step(0.2, frac((px.x + px.y) / 6.0));
+        float h2 = 1.0 - step(0.2, frac((px.x - px.y) / 6.0));
+        float darkness = 1.0 - lb;
+        col *= 1.0 - saturate((darkness > 0.55 ? h1 : 0.0) + (darkness > 0.75 ? h2 : 0.0)) * p1.y * 0.6;
+        fx = lerp(col, float3(0.04, 0.03, 0.03), ink); mixv = p1.w;
+    } else if (type == 48) {
+        // Refraction: strength=p0.x, scale=p0.y, speed=p0.z, chromatic=p0.w, source=p1.x
+        // (0 moving noise: heat, water, glass; 1 the edges of the mask: a lens-like bend), mix=p1.y
+        float2 off;
+        if (int(p1.x + 0.5) == 1 && camFwd.w > 0.5) {
+            float2 tx = 3.0 / max(dims.xy, float2(1.0, 1.0));
+            float gx = maskA.SampleLevel(linearClamp, saturate(i.uv + float2(tx.x, 0)), 0) - maskA.SampleLevel(linearClamp, saturate(i.uv - float2(tx.x, 0)), 0);
+            float gy = maskA.SampleLevel(linearClamp, saturate(i.uv + float2(0, tx.y)), 0) - maskA.SampleLevel(linearClamp, saturate(i.uv - float2(0, tx.y)), 0);
+            off = float2(gx, gy) * p0.x * 0.03;
+            m = 1.0;   // the bend lives around the mask's edges, not only inside it
+        } else {
+            float3 q = float3(i.uv * float2(aspect, 1.0) * max(p0.y, 0.1), cameraTime.w * p0.z);
+            off = (float2(Fbm(q), Fbm(q + float3(5.2, 1.3, 0.0))) - 0.5) * p0.x * 0.04;
+        }
+        float2 duv = saturate(i.uv + off), ch = off * p0.w;
+        fx = float3(colorIn.SampleLevel(linearClamp, saturate(duv + ch), 0).r, colorIn.SampleLevel(linearClamp, duv, 0).g,
+                    colorIn.SampleLevel(linearClamp, saturate(duv - ch), 0).b);
+        mixv = p1.y;
+    } else if (type == 49) {
+        // FilmDamage: scratches=p0.x, dust=p0.y, flicker=p0.z, gate weave=p0.w, age=p1.x, mix=p1.y
+        float t = cameraTime.w, fr = floor(t * 24.0);
+        // Gate weave: the frame drifts by a pixel or a few.
+        float2 weave = (float2(Noise3(float3(t * 1.7, 0, 0)), Noise3(float3(0, t * 1.3, 2.0))) - 0.5) * p0.w * 6.0 / max(dims.xy, float2(1.0, 1.0));
+        float3 c = colorIn.SampleLevel(linearClamp, saturate(i.uv + weave), 0).rgb;
+        // Flicker: exposure wobbles frame to frame.
+        c *= 1.0 + (Hash21(float2(fr, 3.1)) - 0.5) * 0.25 * p0.z;
+        // Scratches: a few thin vertical lines that live for a while and drift.
+        float scr = 0.0;
+        [unroll] for (int k = 0; k < 3; ++k) {
+            float seed = floor(t * (0.8 + k * 0.37)) + k * 17.0;
+            float on = step(1.0 - p0.x * 0.8, Hash21(float2(seed, 1.0 + k)));
+            float x = Hash21(float2(seed, 5.0 + k)) + sin(t * 3.0 + k) * 0.002;
+            float w = 0.6 / max(dims.x, 1.0) * (1.0 + Hash21(float2(seed, 9.0)) * 1.5);
+            float ln = (1.0 - smoothstep(w * 0.5, w * 1.5, abs(i.uv.x - x))) * (0.6 + 0.4 * Noise3(float3(i.uv.y * 40.0, seed, 0)));
+            scr = max(scr, ln * on);
+        }
+        // Dust: dark specks that change every frame.
+        float2 g = i.uv * float2(aspect, 1.0) * 60.0, cell = floor(g);
+        float dust = step(1.0 - p0.y * 0.012, Hash21(cell + fr * 7.7));
+        dust *= 1.0 - smoothstep(0.05, 0.35 * Hash21(cell + 2.0) + 0.1, length(frac(g) - 0.5));
+        // Age: faded, warm, lifted blacks.
+        float lc = Luma(c);
+        float3 aged = lerp(c, float3(1.0, 0.9, 0.72) * (lc * 0.9 + 0.06), p1.x);
+        fx = aged * (1.0 - dust * 0.85) + scr * 0.5; mixv = p1.y;
+    } else if (type == 50) {
+        // TiltShift: focus y=p0.x, band=p0.y, blur=p0.z px, saturation=p0.w, mix=p1.x
+        float amt = smoothstep(p0.y * 0.5, p0.y * 0.5 + 0.25, abs(i.uv.y - p0.x));
+        float3 bb = BlurAt(i.uv, p0.z * amt);
+        float l = Luma(bb);
+        fx = lerp(float3(l, l, l), bb, p0.w); mixv = p1.x;
+    } else if (type == 51) {
+        // Tonemap: exposure=p0.x EV, contrast=p0.y, curve=p0.z (0 filmic, 1 soft, 2 punchy), mix=p0.w
+        // The input is display-ready, so the curves run on linear light and go back to display.
+        int cv = int(p0.z + 0.5);
+        float3 lin = pow(saturate(src.rgb), 2.2) * exp2(p0.x);
+        float3 c;
+        if (cv == 0) { lin *= 1.6; c = saturate((lin * (2.51 * lin + 0.03)) / (lin * (2.43 * lin + 0.59) + 0.14)); }
+        else if (cv == 1) { lin *= 1.8; c = lin / (1.0 + lin); }
+        else c = saturate(lin);
+        c = pow(saturate(c), 1.0 / 2.2);
+        if (cv == 2) c = c * c * (3.0 - 2.0 * c);
+        fx = saturate((c - 0.5) * p0.y + 0.5); mixv = p0.w;
+    } else if (type == 52) {
+        // SplitTone: shadow hue=p0.x, shadow amount=p0.y, highlight hue=p0.z, highlight amount=p0.w,
+        // balance=p1.x, mix=p1.y
+        float l = Luma(src.rgb);
+        float bal = clamp(p1.x, -1.0, 1.0) * 0.5;
+        float ws = 1.0 - smoothstep(0.0, 0.55 + bal, l), wh = smoothstep(0.45 + bal, 1.0, l);
+        float3 sh = HsvToRgb(float3(frac(p0.x / 360.0), 1.0, 1.0)), hi = HsvToRgb(float3(frac(p0.z / 360.0), 1.0, 1.0));
+        float3 c = src.rgb;
+        c = lerp(c, c * (sh * 0.7 + 0.3) * 1.2 + sh * 0.04, ws * p0.y);
+        c = lerp(c, c * (hi * 0.5 + 0.5) + hi * 0.06, wh * p0.w);
+        fx = c * (l / max(Luma(c), 1e-3)); mixv = p1.y;
+    } else if (type == 53) {
+        // Mirror: mode=p0.x (0 left to right, 1 top to bottom, 2 kaleidoscope), segments=p0.y, angle=p0.z, mix=p0.w
+        int md = int(p0.x + 0.5);
+        float2 uv = i.uv;
+        if (md == 0) uv.x = uv.x > 0.5 ? 1.0 - uv.x : uv.x;
+        else if (md == 1) uv.y = uv.y > 0.5 ? 1.0 - uv.y : uv.y;
+        else {
+            float2 d = (uv - 0.5) * float2(aspect, 1.0);
+            float r = length(d), a = atan2(d.y, d.x) + radians(p0.z);
+            float seg = 6.2831853 / max(round(p0.y), 2.0);
+            a = abs(fmod(a + 100.0 * seg, seg) - seg * 0.5);
+            uv = 0.5 + float2(cos(a), sin(a)) * r / float2(aspect, 1.0);
+        }
+        fx = colorIn.SampleLevel(linearClamp, saturate(uv), 0).rgb; mixv = p0.w;
+    } else if (type == 54) {
+        // AnalogDamage (VHS): tracking=p0.x, noise=p0.y, color bleed=p0.z, wobble=p0.w, mix=p1.x.
+        // On the wall clock: a paused tape still jitters.
+        float rt = RealTime(), y = i.uv.y;
+        float wob = (Noise3(float3(y * 6.0, rt * 1.3, 0.0)) - 0.5) * 0.006 * p0.w
+                  + (Hash21(float2(floor(y * dims.y), floor(rt * 50.0))) - 0.5) * 0.0015 * p0.w;
+        // A band of torn, snowy lines rolling up the frame, and the bent head-switching lines at the bottom.
+        float inBand = 1.0 - smoothstep(0.0, 0.05, abs(y - (1.0 - frac(rt * 0.07))));
+        float tear = inBand * (Hash21(float2(floor(y * dims.y * 0.5), floor(rt * 30.0))) - 0.3) * 0.04 * p0.x;
+        float head = smoothstep(0.965, 1.0, y) * 0.02 * p0.x;
+        float2 uv = saturate(float2(i.uv.x + wob + tear + head, y));
+        // Chroma smeared sideways (tape has little colour bandwidth); luma stays sharper.
+        float2 bl = float2(p0.z * 6.0 / max(dims.x, 1.0), 0.0);
+        float3 a = colorIn.SampleLevel(linearClamp, uv, 0).rgb;
+        float3 cs = (colorIn.SampleLevel(linearClamp, saturate(uv - bl * 2.0), 0).rgb + colorIn.SampleLevel(linearClamp, saturate(uv - bl), 0).rgb
+                   + a + colorIn.SampleLevel(linearClamp, saturate(uv + bl), 0).rgb) * 0.25;
+        float3 c = saturate(Luma(a) + (cs - Luma(cs)));
+        float sn = Hash21(floor(i.uv * dims.xy * float2(0.5, 1.0)) + floor(rt * 60.0) * 3.1);
+        c += (sn - 0.5) * 0.12 * p0.y + inBand * step(0.7, sn) * 0.5 * p0.x;
+        float lc = Luma(c);
+        fx = lerp(c, float3(lc, lc, lc), 0.15) * 0.92 + 0.04; mixv = p1.x;
+    }
+    if (mixv >= 0.0) outRgb = lerp(src.rgb, saturate(fx), saturate(m * mixv));
     return float4(outRgb, 1.0);
 }
 
@@ -610,6 +1276,14 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	baseCb.cameraTime[1] = camera ? camera[1] : 0.0f;
 	baseCb.cameraTime[2] = camera ? camera[2] : 0.0f;
 	baseCb.cameraTime[3] = (float)demoTime;
+	// Wall-clock seconds for motion that belongs to the device, not the scene (a night-vision tube's
+	// sway and sparkle, tape jitter), so it keeps moving while the demo is paused. Wrapped hourly to
+	// keep float precision.
+	{
+		static const auto t0 = std::chrono::steady_clock::now();
+		const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+		baseCb.stepInfo[3] = (float)std::fmod(s, 3600.0);
+	}
 	baseCb.camFwd[0] = forward ? forward[0] : 1.0f;
 	baseCb.camFwd[1] = forward ? forward[1] : 0.0f;
 	baseCb.camFwd[2] = forward ? forward[2] : 0.0f;
