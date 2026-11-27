@@ -14,6 +14,10 @@ bool Render(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target,
 	const float* refWorldToClip, float refDepthMin, float refDepthMax,
 	const float* worldToClip, const float* projection,
 	const float camera[3], const float forward[3],
-	float depthMin, float depthMax, double demoTime);
+	float depthMin, float depthMax, double demoTime,
+	int historyKey = -1);
+// historyKey: which render of the frame this is (a render job draws several Beauty renders a frame,
+// Everything, World only, ...). Echo Trails and Stop Motion keep a history per render, so one
+// render's frames never land in another's trail.
 
 } // namespace Filmmaker::EffectNodes

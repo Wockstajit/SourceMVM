@@ -14,6 +14,8 @@ bar (it lives in Config's overlay layer). It shows only while CONFIG is open on 
 | Do | To |
 | --- | --- |
 | Press a node and drag | Select it and move it |
+| Press or drag a setting row on a card | Set that value where the pointer is, as on a Blender node; an On/Off row toggles, a choice row (Mode, Type, Palette) steps to the next choice on a click |
+| **Arrange** | Lay the graph out in columns towards Final Output; a preset whose cards would overlap is arranged when it loads |
 | Drag from an output pin to an input | Connect them; the input's old wire is replaced |
 | Drop a wire on empty space | Pick a node from the add menu; it arrives wired to that output |
 | Drag from a connected input | Pick its wire up again |
@@ -33,14 +35,19 @@ cannot be a mask input, and no wire may close a loop (`CheckConnect` in EffectNo
 | Kind | Nodes |
 | --- | --- |
 | Masks from the scene | Depth Range, Sky Mask, Player Matte, Fog Mask, Height Mask (a band of world height), Edge Mask (where depth jumps), Around Player (a sphere around the picked player, or what the camera looks at) |
-| Masks from the picture | Luma Key, Hue Key (one colour), Radial Mask, Box Mask, Gradient Mask, Noise Mask (drifting, animated) |
-| Masks from masks | Mask Combine (union, intersect or subtract of two masks, or invert), Mask Feather (blur a mask, then grow or shrink it) |
-| Colour | Color Grade, Lift Gamma Gain, Tonemap (filmic, soft or punchy), Split Tone, Hue Shift, Duotone, Color Fill (normal, multiply, screen, overlay or add) |
-| Light and lens | Glow, Glare (streaks, four or six point stars, ghosts, fog glow), Halation, Light Rays, Vignette, Depth Fog, Lens Distortion, Chromatic Aberration, Film Grain |
-| Blur and bend | Blur, Depth Blur (focus distance and range), Directional Blur, Radial Blur (zoom or spin), Tilt Shift, Sharpen, Distortion, Refraction (moving noise, or bending at a mask's edges) |
-| Stylise | Cel Shade (banded shading, ink on depth and crease edges, hatching: the comic look of Borderlands), Ink Lines, Kuwahara (painted), Outline, Posterize, Pixelate, Halftone, Mirror, Invert |
-| Devices and damage | Night Vision, Thermal, Film Damage, Analog Damage (VHS), Scanlines, Glitch |
+| Masks from the scene | Surface Mask (floors, ceilings, walls, faces toward the camera, or edge-on faces, from the depth normal) |
+| Masks from the picture | Luma Key, Hue Key (one colour), Color Key (a picked colour with tolerance and softness), Radial Mask, Box Mask, Gradient Mask, Noise Mask (drifting, animated) |
+| Masks from masks | Mask Combine (union, intersect or subtract of two masks, or invert), Mask Feather (blur a mask, then grow or shrink it), Mask Edge (a band at a mask's border: both sides, inside or outside) |
+| Colour | Color Grade, Lift Gamma Gain, Tonemap (filmic, soft or punchy), Split Tone, Hue Shift, Duotone, Color Fill (normal, multiply, screen, overlay or add), Color Ramp (luminance through nine palettes, like Blender's Color Ramp), Filter (soften, sharpen, Laplace, Sobel, Prewitt, Kirsch, emboss, like Blender's Filter node), Contrast Pop (local contrast) |
+| Light and lens | Glow, Glare (streaks, four or six point stars, ghosts, fog glow), Halation, Light Rays, Lens Flare (ghosts and a halo from the brightest spot), Vignette, Depth Fog, Lens Distortion, Chromatic Aberration, Prism (split colour fringes), Film Grain |
+| Blur and bend | Blur, Bokeh Blur (disc shaped highlights, depth aware), Depth Blur (focus distance and range), Directional Blur, Radial Blur (zoom or spin), Tilt Shift, Sharpen, Distortion, Refraction (moving noise, or bending at a mask's edges) |
+| Distort and frame | Warp (ripple, swirl, wave, bulge or pinch), Transform (move, scale, rotate), Camera Shake (motion blurred), Letterbox (any aspect ratio), Drop Shadow (from a mask) |
+| Stylise | Silhouette (fill a mask with a solid colour and an optional rim), Cel Shade (banded shading, ink on depth and crease edges, hatching: the comic look of Borderlands), Ink Lines, Kuwahara (painted), Watercolor, Pencil Sketch, Outline, Posterize, Pixelate, Halftone, Mirror, Invert |
+| Time | Echo Trails (moving things leave fading copies), Stop Motion (holds frames at a lower rate) |
+| Devices and damage | Night Vision, Thermal, Film Damage, Analog Damage (VHS), JPEG Damage (blocks and bleeding), Scanlines, Glitch |
 | Output | Final mix (`p[0]`) |
+
+The add lists and the add menu show the types under these headings.
 
 Every effect takes the image on port 0 and an optional mask on port 1, and blends its result over
 the image by mask times Mix. The type numbers are what the shaders switch on (`NodeType` in
@@ -55,8 +62,24 @@ Thermal with people heat turned up needs the world reference render, like a Play
 or scope sway, the scintillation and Analog Damage's tape jitter run on the wall clock (`stepInfo.w`),
 so they keep moving while the demo is paused.
 
-Presets: color the subject and desaturate the world, glow through the fog, player neon outline,
-depth haze and grade, sky tint and subject pop. Each one is an ordinary graph to edit afterwards.
+Echo Trails and Stop Motion read the frames before this one. Each such node keeps two frame sized
+textures per render pass (`HistorySlot` in EffectNodesRender.cpp), so the Beauty plate of a recording
+never trails into the live view. A demo jump of more than a second starts the history again, and a slot
+unused for two seconds is freed.
+
+Presets (the dropdown): color the subject and desaturate the world, glow through the fog, player neon
+outline, depth haze and grade, sky tint and subject pop, and looks built from the newer nodes: solid
+color players (every player filled with one colour), neon silhouettes, shimmering players, ghost
+trails, Sin City, comic cel shade, comic book, teal and orange, dreamy glow, old film, VHS tape,
+painting, pencil drawing, miniature, anamorphic, night-vision goggles and thermal scope. Each one is an
+ordinary graph to edit afterwards (`BuildLookPreset` in EffectNodesMath.h).
+
+## Render passes
+
+Effect nodes change only the Beauty pass. Key (the green screen), Depth and Normal plates are
+composed from the clean colour copy taken before the nodes run, and a key pass skips the nodes
+entirely, so a matte or a depth map never carries a grade or a glow (`nodesRun` in
+`RenderSystemDX11Hooks.cpp`).
 
 ## How a graph runs
 
@@ -100,7 +123,8 @@ mirv_filmmaker nodes connect <fromId> <toId> [toPort 0|1] | disconnect <edgeId>
   evaluator, the graph editor script)
 - `EffectNodesMathTests`: presets (the player presets follow the pick), cycles, and mask slot lifetimes (a shared mask outliving later
   masks, a deep Mask Combine tree, a graph with too many live masks)
-  and the connect rules (`CheckConnect`, `DefaultLinkPort`)
+  and the connect rules (`CheckConnect`, `DefaultLinkPort`); every look preset compiles with its
+  masks kept, Mask Edge connects like Feather, and only the time effects keep a history
 - `effect-nodes-ui-tests.mjs`: the graph editor's gestures, keys, overlay layer and the in-place
   restyling that keeps buttons from blinking
 - `$.ConfigHud.nodesPointer(x, y, lmb, rmb)` feeds the graph a pointer over netcon, so its gestures

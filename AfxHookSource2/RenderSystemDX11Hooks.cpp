@@ -3694,9 +3694,12 @@ public:
                 const bool lensRuns = beautyEffects && !rainOnly && Filmmaker::LensFx_Active();
                 const bool rainRuns = rainHasWater && (rainOnly || picture);
                 const bool reshadeRuns = beautyEffects && picture && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
-                // This render also feeds the pass compositor: it reads the scene from before the lens
-                // and before ReShade. Either one alone changes the scene, so either one needs the copy.
-                if ((lensRuns || rainRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
+                // Effect Nodes are a Beauty effect too: never on a Key (green screen), Depth or Normal
+                // plate, nor on the live view of one.
+                const bool nodesRun = beautyEffects && !keyPass && Filmmaker::EffectNodes::Active();
+                // This render also feeds the pass compositor: it reads the scene from before the lens,
+                // ReShade and the Effect Nodes. Any one of them changes the scene, so any one needs the copy.
+                if ((lensRuns || rainRuns || reshadeRuns || nodesRun) && pLensCommands && pLensCommands->KeepCleanColor) {
                     ID3D11Resource* pSceneResource = nullptr;
                     pRenderTargetViews[0]->GetResource(&pSceneResource);
                     if (pSceneResource) {
@@ -3840,14 +3843,15 @@ public:
                             f.hasWorldToClip ? f.projection.data() : nullptr,
                             eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
                     } else {
-                        if (Filmmaker::EffectNodes::Active()) {
+                        if (nodesRun) {
                             AfxRenderPass::WorldReferenceView refView;
                             ID3D11ShaderResourceView* refDepth = AfxRenderPass::WorldDepthReferenceSrv(refView);
                             Filmmaker::EffectNodes::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                                 refDepth, refView.worldToClip, refView.depthMin, refView.depthMax,
                                 f.hasWorldToClip ? f.worldToClip.data() : nullptr,
                                 f.hasWorldToClip ? f.projection.data() : nullptr,
-                                eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                                eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time,
+                                pLensCommands ? pLensCommands->PassOrdinal : -1);
                         }
                         Filmmaker::EventFx_RenderPost(pDeviceContext, pRenderTargetViews[0], f.time);
                         if (Filmmaker::WorldWarp_Active()) {

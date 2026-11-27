@@ -148,3 +148,28 @@ test('the model refuses wires that would leave Final Output dark, and can duplic
   assert.match(effectNodes, /0 == _stricmp\(sub, "unlink"\)/);
   assert.match(effectNodes, /\\"note\\":\\"/);
 });
+
+// Every node shows its settings on its card, as on a Blender node: a slider row per number, a click
+// toggles an On/Off row, and a '(0 Name, 1 Name)' label is a choice that a click steps through.
+test('node cards carry their settings and parse choice lists', () => {
+  const box = { T: (s) => s, NODE_SCHEMAS: {}, ngParamLive: {} };
+  vm.createContext(box);
+  vm.runInContext(grab('ngParamInfo') + grab('ngParamText') + grab('ngNextOption'), box);
+  const warp = box.ngParamInfo([0, 'Mode (0 Ripple, 1 Swirl, 2 Wave, 3 Bulge, 4 Pinch)', 0, 4, 0, '']);
+  assert.equal(warp.name, 'Mode');
+  assert.equal(warp.opts.length, 5);
+  assert.equal(box.ngParamText(warp, 1), 'Swirl');
+  assert.equal(box.ngNextOption(warp, 4), 0);
+  const ja = box.ngParamInfo([0, '合成 (0 比較(明), 1 加算, 2 にじみ)', 0, 2, 0, '']);
+  assert.equal(ja.name, '合成');
+  assert.equal(box.ngParamText(ja, 0), '比較(明)');
+  const amount = box.ngParamInfo([1, 'Strength', 0, 4, 2, 'x']);
+  assert.equal(amount.opts, null);
+  assert.equal(box.ngParamText(amount, 1.5), '1.50x');
+  assert.equal(box.ngParamText(box.ngParamInfo([6, 'Hide when blocked', 0, 1, 0, '', true]), 1), 'On');
+  // The rows are hit before the card body, dragged as sliders, and a new overlapping graph is arranged.
+  assert.match(js, /return \{ kind: 'param', n: m, row: row, info: ngParamInfo\(sch\[row\]\) \};/);
+  assert.match(grab('ngParamDrag'), /inf\.min \+ frac \* \(inf\.max - inf\.min\)/);
+  assert.match(js, /if \(fresh && ngOverlaps\(\)\) ngTidyPending = true;/);
+  assert.match(js, /tbtn\(T\('Arrange'\), function \(\) \{ ngTidy\(\); \}\);/);
+});

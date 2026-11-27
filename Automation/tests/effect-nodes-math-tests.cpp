@@ -211,7 +211,58 @@ void TestEveryTypeIsWired() {
 	}
 }
 
+// Every look preset compiles to masks before effects, keeps every mask it reads, and ends in an Output.
+// Solid Color Players fills every player (not only the picked one), and only the two time effects keep a
+// history.
+void TestLookPresetsCompile() {
+	const char* looks[] = { "solid_color_players", "neon_silhouettes", "sin_city", "comic_cel_shade", "teal_orange",
+		"old_film", "vhs_tape", "comic_book", "shimmering_players", "ghost_trails", "painting", "pencil_drawing",
+		"miniature", "anamorphic", "dreamy_glow", "night_vision_goggles", "thermal_scope" };
+	for (const char* name : looks) {
+		NodeGraph g = BuildPreset(name, true);
+		int outputs = 0;
+		for (const Node& n : g.nodes) if (n.type == NodeType::Output) ++outputs;
+		CHECK(outputs == 1);
+		const CompiledPlan p = CompileGraph(g);
+		if (p.steps.empty() || p.droppedForMaskSlots != 0 || !SlotsHoldTheirMasks(p)) std::cerr << "look " << name << "\n";
+		CHECK(!p.steps.empty());
+		CHECK(p.droppedForMaskSlots == 0);
+		CHECK(SlotsHoldTheirMasks(p));
+	}
+	const CompiledPlan solid = CompileGraph(BuildPreset("solid_color_players", true));
+	CHECK(solid.steps.size() == 2);
+	if (solid.steps.size() == 2) {
+		CHECK(solid.steps[0].type == NodeType::PlayerMatte && solid.steps[0].p[0] < 0.5f);
+		CHECK(solid.steps[1].type == NodeType::Silhouette);
+		CHECK(solid.steps[1].maskSlotA == solid.steps[0].outMaskSlot);
+	}
+	for (int i = 0; i < (int)NodeType::Count; ++i) {
+		const NodeType t = (NodeType)i;
+		CHECK(NeedsHistory(t) == (t == NodeType::EchoTrails || t == NodeType::StopMotion));
+	}
+}
+
+// Mask Edge is a mask processor like Feather: one mask in, a mask out, no image in.
+void TestMaskEdgeConnects() {
+	NodeGraph g; g.enabled = true;
+	const int m = AddNode(g, NodeType::PlayerMatte);
+	const int edge = AddNode(g, NodeType::MaskEdge);
+	const int fx = AddNode(g, NodeType::Silhouette);
+	CHECK(CheckConnect(g, m, edge, 0) == ConnectCheck::Ok);
+	CHECK(CheckConnect(g, fx, edge, 0) == ConnectCheck::ImageIntoMask);
+	CHECK(CheckConnect(g, m, edge, 1) == ConnectCheck::NoSuchPort);
+	CHECK(DefaultLinkPort(NodeType::PlayerMatte, NodeType::MaskEdge) == 0);
+	Link(g, m, edge, 0);
+	Link(g, edge, fx, 1);
+	const int out = AddNode(g, NodeType::Output); Link(g, fx, out, 0);
+	const CompiledPlan p = CompileGraph(g);
+	CHECK(p.steps.size() == 3);
+	CHECK(SlotsHoldTheirMasks(p));
+}
+
 int main() {
+	TestLookPresetsCompile();
+	TestMaskEdgeConnects();
 	TestStarterPresetsCompileCleanly();
 	TestPlayerPresetsFollowThePick();
 	TestCycleSafety();

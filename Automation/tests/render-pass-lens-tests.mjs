@@ -33,7 +33,10 @@ test('the lens sits out renders no Beauty plate reads, and extra renders keep th
   assert.match(hooks, /commands\.HoldLensFocus = true;/);
   assert.match(hooks, /rainHasWater = beautyEffects && !keyPass && Filmmaker::LensRain_Active\(\)/);
   assert.match(hooks, /rainRuns = rainHasWater && \(rainOnly \|\| picture\)/);
-  assert.match(hooks, /\(lensRuns \|\| rainRuns \|\| reshadeRuns\) && pLensCommands && pLensCommands->KeepCleanColor/);
+  assert.match(hooks, /\(lensRuns \|\| rainRuns \|\| reshadeRuns \|\| nodesRun\) && pLensCommands && pLensCommands->KeepCleanColor/);
+  // Effect nodes change only Beauty: never a key pass, and the composed plates read the clean copy.
+  assert.match(hooks, /const bool nodesRun = beautyEffects && !keyPass && Filmmaker::EffectNodes::Active\(\);/);
+  assert.match(hooks, /if \(nodesRun\) \{/);
   assert.match(read('AfxHookSource2/StreamSettings.h'), /bool IsComposedPass\(\) const/);
   const lens = read('AfxHookSource2/Filmmaker/Lens/LensFx.cpp');
   assert.match(lens, /const bool advanceFocus = autoFocus && !\(holdFocus && g\.focusValid\);/);

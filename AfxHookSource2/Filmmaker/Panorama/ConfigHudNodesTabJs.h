@@ -57,6 +57,9 @@ R"CFJS(
       { t: 'edge_mask', name: T('Edge Mask'), mask: true, keys: 'edge silhouette contour depth lines' },
       { t: 'noise_mask', name: T('Noise Mask'), mask: true, keys: 'noise clouds random flicker smoke animated' },
       { t: 'player_radius', name: T('Around Player'), mask: true, keys: 'around player sphere radius near proximity focus' },
+      { t: 'color_key', name: T('Color Key'), mask: true, keys: 'color colour key chroma green screen select pick' },
+      { t: 'normal_mask', name: T('Surface Mask'), mask: true, keys: 'surface normal floor ground wall ceiling facing snow' },
+      { t: 'mask_edge', name: T('Mask Edge'), mask: true, keys: 'mask edge border rim outline ring' },
       { t: 'grade', name: T('Color Grade'), mask: false, keys: 'grade color colour saturation contrast exposure temperature' },
       { t: 'glow', name: T('Glow'), mask: false, keys: 'glow bloom light' },
       { t: 'outline', name: T('Outline'), mask: false, keys: 'outline edge stroke' },
@@ -95,8 +98,45 @@ R"CFJS(
       { t: 'cel_shade', name: T('Cel Shade'), mask: false, keys: 'cel shade toon comic borderlands outline hatching ink' },
       { t: 'mirror', name: T('Mirror'), mask: false, keys: 'mirror kaleidoscope symmetry flip' },
       { t: 'film_damage', name: T('Film Damage'), mask: false, keys: 'film damage scratches dust flicker old weave' },
-      { t: 'analog_damage', name: T('Analog Damage'), mask: false, keys: 'analog damage vhs tape tracking retro' }
+      { t: 'analog_damage', name: T('Analog Damage'), mask: false, keys: 'analog damage vhs tape tracking retro' },
+      { t: 'silhouette', name: T('Silhouette'), mask: false, keys: 'silhouette solid color colour flat fill players shadow' },
+      { t: 'letterbox', name: T('Letterbox'), mask: false, keys: 'letterbox bars cinema widescreen aspect pillarbox' },
+      { t: 'camera_shake', name: T('Camera Shake'), mask: false, keys: 'camera shake handheld jitter wobble' },
+      { t: 'warp', name: T('Warp'), mask: false, keys: 'warp ripple swirl vortex wave bulge pinch twirl' },
+      { t: 'transform', name: T('Transform'), mask: false, keys: 'transform zoom rotate move offset punch in scale' },
+      { t: 'echo_trails', name: T('Echo Trails'), mask: false, keys: 'echo trails ghost afterimage motion smear time' },
+      { t: 'stop_motion', name: T('Stop Motion'), mask: false, keys: 'stop motion choppy frame rate hold stutter time' },
+      { t: 'color_ramp', name: T('Color Ramp'), mask: false, keys: 'color colour ramp gradient map palette fire ice' },
+      { t: 'bokeh_blur', name: T('Bokeh Blur'), mask: false, keys: 'bokeh lens blur aperture defocus discs' },
+      { t: 'filter', name: T('Filter'), mask: false, keys: 'filter soften sharpen laplace sobel prewitt kirsch emboss edges' },
+      { t: 'contrast_pop', name: T('Contrast Pop'), mask: false, keys: 'contrast pop clarity local detail texture punch' },
+      { t: 'jpeg_damage', name: T('JPEG Damage'), mask: false, keys: 'jpeg compression blocks artifacts datamosh damage' },
+      { t: 'watercolor', name: T('Watercolor'), mask: false, keys: 'watercolor watercolour paint painting wash paper' },
+      { t: 'pencil_sketch', name: T('Pencil Sketch'), mask: false, keys: 'pencil sketch drawing graphite hatching paper' },
+      { t: 'lens_flare', name: T('Lens Flare'), mask: false, keys: 'lens flare sun ghosts streak halo' },
+      { t: 'drop_shadow', name: T('Drop Shadow'), mask: false, keys: 'drop shadow cast offset outline' },
+      { t: 'prism', name: T('Prism'), mask: false, keys: 'prism spectrum rainbow dispersion split' }
     ];
+    var NG_CATS = [['mask', T('Masks')], ['color', T('Color')], ['light', T('Light and lens')], ['blur', T('Blur and sharpen')],
+      ['distort', T('Distort and frame')], ['stylize', T('Stylize')], ['time', T('Time')], ['damage', T('Film and damage')],
+      ['device', T('Devices')]];
+    var NG_CAT_OF = {
+      grade: 'color', lift_gamma_gain: 'color', tonemap: 'color', split_tone: 'color', hue_shift: 'color', duotone: 'color',
+      color_fill: 'color', color_ramp: 'color', contrast_pop: 'color', invert: 'color',
+      glow: 'light', glare: 'light', halation: 'light', light_rays: 'light', lens_flare: 'light', vignette: 'light',
+      depth_fog: 'light', lens_distortion: 'light', chromatic_aberration: 'light', prism: 'light',
+      blur: 'blur', bokeh_blur: 'blur', depth_blur: 'blur', directional_blur: 'blur', radial_blur: 'blur', tilt_shift: 'blur',
+      sharpen: 'blur', filter: 'blur',
+      distortion: 'distort', refraction: 'distort', warp: 'distort', transform: 'distort', camera_shake: 'distort',
+      mirror: 'distort', letterbox: 'distort',
+      echo_trails: 'time', stop_motion: 'time',
+      film_grain: 'damage', film_damage: 'damage', analog_damage: 'damage', jpeg_damage: 'damage', scanlines: 'damage', glitch: 'damage',
+      night_vision: 'device', thermal: 'device'
+    };
+    NODE_TYPES.forEach(function (ty, i) { ty.cat = ty.mask ? 'mask' : (NG_CAT_OF[ty.t] || 'stylize'); ty.order = i; });
+    function ngCatIndex(c) { for (var i = 0; i < NG_CATS.length; i++) if (NG_CATS[i][0] === c) return i; return NG_CATS.length; }
+    NODE_TYPES.sort(function (a, b) { return (ngCatIndex(a.cat) - ngCatIndex(b.cat)) || (a.order - b.order); });
+    function ngCatName(c) { return NG_CATS[ngCatIndex(c)] ? NG_CATS[ngCatIndex(c)][1] : ''; }
     function ngTypeMatches(ty, q) {
       if (!q) return true;
       q = q.toLowerCase();
@@ -104,7 +144,7 @@ R"CFJS(
     }
     // The input a new node takes from a wire dropped on empty space (DefaultLinkPort in
     // EffectNodesMath.h): a mask lands on the mask input, an image on the image input.
-    function ngIsMaskProcessor(t) { return t === 'mask_combine' || t === 'mask_feather'; }
+    function ngIsMaskProcessor(t) { return t === 'mask_combine' || t === 'mask_feather' || t === 'mask_edge'; }
     function ngLinkPort(fromNode, ty) {
       if (!fromNode) return 0;
       if (ngIsMaskProcessor(ty.t)) return fromNode.mask ? 0 : -1;
@@ -119,7 +159,24 @@ R"CFJS(
       ['glow_through_fog', T('Glow through the fog')],
       ['player_neon_outline', T('Player neon outline')],
       ['sky_grade_heat_haze', T('Sky grade & heat haze')],
-      ['depth_spotlight', T('Depth spotlight')]
+      ['depth_spotlight', T('Depth spotlight')],
+      ['solid_color_players', T('Solid color players')],
+      ['neon_silhouettes', T('Neon silhouettes')],
+      ['shimmering_players', T('Shimmering players')],
+      ['ghost_trails', T('Ghost trails')],
+      ['sin_city', T('Sin City')],
+      ['comic_cel_shade', T('Comic cel shade')],
+      ['comic_book', T('Comic book')],
+      ['teal_orange', T('Teal and orange')],
+      ['anamorphic', T('Anamorphic')],
+      ['dreamy_glow', T('Dreamy glow')],
+      ['miniature', T('Miniature')],
+      ['old_film', T('Old film')],
+      ['vhs_tape', T('VHS tape')],
+      ['painting', T('Painting')],
+      ['pencil_drawing', T('Pencil drawing')],
+      ['night_vision_goggles', T('Night-vision goggles')],
+      ['thermal_scope', T('Thermal scope')]
     ];
     // A dropdown like the other preset pickers; it shows the preset the graph was last loaded from.
     var nodesPresetDrop = dropdownRow(nodesSec, T('Starter presets'), NODE_PRESETS,
@@ -168,14 +225,14 @@ R"CFJS(
     function nodesAddFill() {
       nodesAddGrid.RemoveAndDeleteChildren();
       var shown = NODE_TYPES.filter(function (ty) { return ngTypeMatches(ty, nodesAddQuery); });
-      var line = null, lastMask = null, col = 0;
+      var line = null, lastCat = null, col = 0;
       for (var i = 0; i < shown.length; i++) (function (ty, i) {
-        if (!nodesAddQuery && lastMask !== ty.mask) {
-          lastMask = ty.mask; col = 0;
-          var h = lbl(nodesAddGrid, ty.mask ? T('Masks') : T('Effects'), S.muted, 10); h.hittest = false;
+        if (!nodesAddQuery && lastCat !== ty.cat) {
+          lastCat = ty.cat; col = 0;
+          var h = lbl(nodesAddGrid, ngCatName(ty.cat), S.muted, 10); h.hittest = false;
           h.style.fontWeight = 'bold'; h.style.letterSpacing = '1px'; h.style.margin = '4px 0px 3px 2px';
         }
-        var nextSame = i + 1 < shown.length && (nodesAddQuery || shown[i + 1].mask === ty.mask);
+        var nextSame = i + 1 < shown.length && (nodesAddQuery || shown[i + 1].cat === ty.cat);
         if (col % 2 === 0) {
           line = mk('Panel', nodesAddGrid); line.hittest = false; line.hittestchildren = true;
           line.style.width = '100%'; line.style.flowChildren = 'right'; line.style.marginBottom = '4px';
@@ -326,6 +383,28 @@ R"CFJS(
       split_tone:   [[0, T('Shadow hue'), 0, 360, 0, '°'], [1, T('Shadow amount'), 0, 1, 2, ''], [2, T('Highlight hue'), 0, 360, 0, '°'], [3, T('Highlight amount'), 0, 1, 2, ''], [4, T('Balance'), -1, 1, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
       mirror:       [[0, T('Mode (0 Left to right, 1 Top to bottom, 2 Kaleidoscope)'), 0, 2, 0, ''], [1, T('Segments'), 2, 16, 0, ''], [2, T('Angle'), 0, 360, 0, '°'], [3, T('Mix'), 0, 1, 2, '']],
       analog_damage: [[0, T('Tracking'), 0, 1, 2, ''], [1, T('Noise'), 0, 1, 2, ''], [2, T('Color bleed'), 0, 2, 2, ''], [3, T('Wobble'), 0, 2, 2, ''], [4, T('Mix'), 0, 1, 2, '']],
+)CFJS"
+R"CFJS(
+      color_key:    [[0, T('Red'), 0, 1, 2, ''], [1, T('Green'), 0, 1, 2, ''], [2, T('Blue'), 0, 1, 2, ''], [3, T('Tolerance'), 0, 1, 2, ''], [4, T('Softness'), 0, 0.5, 2, ''], [5, T('Invert mask'), 0, 1, 0, '', true]],
+      normal_mask:  [[0, T('Facing (0 Floors, 1 Ceilings, 2 Walls, 3 Toward camera, 4 Edge-on)'), 0, 4, 0, ''], [1, T('Tolerance'), 0, 1, 2, ''], [2, T('Softness'), 0, 1, 2, ''], [3, T('Invert mask'), 0, 1, 0, '', true]],
+      mask_edge:    [[0, T('Width'), 0.5, 30, 1, 'px'], [1, T('Softness'), 0, 1, 2, ''], [2, T('Side (0 Both, 1 Inside, 2 Outside)'), 0, 2, 0, ''], [3, T('Invert mask'), 0, 1, 0, '', true]],
+      silhouette:   [[0, T('Red'), 0, 1, 2, ''], [1, T('Green'), 0, 1, 2, ''], [2, T('Blue'), 0, 1, 2, ''], [3, T('Detail'), 0, 1, 2, ''], [4, T('Rim'), 0, 12, 1, 'px'], [5, T('Rim strength'), 0, 2, 2, ''], [6, T('Mix'), 0, 1, 2, '']],
+      letterbox:    [[0, T('Aspect ratio'), 1, 3, 2, ':1'], [1, T('Softness'), 0, 40, 0, 'px'], [2, T('Offset'), -1, 1, 2, ''], [3, T('Red'), 0, 1, 2, ''], [4, T('Green'), 0, 1, 2, ''], [5, T('Blue'), 0, 1, 2, ''], [6, T('Mix'), 0, 1, 2, '']],
+      camera_shake: [[0, T('Amount'), 0, 60, 1, 'px'], [1, T('Rotation'), 0, 5, 2, '°'], [2, T('Speed'), 0, 6, 2, ''], [3, T('Zoom to hide edges'), 0, 1, 0, '', true], [4, T('Motion blur'), 0, 2, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
+      warp:         [[0, T('Mode (0 Ripple, 1 Swirl, 2 Wave, 3 Bulge, 4 Pinch)'), 0, 4, 0, ''], [1, T('Strength'), -2, 2, 2, ''], [2, T('Radius'), 0.02, 1.5, 2, ''], [3, T('Center X'), 0, 1, 2, ''], [4, T('Center Y'), 0, 1, 2, ''], [5, T('Frequency'), 1, 40, 1, ''], [6, T('Speed'), 0, 5, 2, ''], [7, T('Mix'), 0, 1, 2, '']],
+      transform:    [[0, T('Zoom'), 0.2, 4, 2, 'x'], [1, T('Angle'), -180, 180, 1, '°'], [2, T('Offset X'), -1, 1, 3, ''], [3, T('Offset Y'), -1, 1, 3, ''], [4, T('Edges (0 Stretch, 1 Mirror, 2 Black)'), 0, 2, 0, ''], [5, T('Mix'), 0, 1, 2, '']],
+      echo_trails:  [[0, T('Persistence'), 0, 0.99, 2, ''], [1, T('Blend (0 Lighten, 1 Add, 2 Smear)'), 0, 2, 0, ''], [2, T('Mix'), 0, 1, 2, '']],
+      stop_motion:  [[0, T('Frames per second'), 1, 30, 0, ''], [1, T('Mix'), 0, 1, 2, '']],
+      color_ramp:   [[0, T('Palette (0 Fire, 1 Ice, 2 Sunset, 3 Toxic, 4 Vaporwave, 5 Gold, 6 Blood, 7 Ocean, 8 Rainbow)'), 0, 8, 0, ''], [1, T('Offset'), -1, 1, 2, ''], [2, T('Contrast'), 0.2, 3, 2, 'x'], [3, T('Reverse'), 0, 1, 0, '', true], [4, T('Mix'), 0, 1, 2, '']],
+      bokeh_blur:   [[0, T('Radius'), 0, 40, 1, 'px'], [1, T('Threshold'), 0, 1, 2, ''], [2, T('Highlight boost'), 0, 8, 2, ''], [3, T('Blades'), 0, 9, 0, ''], [4, T('Rotation'), 0, 90, 0, '°'], [5, T('Mix'), 0, 1, 2, '']],
+      filter:       [[0, T('Type (0 Soften, 1 Sharpen, 2 Laplace, 3 Sobel, 4 Prewitt, 5 Kirsch, 6 Emboss)'), 0, 6, 0, ''], [1, T('Strength'), 0, 4, 2, ''], [2, T('Mix'), 0, 1, 2, '']],
+      contrast_pop: [[0, T('Amount'), 0, 2, 2, ''], [1, T('Radius'), 2, 80, 0, 'px'], [2, T('Mix'), 0, 1, 2, '']],
+      jpeg_damage:  [[0, T('Size'), 2, 32, 0, 'px'], [1, T('Quality'), 0, 1, 2, ''], [2, T('Color bleed'), 0, 1, 2, ''], [3, T('Corruption'), 0, 1, 2, ''], [4, T('Mix'), 0, 1, 2, '']],
+      watercolor:   [[0, T('Radius'), 0.5, 16, 1, 'px'], [1, T('Edge darkening'), 0, 1.5, 2, ''], [2, T('Paper'), 0, 1, 2, ''], [3, T('Bleed'), 0, 2, 2, ''], [4, T('Saturation'), 0, 2.5, 2, 'x'], [5, T('Mix'), 0, 1, 2, '']],
+      pencil_sketch: [[0, T('Lines'), 0, 3, 2, ''], [1, T('Width'), 0.5, 4, 1, 'px'], [2, T('Hatching'), 0, 1.5, 2, ''], [3, T('Color'), 0, 1, 2, ''], [4, T('Paper'), 0, 1, 2, ''], [5, T('Mix'), 0, 1, 2, '']],
+      lens_flare:   [[0, T('Center X'), 0, 1, 2, ''], [1, T('Center Y'), 0, 1, 2, ''], [2, T('Intensity'), 0, 4, 2, 'x'], [3, T('Ghosts'), 0, 2, 2, ''], [4, T('Streak'), 0, 2, 2, ''], [5, T('Warmth'), -1, 1, 2, ''], [6, T('Hide when blocked'), 0, 1, 0, '', true], [7, T('Mix'), 0, 1, 2, '']],
+      drop_shadow:  [[0, T('Angle'), 0, 360, 0, '°'], [1, T('Distance'), 0, 80, 0, 'px'], [2, T('Softness'), 0, 30, 1, 'px'], [3, T('Opacity'), 0, 1, 2, ''], [4, T('Red'), 0, 1, 2, ''], [5, T('Green'), 0, 1, 2, ''], [6, T('Blue'), 0, 1, 2, ''], [7, T('Mix'), 0, 1, 2, '']],
+      prism:        [[0, T('Amount'), 0, 60, 1, 'px'], [1, T('Lateral'), 0, 1, 0, '', true], [2, T('Mix'), 0, 1, 2, '']],
       color_fill:   [[0, T('Red'), 0, 1, 2, ''], [1, T('Green'), 0, 1, 2, ''], [2, T('Blue'), 0, 1, 2, ''], [3, T('Blend (0 Normal, 1 Multiply, 2 Screen, 3 Overlay, 4 Add)'), 0, 4, 0, ''], [4, T('Mix'), 0, 1, 2, '']]
     };
 
@@ -396,7 +475,9 @@ R"CFJS(
 )CFJS"
 R"CFJS(
     // ===================== GRAPH EDITOR WINDOW =====================================
-    var NG_TITLE_H = 30, NG_GRIP = 18, NODE_W = 176, NODE_HDR = 24, NODE_H = 80, NG_PIN = 12;
+    var NG_TITLE_H = 30, NG_GRIP = 18, NODE_W = 200, NODE_HDR = 24, NODE_H = 80, NG_PIN = 12;
+    // A card's settings sit under its pins, one row each, as on a Blender node (NG_BODY: the pins' area).
+    var NG_BODY = 56, NG_ROW = 18;
     var ngWin = null, ngTitleBar = null, ngCanvas = null, ngWireLayer = null, ngNodeLayer = null, ngLiveLayer = null;
     var ngGrip = null, ngNoteLbl = null, ngTitleBtns = [];
     var ngRect = null, ngRectSig = '', ngStoredSeen = null, ngPendingStore = null, ngPendingFrames = 0, ngPubRect = null;
@@ -408,6 +489,8 @@ R"CFJS(
     var ngDragPos = {};               // id -> {x, y, until}: where a dropped node shows until the state agrees
     var ngHotPin = '', ngWireSig = '', ngWirePolys = [];
     var ngNoteSeq = -1, ngNoteUntil = 0, ngLiveSegs = [];
+    var ngParamLive = {};             // 'id:idx' -> {v, until}: a value set on a card shows until the state agrees
+    var ngIdsSig = '', ngIdsSet = {}, ngTidyPending = false;
 
     function ngNodeById(id) {
       for (var i = 0; i < ngNodes.length; i++) if (ngNodes[i].id === id) return ngNodes[i];
@@ -424,13 +507,13 @@ R"CFJS(
     }
     // Ports a node takes, and where its pins sit (graph coordinates).
     function ngInputs(n) {
-      if (n.type === 'output' || n.type === 'mask_feather') return [0];
+      if (n.type === 'output' || n.type === 'mask_feather' || n.type === 'mask_edge') return [0];
       if (n.type === 'mask_combine') return [0, 1];
       return n.mask ? [] : [0, 1];
     }
     function ngPortLabel(n, port) {
       if (n.type === 'mask_combine') return port === 0 ? T('Mask A') : T('Mask B');
-      if (n.type === 'mask_feather') return T('Mask');
+      if (n.type === 'mask_feather' || n.type === 'mask_edge') return T('Mask');
       return port === 0 ? T('Image') : T('Mask');
     }
     function ngPortIsMask(n, port) { return ngIsMaskProcessor(n.type) || (n.type !== 'output' && port === 1); }
@@ -467,6 +550,7 @@ R"CFJS(
       }
       ngTitleBtns = [];
       tbtn('+ ' + T('Add node'), function () { ngOpenAddMenu(ngCanvasCentre(), -1); });
+      tbtn(T('Arrange'), function () { ngTidy(); });
       tbtn(T('Frame all'), function () { ngFrameAll(); });
       tbtn('✕', function () { nodesCmd('canvas close'); }).style.marginRight = '0px';
 
@@ -562,7 +646,7 @@ R"CFJS(
       if (!ngNodes.length || !ngCanvas) return;
       var c = ngCanvasSize(); if (!(c.w > 0)) return;
       var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-      ngNodes.forEach(function (n) { var p = ngPosOf(n); x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + NODE_W); y1 = Math.max(y1, p.y + NODE_H); });
+      ngNodes.forEach(function (n) { var p = ngPosOf(n); x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + NODE_W); y1 = Math.max(y1, p.y + ngNodeH(n)); });
       // Zoom out until the whole graph fits with a margin (never in past 100%), then centre it.
       var margin = 40;
       ngZoom = Math.max(0.3, Math.min(1, (c.w - margin) / Math.max(x1 - x0, 1), (c.h - margin) / Math.max(y1 - y0, 1)));
@@ -594,7 +678,11 @@ R"CFJS(
       }
       for (var j = ngNodes.length - 1; j >= 0; j--) {
         var m = ngNodes[j], p = ngPosOf(m);
-        if (g.x >= p.x && g.x <= p.x + NODE_W && g.y >= p.y && g.y <= p.y + NODE_H) return { kind: 'node', n: m };
+        if (g.x >= p.x && g.x <= p.x + NODE_W && g.y >= p.y && g.y <= p.y + ngNodeH(m)) {
+          var row = Math.floor((g.y - (p.y + NODE_HDR + NG_BODY)) / NG_ROW), sch = ngSchema(m);
+          if (row >= 0 && row < sch.length && g.x >= p.x + 6 && g.x <= p.x + NODE_W - 6) return { kind: 'param', n: m, row: row, info: ngParamInfo(sch[row]) };
+          return { kind: 'node', n: m };
+        }
       }
       for (var w = 0; w < ngWirePolys.length; w++) {
         var pts = ngWirePolys[w].pts;
@@ -661,12 +749,112 @@ R"CFJS(
     }
 )CFJS"
 R"CFJS(
+    // ---- node settings on the cards ----------------------------------------------------------
+    function ngSchema(n) { return NODE_SCHEMAS[n.type] || []; }
+    function ngNodeH(n) { var r = ngSchema(n).length; return NODE_HDR + NG_BODY + (r ? r * NG_ROW + 4 : 0); }
+    // One schema row, read once: a choice list when the label ends in '(0 Name, 1 Name, ...)'.
+    function ngParamInfo(sc) {
+      if (sc.__info) return sc.__info;
+      var inf = { idx: sc[0], name: sc[1], min: sc[2], max: sc[3], dec: sc[4], unit: sc[5] || '', bool: !!sc[6], opts: null };
+      var m = /^(.*?)\s*\((.*)\)\s*$/.exec(sc[1]);
+      if (m && !inf.bool) {
+        var parts = m[2].split(/,\s*/), opts = [];
+        for (var i = 0; i < parts.length; i++) {
+          var q = /^(-?\d+)\s+(.+)$/.exec(parts[i]);
+          if (!q) { opts = null; break; }
+          opts.push({ v: +q[1], name: q[2] });
+        }
+        if (opts && opts.length >= 2) { inf.opts = opts; inf.name = m[1]; }
+      }
+      sc.__info = inf;
+      return inf;
+    }
+    function ngParamValue(n, inf) {
+      var lv = ngParamLive[n.id + ':' + inf.idx];
+      return lv ? lv.v : (n.p ? +n.p[inf.idx] || 0 : 0);
+    }
+    function ngParamText(inf, v) {
+      if (inf.bool) return v > 0.5 ? T('On') : T('Off');
+      if (inf.opts) {
+        var r = Math.round(v);
+        for (var i = 0; i < inf.opts.length; i++) if (inf.opts[i].v === r) return inf.opts[i].name;
+        return String(r);
+      }
+      return v.toFixed(inf.dec) + inf.unit;
+    }
+    function ngNextOption(inf, v) {
+      var r = Math.round(v);
+      for (var i = 0; i < inf.opts.length; i++) if (inf.opts[i].v === r) return inf.opts[(i + 1) % inf.opts.length].v;
+      return inf.opts[0].v;
+    }
+    function ngSetParam(n, inf, v, done) {
+      var key = n.id + ':' + inf.idx, lv = ngParamLive[key];
+      if (!lv || lv.v !== v) nodesCmd('param ' + n.id + ' ' + inf.idx + ' ' + v);
+      ngParamLive[key] = { v: v, until: Date.now() + (done ? 1500 : 60000) };
+    }
+    // A row is a slider: the pointer's place along it is the value, as on Blender's node fields.
+    function ngParamDrag(n, row, g) {
+      var inf = ngParamInfo(ngSchema(n)[row]), p = ngPosOf(n), w = NODE_W - 16;
+      var frac = Math.max(0, Math.min(1, (g.x - (p.x + 8)) / w));
+      var q = Math.pow(10, inf.dec), v = Math.round((inf.min + frac * (inf.max - inf.min)) * q) / q;
+      if (inf.opts) {
+        var best = inf.opts[0].v;
+        inf.opts.forEach(function (o) { if (Math.abs(o.v - v) < Math.abs(best - v)) best = o.v; });
+        v = best;
+      }
+      ngSetParam(n, inf, v, false);
+    }
+    function ngOverlaps() {
+      for (var i = 0; i < ngNodes.length; i++) for (var j = i + 1; j < ngNodes.length; j++) {
+        var a = ngNodes[i], b = ngNodes[j];
+        if (a.x < b.x + NODE_W && b.x < a.x + NODE_W && a.y < b.y + ngNodeH(b) && b.y < a.y + ngNodeH(a)) return true;
+      }
+      return false;
+    }
+    // Columns by wires to Final Output (Output on the right), each column stacked in its old order.
+    function ngTidy() {
+      if (!ngNodes.length) return;
+      var depth = {};
+      ngNodes.forEach(function (q) { if (q.type === 'output') depth[q.id] = 0; });
+      for (var pass = 0; pass < ngNodes.length; pass++) {
+        var grew = false;
+        ngEdges.forEach(function (e) {
+          if (depth[e.to] === undefined) return;
+          var d = depth[e.to] + 1;
+          if (d <= ngNodes.length && (depth[e.from] === undefined || depth[e.from] < d)) { depth[e.from] = d; grew = true; }
+        });
+        if (!grew) break;
+      }
+      var maxD = 0;
+      ngNodes.forEach(function (q) { if (depth[q.id] !== undefined) maxD = Math.max(maxD, depth[q.id]); });
+      var cols = {};
+      ngNodes.forEach(function (q) {
+        var d = depth[q.id] === undefined ? maxD + 1 : depth[q.id];
+        (cols[d] = cols[d] || []).push(q);
+      });
+      var span = maxD + 1;
+      Object.keys(cols).forEach(function (d) {
+        var list = cols[d].sort(function (a, b) { return a.y - b.y; }), y = 40;
+        var x = Math.max(0, span - +d) * (NODE_W + 70) + 40;
+        list.forEach(function (q) {
+          var nx = Math.round(x), ny = Math.round(y);
+          if (q.x !== nx || q.y !== ny) {
+            ngDragPos[q.id] = { x: nx, y: ny, until: Date.now() + 1500 };
+            nodesCmd('move ' + q.id + ' ' + nx + ' ' + ny);
+          }
+          y += ngNodeH(q) + 28;
+        });
+      });
+      ngFramed = false;
+    }
+)CFJS"
+R"CFJS(
     // ---- node cards: built once per node, restyled and moved in place ------------------------
     function ngCardFor(n) {
       var c = ngCards[n.id];
       if (c && cfgValid(c.card)) return c;
       var card = mk('Panel', ngNodeLayer); card.hittest = false;
-      card.style.width = NODE_W + 'px'; card.style.height = NODE_H + 'px';
+      card.style.width = NODE_W + 'px'; card.style.height = ngNodeH(n) + 'px';
       card.style.borderRadius = '5px'; card.style.overflow = 'noclip';
       var hdr = mk('Panel', card); hdr.hittest = false; hdr.style.width = '100%'; hdr.style.height = NODE_HDR + 'px';
       hdr.style.flowChildren = 'right'; hdr.style.paddingLeft = '8px'; hdr.style.paddingRight = '8px';
@@ -692,7 +880,22 @@ R"CFJS(
       c = { card: card, hdr: hdr, title: title, kind: kind, sig: '', pos: '',
             inL: [portLbl(11, NODE_HDR + 18), portLbl(11, NODE_HDR + 40)],
             inP: [pinPanel(0, NODE_HDR + 18), pinPanel(0, NODE_HDR + 40)],
-            outL: portLbl(NODE_W / 2 + 3, NODE_HDR + 18, true), outP: pinPanel(NODE_W, NODE_HDR + 18) };
+            outL: portLbl(NODE_W / 2 + 3, NODE_HDR + 18, true), outP: pinPanel(NODE_W, NODE_HDR + 18), rows: [] };
+      var sch = ngSchema(n);
+      for (var r = 0; r < sch.length; r++) {
+        var bg = mk('Panel', card); bg.hittest = false;
+        bg.style.width = (NODE_W - 16) + 'px'; bg.style.height = (NG_ROW - 3) + 'px';
+        bg.style.position = '8px ' + (NODE_HDR + NG_BODY + r * NG_ROW) + 'px 0px';
+        bg.style.borderRadius = '3px'; bg.style.backgroundColor = '#0b0e13ff'; bg.style.overflow = 'clip';
+        var fill = mk('Panel', bg); fill.hittest = false; fill.style.height = '100%'; fill.style.width = '0px';
+        var txt = mk('Panel', bg); txt.hittest = false; txt.style.width = '100%'; txt.style.height = '100%';
+        txt.style.flowChildren = 'right'; txt.style.paddingLeft = '6px'; txt.style.paddingRight = '6px';
+        var nm = lbl(txt, '', S.label, 10); nm.hittest = false; nm.style.verticalAlign = 'center';
+        nm.style.width = 'fill-parent-flow(1.0)'; nm.style.whiteSpace = 'nowrap'; nm.style.textOverflow = 'ellipsis';
+        var vl = lbl(txt, '', S.value, 10); vl.hittest = false; vl.style.verticalAlign = 'center';
+        vl.style.marginLeft = '6px'; vl.style.whiteSpace = 'nowrap'; vl.style.fontWeight = 'bold';
+        c.rows.push({ info: ngParamInfo(sch[r]), fill: fill, name: nm, val: vl, sig: '' });
+      }
       ngCards[n.id] = c;
       return c;
     }
@@ -729,6 +932,17 @@ R"CFJS(
           c.outP.style.backgroundColor = (hotOut || pending) ? '#ffffffff' : acc + 'ff';
           c.outP.style.border = '2px solid ' + acc + 'ff';
         }
+      }
+      for (var r = 0; r < c.rows.length; r++) {
+        var row = c.rows[r], inf = row.info, v = ngParamValue(n, inf);
+        var rsig = v + '|' + acc + '|' + sel;
+        if (rsig === row.sig) continue;
+        row.sig = rsig;
+        row.name.text = inf.name;
+        row.val.text = ngParamText(inf, v);
+        var frac = inf.bool ? (v > 0.5 ? 1 : 0) : (inf.opts ? 0 : Math.max(0, Math.min(1, (v - inf.min) / Math.max(inf.max - inf.min, 1e-6))));
+        row.fill.style.width = Math.round(frac * (NODE_W - 16)) + 'px';
+        row.fill.style.backgroundColor = acc + (inf.bool ? '66' : (sel ? '55' : '3a'));
       }
       var p = ngPosOf(n), pos = Math.round(p.x + ngPan.x) + 'px ' + Math.round(p.y + ngPan.y) + 'px 0px';
       if (pos !== c.pos) { c.pos = pos; c.card.style.position = pos; }
@@ -807,11 +1021,11 @@ R"CFJS(
       a.host.RemoveAndDeleteChildren(); a.first = null; a.y = 0; a.h = 0;
       var from = a.link > 0 ? ngNodeById(a.link) : null;
       var shown = NODE_TYPES.filter(function (ty) { return ngTypeMatches(ty, a.q) && (!from || ngLinkPort(from, ty) >= 0); });
-      var lastMask = null;
+      var lastCat = null;
       shown.forEach(function (ty) {
-        if (!a.q && lastMask !== ty.mask) {
-          lastMask = ty.mask;
-          var h = lbl(a.host, ty.mask ? T('Masks') : T('Effects'), S.muted, 10); h.hittest = false;
+        if (!a.q && lastCat !== ty.cat) {
+          lastCat = ty.cat;
+          var h = lbl(a.host, ngCatName(ty.cat), S.muted, 10); h.hittest = false;
           h.style.fontWeight = 'bold'; h.style.letterSpacing = '1px'; h.style.margin = '4px 0px 2px 8px';
           h.style.height = '14px'; a.h += 20;
         }
@@ -956,6 +1170,13 @@ R"CFJS(
             nodesCmd('disconnect ' + into.id);
             ngGesture = { kind: 'wire', from: into.from, mx: s.mx, my: s.my, moved: true };
           }
+        } else if (inCanvas && hit && hit.kind === 'param') {
+          if (hit.n.id !== ngSelected) { ngSelected = hit.n.id; nodesCmd('select ' + hit.n.id); }
+          if (hit.info.bool) ngSetParam(hit.n, hit.info, ngParamValue(hit.n, hit.info) > 0.5 ? 0 : 1, true);
+          else {
+            ngGesture = { kind: 'param', id: hit.n.id, row: hit.row, mx: s.mx, my: s.my, moved: false };
+            if (!hit.info.opts) ngParamDrag(hit.n, hit.row, g);
+          }
         } else if (inCanvas && hit && hit.kind === 'node') {
           if (hit.n.id !== ngSelected) { ngSelected = hit.n.id; nodesCmd('select ' + hit.n.id); }
           var p0 = ngPosOf(hit.n);
@@ -967,6 +1188,10 @@ R"CFJS(
         var dx = (s.mx - ngGesture.mx) / sc, dy = (s.my - ngGesture.my) / sc;
         if (Math.abs(dx) + Math.abs(dy) > 3) ngGesture.moved = true;
         if (ngGesture.kind === 'node' && ngGesture.moved) { ngGesture.nx = Math.round(g.x - ngGesture.ox); ngGesture.ny = Math.round(g.y - ngGesture.oy); }
+        else if (ngGesture.kind === 'param') {
+          var dn = ngNodeById(ngGesture.id), dsch = dn ? ngSchema(dn) : [];
+          if (dn && dsch[ngGesture.row] && (ngGesture.moved || !ngParamInfo(dsch[ngGesture.row]).opts)) ngParamDrag(dn, ngGesture.row, g);
+        }
         else if (ngGesture.kind === 'pan') { ngPan.x = Math.round(ngGesture.px + dx / ngZoom); ngPan.y = Math.round(ngGesture.py + dy / ngZoom); }
         else if (ngGesture.kind === 'move') { ngRect.x = ngGesture.r.x + dx; ngRect.y = ngGesture.r.y + dy; ngClampRect(ngRect); }
         else if (ngGesture.kind === 'size') { ngRect.w = ngGesture.r.w + dx; ngRect.h = ngGesture.r.h + dy; ngClampRect(ngRect); }
@@ -976,6 +1201,13 @@ R"CFJS(
         if (ge.kind === 'node' && ge.moved) {
           ngDragPos[ge.id] = { x: ge.nx, y: ge.ny, until: Date.now() + 1500 };
           nodesCmd('move ' + ge.id + ' ' + ge.nx + ' ' + ge.ny);
+        } else if (ge.kind === 'param') {
+          var un = ngNodeById(ge.id), usch = un ? ngSchema(un) : [];
+          if (un && usch[ge.row]) {
+            var ui = ngParamInfo(usch[ge.row]);
+            if (ui.opts && !ge.moved) ngSetParam(un, ui, ngNextOption(ui, ngParamValue(un, ui)), true);
+            var lk = ngParamLive[un.id + ':' + ui.idx]; if (lk) lk.until = Date.now() + 1500;
+          }
         } else if (ge.kind === 'pan' && !ge.moved && ngSelected > 0) {
           ngSelected = -1; ngPendingFrom = -1; nodesCmd('select -1');
         } else if (ge.kind === 'move' || ge.kind === 'size') {
@@ -1030,6 +1262,19 @@ R"CFJS(
         var d = ngDragPos[id], n = ngNodeById(+id);
         if (!n || (n.x === d.x && n.y === d.y) || now > d.until) delete ngDragPos[id];
       });
+      Object.keys(ngParamLive).forEach(function (key) {
+        var lv = ngParamLive[key], kp = key.split(':'), pn = ngNodeById(+kp[0]);
+        var dragging = ngGesture && ngGesture.kind === 'param' && ngGesture.id === +kp[0];
+        if (!pn || now > lv.until || (!dragging && pn.p && Math.abs(pn.p[+kp[1]] - lv.v) < 1e-4)) delete ngParamLive[key];
+      });
+      // A whole new graph (a preset, a reset, a load) whose cards overlap is laid out again.
+      var idsSig = ngNodes.map(function (q) { return q.id; }).join(',');
+      if (idsSig !== ngIdsSig) {
+        var fresh = ngNodes.length > 1 && !ngNodes.some(function (q) { return ngIdsSet[q.id]; });
+        ngIdsSig = idsSig; ngIdsSet = {}; ngNodes.forEach(function (q) { ngIdsSet[q.id] = 1; });
+        if (fresh && ngOverlaps()) ngTidyPending = true;
+      }
+      if (ngTidyPending && !ngGesture) { ngTidyPending = false; ngTidy(); }
 
       var showCanvas = !!ns.canvasOpen && activeTab === 'nodes' && root.visible;
       if (showCanvas) ngBuild();

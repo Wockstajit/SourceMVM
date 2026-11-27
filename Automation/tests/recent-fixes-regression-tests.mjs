@@ -12,7 +12,7 @@ test('ReShade alone also keeps the clean copy the pass compositor reads', () => 
   const hooks = read('AfxHookSource2/RenderSystemDX11Hooks.cpp');
   assert.match(hooks, /const bool lensRuns = beautyEffects && !rainOnly && Filmmaker::LensFx_Active\(\);/);
   assert.match(hooks, /const bool reshadeRuns = beautyEffects && picture && g_ReShadeAdvancedfx\.IsConnected\(\) && g_bEnableReShade;/);
-  const keep = hooks.indexOf('if ((lensRuns || rainRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {');
+  const keep = hooks.indexOf('if ((lensRuns || rainRuns || reshadeRuns || nodesRun) && pLensCommands && pLensCommands->KeepCleanColor) {');
   assert.ok(keep > 0, 'the copy is taken when either effect will run');
   // Before both effects, and only once.
   assert.ok(keep < hooks.indexOf('if (lensRuns) {') && keep < hooks.indexOf('if (reshadeRuns) {'));
