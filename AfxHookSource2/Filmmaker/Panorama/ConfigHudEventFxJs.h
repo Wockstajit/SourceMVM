@@ -68,15 +68,6 @@ R"CFJS(
       if (handle && handle.label) handle.label.style.width = EV_CELL_LABEL + 'px';
       return handle;
     }
-    // A slider in a half-width cell: a short label, a short readout, so the track keeps its length.
-    function evNarrowSlider(handle) {
-      evNarrow(handle);
-      var ms = handle.row.GetChild(1), vl = handle.row.GetChild(2);
-      if (ms) { ms.style.marginLeft = '6px'; ms.style.marginRight = '6px'; }
-      if (vl) vl.style.width = '44px';
-      return handle;
-    }
-
     // ---- the preset tiles: two to a row --------------------------------------------------------
     var evTop = mk('Panel', evSec); evTop.hittest = false; evTop.hittestchildren = true;
     evTop.style.width = '100%'; evTop.style.flowChildren = 'right'; evTop.style.marginTop = '2px';
@@ -166,25 +157,26 @@ R"CFJS(
       return dropdownRow(evFxCells[i], '', EV_EFFECT_ITEMS, function (k) { evSet('effect' + i, k); }, { placeholder: T('None') });
     });
 
-    function evSlider(cell, label, field, min, max, dec, unit, tip, format) {
-      return evNarrowSlider(sliderRow(cell, {
+    // Sliders take a full row each: a paired slider's track was too short to drag (user report).
+    function evSlider(label, field, min, max, dec, unit, tip, format) {
+      return sliderRow(evInsp, {
         label: label, min: min, max: max, decimals: dec || 0, unit: unit || '', tip: tip, format: format,
         onChange: function (v) { evSet(field, v); }
-      }));
+      });
     }
-    var evRowB = evCells(evInsp, 2, 4), evRowC = evCells(evInsp, 2), evRowD = evCells(evInsp, 2), evRowE = evCells(evInsp, 2);
-    var evLift = evSlider(evRowB[0], T('Height'), 'lift', -100, 300, 0, 'u', T('Raises the effect above the point it plays at.'));
-    var evDelay = evSlider(evRowB[1], T('Delay'), 'delay', 0, 5, 2, 's', T('Waits this long after the event.'));
-    var evCopies = evSlider(evRowC[0], T('Copies'), 'copies', 1, 6, 0, '', T('More of the same effect, scattered around the point.'));
-    var evSpread = evSlider(evRowC[1], T('Spread'), 'spread', 0, 600, 0, 'u', T('How far apart the copies land.'));
-    var evLife = evSlider(evRowD[0], T('Keep for'), 'life', 0, 30, 1, 's',
+    var evLift = evSlider(T('Height'), 'lift', -100, 300, 0, 'u', T('Raises the effect above the point it plays at.'));
+    var evDelay = evSlider(T('Delay'), 'delay', 0, 5, 2, 's', T('Waits this long after the event.'));
+    var evCopies = evSlider(T('Copies'), 'copies', 1, 6, 0, '', T('More of the same effect, scattered around the point.'));
+    var evSpread = evSlider(T('Spread'), 'spread', 0, 600, 0, 'u', T('How far apart the copies land.'));
+    var evLife = evSlider(T('Keep for'), 'life', 0, 30, 1, 's',
       T('How long the effects stay before they are removed. 0 uses each effect\'s own length.'),
       function (v) { return v <= 0 ? T('Auto') : v.toFixed(1) + 's'; });
-    var evShake = evNarrowSlider(sliderRow(evRowD[1], {
+    var evShake = sliderRow(evInsp, {
       label: T('Camera shake'), min: 0, max: 100, decimals: 0, unit: '%', offAtZero: true,
       tip: T('Shakes the camera, less the farther it is from the effect. 0 is off.'),
       onChange: function (v) { evSet('shake', (v / 100).toFixed(2)); }
-    }));
+    });
+    var evRowE = evCells(evInsp, 2);
     var evLight = togglePill(evRowE[0], T('Light burst'),
       T('A real CS2 light flashes where the effect plays.'),
       function () { var p = evSelected(); if (p) evSet('lightBurst', p.lightBurst ? 0 : 1); });
