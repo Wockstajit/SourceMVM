@@ -27,7 +27,9 @@ test('the zip stays out of the updater feed: the complete build only emits the n
   assert.match(bundled, /target: \[\{ target: 'nsis', arch: \['x64'\] \}\]/);
 });
 test('a portable launcher is told to download a new zip or setup, and never self-updates', () => {
-  assert.match(updateService, /if \(portable\) throw new Error\([^)]*portable zip/);
+  // Since #71 the found update records whether it can install itself; a portable build cannot.
+  assert.match(updateService, /pendingUpdate = \{ version, installable: !portable \};/);
+  assert.match(updateService, /if \(!update\.installable\) throw new Error\([^)]*portable zip/);
 });
 test('the portable zip is never a public release asset', () => {
   // It contains DMCA-restricted files. The installer is published; the zip is local or private only.

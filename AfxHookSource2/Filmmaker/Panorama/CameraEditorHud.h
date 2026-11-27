@@ -141,6 +141,9 @@ private:
 	void* FindRoot();
 	bool BuildIfNeeded();
 	void Teardown();
+	// Close without deleting: one render() of the closed state hides the editor's roots, and the
+	// next open (a switch back from CONFIG) skips the ~200 ms rebuild.
+	void Park();
 	std::string BuildStateJson();
 	void OnEnter(); // one-shot: host the timeline, hide MovieHud (no free-cam / no jump on open)
 	void OnExit();  // one-shot: un-host the timeline, restore MovieHud, stop scrub
@@ -155,6 +158,7 @@ private:
 	void* m_hudPanel = nullptr; // HUD context we built against (rebuild if it changes)
 	void* m_root = nullptr;     // #CamEditorRoot
 	short m_symState = -1;
+	short m_symSceneCatalog = -1; // "skcatalog": SceneKeys_CatalogJson, pushed only on change
 	short m_symPreviewRect = -1; // "previewrect" -- JS publishes the preview rect fractions
 	short m_symDebugPanels = -1; // "debugpanels" -- JS publishes measured HUD/editor rects
 	short m_symRenderWorkspace = -1; // "renderworkspace" -- final JS-projected Render visibility
@@ -198,6 +202,8 @@ private:
 	bool m_hidMovieHud = false;  // this panel hid it (WORKSPACE layout only), so it restores it
 	void ReconcileMovieHud();    // hide or restore the card to suit the layout, every frame while open
 	std::string m_lastState;
+	std::string m_lastSceneCatalog;
+	unsigned m_sceneCatalogFrames = 0;
 	std::vector<std::string> m_evalQueue;
 	bool m_openCustomizeRequested = false;
 	// A requested open reports the modal open ONE FRAME before the JS opens it. openCustomize()

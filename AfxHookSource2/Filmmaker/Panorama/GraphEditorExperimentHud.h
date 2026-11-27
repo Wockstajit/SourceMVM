@@ -104,6 +104,8 @@ private:
 	void* FindRoot();
 	bool BuildIfNeeded();
 	void Teardown();
+	// Close without deleting: hide the built dock so the next open skips the rebuild.
+	void Park();
 	void OnEnter();   // adopt path changes, sync drive mode, stop stable scrub only when graph has keys
 	void OnExit();    // stop driving + tear down
 	// Seed (empty model) or reconcile (kept model) from the camera path when its markers differ

@@ -51,7 +51,6 @@ R"EDJS(
       [['lockon', T('Lock-on')], ['attach', T('Attached')]], null,
       function (v) { cmd('mirv_filmmaker follow mode ' + v); },
       T('Lock-on is a placed camera that turns to follow; Attach rides along with the target.'));
-    var folModeNote = edNote(folPersist, '');
     var folCamActions = edEvenActions(folPersist, T('This camera'), [
       [T('Place'), function () { cmd('mirv_filmmaker follow place'); }, 'primary'],
       [T('Reposition'), function () { cmd('mirv_filmmaker follow reposition'); }],
@@ -313,8 +312,6 @@ R"EDJS(
       cmd('mirv_filmmaker follow reset tracking');
     });
     var folFramingPage = folFrameSec.__page(T('Framing'));
-    var folFramingNote = edNote(folFramingPage, '');
-    folFramingNote.style.marginTop = '0px'; folFramingNote.style.marginBottom = '2px';
     edSubHead(folFramingPage, T('Offset'));
     var xformSliders = [];
     function folTile(parent, sink, name, lo, hi, decimals, unit, getVal, command, color, tip) {
@@ -355,8 +352,6 @@ R"EDJS(
     // smoothing and prediction.
     var folTrackSec = folFrameSec;   // the merged card answers to both names
     var folTrackPage = folFrameSec.__page(T('Tracking'));
-    var folTrackingNote = edNote(folTrackPage, '');
-    folTrackingNote.style.marginTop = '2px';
     edSubHead(folTrackPage, T('Aim'));
     var folDeathPage = folTrackPage;
     function folSettingsGroup(parent) {
@@ -406,7 +401,6 @@ R"EDJS(
       T('After the death hold, follow the dropped weapon.'));
     followToggle(folRetargetSettings, 'switchBomb', T('Retarget dropped C4'), 'switchbomb',
       T('After the death hold, follow dropped C4 when available.'));
-    var folDeathNote = edNote(folDeathSettings, '');
     var folLostSettings = folSettingsGroup(folDeathPage);
     edSubHead(folLostSettings, T('When target disappears'));
     followToggle(folLostSettings, 'holdLast', T('Hold last camera pose'), 'hold',
@@ -419,25 +413,12 @@ R"EDJS(
       var attachModeOn = (f.mode === 1);
 
       camModeBtns.sync(attachModeOn ? 'attach' : 'lockon');
-      folModeNote.text = attachModeOn
-        ? T('Attached: the camera moves and rotates with the selected mount.')
-        : T('Lock-on: the camera stays where you place it and turns to watch the target.');
-      folFramingNote.text = attachModeOn
-        ? T('Attached framing. X = forward, Y = right, Z = up in the mount axes. Reposition captures your current view.')
-        : T('Lock-on framing. Offsets move the aim point in world axes; rotation trims the aim. The camera stays placed.');
-      folTrackingNote.text = attachModeOn
-        ? T('Attached is a rigid mount: it follows the body directly, so there is no aim smoothing. The On death page still applies.')
-        : T('Lock-on tracking. These apply only to Lock-on.');
       folAimSettings.visible = !attachModeOn;
       folDeathSettings.visible = (f.type === 0 || (f.type === 2 && f.weaponPlayerIndex >= 0));
       folRetargetSettings.visible = (f.type === 0);
       folDeathMode.sync(f.autoDead ? 'timed' : 'keep');
       var folWillRetarget = f.type === 0 && (f.switchWeapon || f.switchBomb);
       folHoldSettings.visible = !!(f.autoDead || folWillRetarget);
-      folDeathNote.text = folWillRetarget
-        ? T('Follow the ragdoll for the hold duration, then switch to the selected dropped item.')
-        : (f.autoDead ? T('Follow the moving ragdoll, then stop when the hold ends. Zero stops immediately.')
-                      : T('Follow the moving ragdoll for as long as it exists. No death timer is active.'));
 
       // Options follow the mode; the selection reflects the current type.
       var typeVal = (f.type === 1) ? 'grenade' : (f.type === 2 ? 'weapon' : 'player');

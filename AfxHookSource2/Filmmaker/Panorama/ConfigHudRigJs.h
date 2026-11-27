@@ -54,7 +54,6 @@ R"CFJS(
     }, T('Before a grenade is thrown or after it ends, or while a player is not in the demo.'), 13);
 
     var rigPoseHead = subHead(rigBox, T('Offset')), rigPoseHeadLbl = rigPoseHead.GetChild(0);
-    var rigPoseNote = envNote(rigBox, '');
     var rigSliders = [];
     function rigSlider(label, key, min, max, decimals, unit, tip) {
       var host = mk('Panel', rigBox); host.style.width = '100%'; host.style.flowChildren = 'down';
@@ -198,8 +197,6 @@ R"CFJS(
       rigPoseHead.visible = r.attached || camera;
       var head = r.attached ? T('Offset') : r.animated ? T('Pose at the playhead') : T('View');
       if (rigPoseHeadLbl.text !== head) rigPoseHeadLbl.text = head;
-      rigPoseNote.visible = r.animated && !r.attached;
-      rigPoseNote.text = T('Its position is the world’s: fly the camera there and Place at camera, or drag its arrows.');
       rigSliders.forEach(function (row) {
         // A light or mesh turns from its own card's Pitch / Yaw / Roll, at the top of the card; a
         // camera has no other card, so its turn lives here.

@@ -44,7 +44,8 @@ R"SPSJ(
       // 0.1 / 0.3 / 0.5 / 0.7 / 0.9); 0.25/0.5/1/2/4 would all crowd the middle 46% of a log track.
       var ZONES = [0.1, 0.25, 1, 4, 10];
       var ZONE_LBL = ['0.1x', '0.25x', '1x', '4x', '10x'];
-      var POOL = Math.ceil(W / SP_FAST) + 3;
+      // The pool covers the widest the strip may become (opts.maxWidth, for a host that resizes it).
+      var POOL = Math.ceil(Math.max(W, opts.maxWidth || 0) / SP_FAST) + 3;
 
       function c01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
       function lerp(a, b, t) { return a + (b - a) * t; }
@@ -330,8 +331,24 @@ R"SPSJ(
         layout(curV); paintChrome(curV);
       }
 
+      // A host that gives the strip whatever room its row leaves (the timeline header) resizes it
+      // here; everything that was placed from W is placed again.
+      function setWidth(w) {
+        w = Math.round(Math.max(120, Math.min(w, opts.maxWidth || w)));
+        if (w === W) return;
+        W = w; zw = W / ZONES.length;
+        strip.style.width = W + 'px';
+        centreTick.style.position = (W / 2) + 'px 0px 0px';
+        for (var i = 0; i < zoneTicks.length; i++) zoneTicks[i].style.position = ((i + 1) * zw).toFixed(1) + 'px 0px 0px';
+        for (var j = 0; j < zoneLabels.length; j++) {
+          zoneLabels[j].style.position = (j * zw).toFixed(1) + 'px ' + ly + 'px 0px';
+          zoneLabels[j].style.width = zw.toFixed(1) + 'px';
+        }
+        lastSpacing = -1; layout(curV); paintChrome(curV);
+      }
+
       layout(curV); paintChrome(curV);
-      return { strip: strip, pump: pump, setSpeed: setSpeed,
+      return { strip: strip, pump: pump, setSpeed: setSpeed, setWidth: setWidth,
                dbg: function () { return JSON.stringify(dbgLast); } };
     }
 )SPSJ"

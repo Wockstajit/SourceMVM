@@ -288,7 +288,7 @@ R"EDJS(
       publish: root,
       modular: function () { return !!(st && st.modular); },
       marginBottom: BOTTOM_H + 16,
-      accent: S.freeze,          // Editor Settings owns the theme BLUE, not the editor's gold
+      accent: S.accent,          // the editor's gold, like the rest of the editor
       debugTag: 'camsettings',
       debugOn: function () { return mvmDebugOn(); },
       debugState: function () { return 'en=' + (st && st.enabled) + ' cur=' + (st && st.cursor); },
@@ -643,7 +643,7 @@ R"EDJS(
     edBodyRow.style.height = 'fill-parent-flow(1.0)'; edBodyRow.style.marginTop = '14px';
     var edRailHost = mk('Panel', edBodyRow); edRailHost.hittest = false; edRailHost.hittestchildren = true;
     edRailHost.style.flowChildren = 'down';
-    edRailHost.style.width = UI.rail.w + 'px'; edRailHost.style.height = '100%';
+    edRailHost.style.width = mvmRailW(INSPECTOR_W) + 'px'; edRailHost.style.height = '100%';
     edRailHost.style.paddingRight = UI.rail.padR + 'px';
     edRailHost.style.borderRight = '1px solid #ffffff12';
     edRailHost.style.overflow = 'clip';
@@ -1074,10 +1074,18 @@ R"EDJS(
       if (preview3d) applyPreview();
       return previewState();
     };
+    var lastStateRaw = null, lastCatalogRaw = null, sceneCatalog = [];
     api.render = function () {
       var raw = root.GetAttributeString('state', '');
       if (!raw) { root.visible = false; return; }
-      try { st = JSON.parse(raw); } catch (e) { return; }
+      if (raw !== lastStateRaw) { try { st = JSON.parse(raw); lastStateRaw = raw; } catch (e) { return; } }
+      // The scene-key catalog arrives on its own attribute (CameraEditorHud.cpp) and is parsed only
+      // when it changes; skCatalog() still reads it from st.sceneKeys.catalog.
+      var catalogRaw = root.GetAttributeString('skcatalog', '');
+      if (catalogRaw !== lastCatalogRaw) {
+        try { sceneCatalog = catalogRaw ? JSON.parse(catalogRaw) : []; lastCatalogRaw = catalogRaw; } catch (e2) {}
+      }
+      if (st.sceneKeys) st.sceneKeys.catalog = sceneCatalog;
       // Track the operator's column width before anything lays out against it this frame. While
       // the grip is being dragged it owns the value and the stored one is stale by a frame.
       if (!edGripBusy && typeof st.inspW === 'number' && st.inspW > 0) edInspW = Math.floor(st.inspW);
@@ -1286,7 +1294,7 @@ R"EDJS(
                                       bottomClear: mvmWinDockClear(st.bottomMode, st.dockH) });
       var edWantZ = edWin.zIndex();
       if (edWantZ !== edRootZ) { edRootZ = edWantZ; root.style.zIndex = edWantZ; }
-      if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRelayout(); }
+      if (inspectorW !== edLayoutW) { edLayoutW = inspectorW; edRailHost.style.width = mvmRailW(inspectorW) + 'px'; edRelayout(); }
       edGrip.place(inspectorW);
       inspector.style.width = inspectorW + 'px';
       // RENDER / CUSTOMIZE PLAYER: built once from UI.col.w, so they need re-sizing with the rest.

@@ -535,7 +535,6 @@ R"CFJS(
     // (ConfigHudEnvironmentStateJs.h), so a press outside closes it.
     var cfgPresetName = '', cfgPresetFocus = false, cfgPresetMenu = null, cfgPresetField = null, cfgPresetLabel = null;
     var cfgPresetChip = chromeChip(T('PRESETS'), function () { if (cfgPresetMenu) cfgDropdownClose(); else cfgPresetOpen(); });
-    attachTip(cfgPresetChip, T('Config presets: save everything you have set on every CONFIG tab under a name, and load it back in one click.'));
     function cfgPresetCommand(op, name) { cmd('mirv_filmmaker settings preset ' + op + ' "' + name + '"'); }
     function cfgPresetPaint() {
       if (!cfgPresetLabel || !cfgValid(cfgPresetLabel)) return;
@@ -616,8 +615,6 @@ R"CFJS(
       var names = (st && st.configPresets) || [];
       names.forEach(function (name) { cfgPresetRow(m, name); });
       if (!names.length) { var none = lbl(m, T('No saved presets yet.'), S.muted, 12); none.style.marginTop = '4px'; }
-      var foot = lbl(m, T('Saves every CONFIG tab: camera, effects, environment and ragdolls. Saving under a name that exists replaces it.'), S.hint, 11);
-      foot.style.marginTop = '8px'; foot.style.whiteSpace = 'normal';
       cfgPresetMenu = { field: cfgPresetChip, list: m, __menu: true, __lastLmb: true,
         __setOpen: function (open) {
           if (open) return;
@@ -708,7 +705,7 @@ R"CFJS(
     bodyRow.style.height = 'fill-parent-flow(1.0)'; bodyRow.style.marginTop = '14px';
     var cfgRailHost = mk('Panel', bodyRow); cfgRailHost.hittest = false; cfgRailHost.hittestchildren = true;
     cfgRailHost.style.flowChildren = 'down';
-    cfgRailHost.style.width = UI.rail.w + 'px'; cfgRailHost.style.height = '100%';
+    cfgRailHost.style.width = mvmRailW(INSPECTOR_W) + 'px'; cfgRailHost.style.height = '100%';
     cfgRailHost.style.paddingRight = UI.rail.padR + 'px';
     cfgRailHost.style.borderRight = '1px solid #ffffff12';
     cfgRailHost.style.overflow = 'clip';
@@ -931,6 +928,7 @@ R"CFJS(
     // help; they just have to run again, which the next render does anyway.
     function cfgApplyInspectorW(w) {
       INSPECTOR_W = w;
+      cfgRailHost.style.width = mvmRailW(w) + 'px';
       cfgRelayout();   // mode rows and option grids re-fit to the new pane width
       inspector.style.width = w + 'px';
       footerBg.style.width = w + 'px';
@@ -1170,6 +1168,8 @@ R"CFJS(
         var hv = st.hudView || 'full', hudName = T('Show All');
         for (var hb = 0; hb < HUD_CYCLE.length; hb++) if (HUD_CYCLE[hb][0] === hv) hudName = HUD_CYCLE[hb][1];
         hudCycle.__lbl.text = T('GAME UI: {0}', hudName.toUpperCase());
+        // The MODULAR layout always keeps the game HUD (CameraTimelineJs), so the switch has no job there.
+        if (hudCycle.visible !== !modularNow) hudCycle.visible = !modularNow;
       } catch (eChrome) {
         $.Msg('[confighud] chrome render failed: ' + eChrome + '\n');
       }
@@ -1430,6 +1430,21 @@ R"CFJS(
     };
     api.releaseDeny = function () {
       setLiveMouseCapture(false);
+    };
+    // A workspace switch HIDES the built panel instead of deleting it (ConfigHud::Park). Rebuilding
+    // compiles and creates the whole panel in one frame (~250 ms measured), which was the hitch and
+    // the black frame between CONFIG and the Camera Editor. The next render() shows it again.
+    api.park = function () {
+      try { cfgConfirmClose(); cfgDropdownClose(); } catch (e) {}
+      try { if (settingsPopup.isOpen()) settingsPopup.close('park'); } catch (e) {}
+      try { if ($.ConfigHudAap) $.ConfigHudAap.close(); } catch (e) {}
+      setLiveMouseCapture(false);
+      if ($.ConfigHudDap && $.ConfigHudDap.isOpen()) $.ConfigHudDap.close();
+      root.SetAttributeString('state', '');
+      root.SetAttributeString('previewrect', '');
+      lastParsedRaw = '';
+      root.visible = false; overlayFollowRoot(); inspector.visible = false; hideDemoWorkspace();
+      return 'parked';
     };
     $.ConfigHud = api;
     $.Msg('[confighud] panel built.\n');

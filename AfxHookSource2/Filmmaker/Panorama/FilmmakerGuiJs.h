@@ -1508,7 +1508,12 @@ R"FMJS(
 // ---- bridge API + bootstrap ----
 R"FMJS(
     var api = {};
-    api.addCommand = function (command) { host.SetAttributeString('cmd', host.GetAttributeString('cmd', '') + command + '\n'); };
+    // One call is one command line: the queue is newline-separated, so a line break inside a typed
+    // folder name would otherwise end the command and run the rest as a second one.
+    api.addCommand = function (command) {
+      var line = String(command).replace(/[\r\n]+/g, ' ');
+      host.SetAttributeString('cmd', host.GetAttributeString('cmd', '') + line + '\n');
+    };
     api.render = function () {
       var raw = host.GetAttributeString('demos', '');
       var data = null; if (raw) { try { data = JSON.parse(raw); } catch (e) {} }

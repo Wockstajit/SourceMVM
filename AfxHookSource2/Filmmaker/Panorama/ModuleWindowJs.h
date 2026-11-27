@@ -46,7 +46,7 @@ R"MWJS(
     // Shared by every window and by the header bar. headerH is the bar along the top of the screen
     // in MODULAR layout (WorkspaceHeaderJs.h); the window's design height leaves room for it and
     // for CS2's own demo bar (126, TimelineDock.h) at 100% scale.
-    var MVM_WIN = { headerH: 44, titleH: 34, margin: 10, nativeDockH: 126, keepOnScreen: 140,
+    var MVM_WIN = { headerH: 34, titleH: 24, margin: 10, nativeDockH: 126, keepOnScreen: 140,
                     minScale: 0.45, maxScale: 1.25, gripSize: 18, cornerSize: 16, frontZ: 54 };
 
     // How tall the bar docked along the bottom is, for a window's bottomClear: the TIMELINE dock's
@@ -126,29 +126,29 @@ R"MWJS(
       bar.style.borderTop = '2px solid ' + accent;
       bar.style.borderBottom = '1px solid #ffffff14';
       // The right padding leaves the top-right corner to its scale handle (see corners below).
-      bar.style.paddingLeft = '12px'; bar.style.paddingRight = (MVM_WIN.cornerSize + 2) + 'px';
+      bar.style.paddingLeft = '10px'; bar.style.paddingRight = (MVM_WIN.cornerSize + 2) + 'px';
       var dot = mk('Panel', bar); dot.hittest = false;
-      dot.style.width = '7px'; dot.style.height = '7px'; dot.style.borderRadius = '4px';
-      dot.style.backgroundColor = accent; dot.style.verticalAlign = 'center'; dot.style.marginRight = '9px';
-      var title = lbl(bar, opts.title || '', S.value, 12); title.hittest = false;
-      title.style.fontWeight = 'bold'; title.style.letterSpacing = '2px';
+      dot.style.width = '6px'; dot.style.height = '6px'; dot.style.borderRadius = '3px';
+      dot.style.backgroundColor = accent; dot.style.verticalAlign = 'center'; dot.style.marginRight = '8px';
+      var title = lbl(bar, opts.title || '', S.value, 10); title.hittest = false;
+      title.style.fontWeight = 'bold'; title.style.letterSpacing = '1.6px';
       title.style.verticalAlign = 'center'; title.style.whiteSpace = 'nowrap';
       var spacer = mk('Panel', bar); spacer.hittest = false;
       spacer.style.width = 'fill-parent-flow(1.0)'; spacer.style.height = '100%';
       // The scale, while it is not 100%: the one thing the corner handle changes.
-      var scaleLbl = lbl(bar, '', S.hint, 11); scaleLbl.hittest = false;
+      var scaleLbl = lbl(bar, '', S.hint, 10); scaleLbl.hittest = false;
       scaleLbl.style.fontFamily = 'Stratum2 Bold Monodigit, Stratum2, "Arial Unicode MS"';
       scaleLbl.style.verticalAlign = 'center'; scaleLbl.style.marginRight = '12px';
-      var code = lbl(bar, opts.code || 'SOURCE // MVM', accent, 10); code.hittest = false;
+      var code = lbl(bar, opts.code || 'SOURCE // MVM', accent, 9); code.hittest = false;
       code.style.fontWeight = 'bold'; code.style.letterSpacing = '3px'; code.style.opacity = '0.7';
       code.style.verticalAlign = 'center'; code.style.whiteSpace = 'nowrap'; code.style.marginRight = '10px';
       // Close. A real button with its own hover, not part of the drag target: pump() leaves a
       // press that starts on it alone, so a click here never also moves the window.
       var close = mk('Panel', bar); close.hittest = true;
-      close.style.width = '30px'; close.style.height = '26px'; close.style.verticalAlign = 'center';
+      close.style.width = '26px'; close.style.height = '20px'; close.style.verticalAlign = 'center';
       close.style.borderRadius = '3px';
       close.style.transitionProperty = 'background-color'; close.style.transitionDuration = '0.08s';
-      var closeX = lbl(close, '✕', S.hint, 13); closeX.hittest = false;
+      var closeX = lbl(close, '✕', S.hint, 11); closeX.hittest = false;
       closeX.style.horizontalAlign = 'center'; closeX.style.verticalAlign = 'center';
       close.SetPanelEvent('onmouseover', function () { close.style.backgroundColor = '#ffffff1a'; closeX.style.color = S.value; });
       close.SetPanelEvent('onmouseout', function () { close.style.backgroundColor = S.clear; closeX.style.color = S.hint; });
@@ -419,7 +419,9 @@ R"MWJS(
         // has no mouse-move event. Returns true while this window owns the press.
         pump: function (st) {
           if (!modular || !st || typeof st.mx !== 'number') { drag = null; lastLmb = false; return false; }
-          var lmb = !!st.lmb && !!st.cursor;
+          // winLmb: the raw button, where the panel's own lmb is held off by a modal (CONFIG under
+          // Customize). The cover test below still keeps a press on the modal away from the window.
+          var lmb = !!(typeof st.winLmb === 'boolean' ? st.winLmb : st.lmb) && !!st.cursor;
           var mx = st.mx, my = st.my;
           var sx = frame.actualuiscale_x || 1, sy = frame.actualuiscale_y || 1;
           // Only the window drawn on top where the press lands takes it: its title bar, corners,

@@ -37,7 +37,7 @@ R"CFJS(
     ];
     var todItems = [];
     for (var todI = 0; todI < TOD.length; todI++) todItems.push([TOD[todI][0], TOD[todI][1]]);
-    var todGrid = optionGrid(todPage, T('Time of day'), todItems, 3,
+    var todGrid = presetDropdown(todPage, T('Time of day'), todItems, 3,
       T('Each one pins the tonemapper to a set exposure: dawn 0.55, day 1.00, golden 0.85, '
       + 'dusk 0.35, night 0.10, moonlit 0.22.'),
       function (key) {
@@ -56,7 +56,7 @@ R"CFJS(
     // read as the same kind of object.
     var expAutoGroup = actionGroup(todPage, T('Metering'), [
       [T('Auto exposure'), function () { cmd('mirv_filmmaker world exposure auto quiet'); }]
-    ], 2, T('Hands exposure back to the engine, which re-meters as the shot moves.'));
+    ], 2);
     var expAutoBtn = expAutoGroup.btns[0];
 
     // ===================== SUN ==========================================
@@ -126,18 +126,20 @@ R"CFJS(
       var e = envState(), c = envClimate();
       return !!(e && e.enabled);
     }
-    var engineLightsToggle = togglePill(sunPage, T('Engine lights'),
+    var lightSrcGrid = toggleGrid(sunPage);
+    var engineLightsToggle = togglePill(lightSrcGrid.cell(), T('Engine lights'),
       T('Direct lights submitted by CS2. Does not change either shadow switch or baked material lighting. A shadow cannot be visible without a light to shade.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world light enabled toggle'); });
-    var shadowsToggle = togglePill(sunPage, T('Engine shadows'),
+    var shadowsToggle = togglePill(lightSrcGrid.cell(), T('Engine shadows'),
       T('All-on/off shortcut for both shadow layers below. Does not disable engine lights or baked material lighting.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world shadows ' + ((st.bakedShadows !== false || st.dynamicShadows !== false) ? 'off' : 'on')); });
-    var bakedShadowsToggle = togglePill(sunPage, T('Baked shadows'),
+    var bakedShadowsToggle = togglePill(lightSrcGrid.cell(), T('Baked shadows'),
       T('CS2’s baked-shadow layer. Some animated plants also depend on this engine layer; it is not the same as baked material lighting.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world bakedshadows toggle'); });
-    var liveShadowsToggle = togglePill(sunPage, T('Live engine shadows'),
+    var liveShadowsToggle = togglePill(lightSrcGrid.cell(), T('Live engine shadows'),
       T('CS2’s live cascades, separately from baked shadows. Turning off baked shadows can still remove map foliage casters.'),
       function () { if (!nativeLightingOwned()) cmd('mirv_filmmaker world dynamicshadows toggle'); });
+    lightSrcGrid.__layout();
     var lightingOwnerNote = envNote(sunPage, '');
     var shadowState = lbl(sunPage, '', S.danger, 12);
     shadowState.hittest = false;
@@ -233,12 +235,11 @@ R"CFJS(
         lightUniform = st.lightUniform;
         lightMode.__lbl.text = lightUniform ? T('Color only') : T('Filter / dim');
       }
+      // Only the failure is worth a line; the button names the mode.
       lightState.text = (st.lightOk === false)
-        ? T('Unavailable on this CS2 build — the scene-light hook did not resolve.')
-        : (lightUniform
-            ? T('Color only keeps the sun’s authored peak brightness. Filter / dim multiplies it, so dark tints dim the disc.')
-            : T('Filter / dim multiplies the authored RGB, so dark tints dim the disc and glow. Color only keeps its peak brightness.'));
-      lightState.style.color = (st.lightOk === false) ? S.danger : S.hint;
+        ? T('Unavailable on this CS2 build — the scene-light hook did not resolve.') : '';
+      lightState.visible = st.lightOk === false;
+      lightState.style.color = S.danger;
 
       lightYaw.sync(typeof st.sunYaw === 'number' ? st.sunYaw : 0);
       lightPitch.sync(typeof st.sunPitch === 'number' ? st.sunPitch : 0);
@@ -260,7 +261,7 @@ R"CFJS(
         control.row.style.opacity = ownsNative ? '0.45' : '1';
       });
       lightingOwnerNote.visible = ownsNative;
-      lightingOwnerNote.text = T('Environment owns dynamic lighting. Adjust Map lights, Ambient light and Cast shadows there.');
+      lightingOwnerNote.text = T('Lit by the Environment lighting');
       shadowState.visible = (st.shadowsOk === false);
       shadowState.text = T('Shadow control is unavailable on this CS2 build.');
 

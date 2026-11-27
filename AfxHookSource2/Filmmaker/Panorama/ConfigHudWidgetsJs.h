@@ -837,6 +837,54 @@ R"CFJS(
     //
     // `hint` feeds the tooltip when no explicit `tip` is given (the parameter order is kept so
     // no caller changes).
+    // A run of on/off switches laid out two to a row instead of one long stack. Build each
+    // togglePill into grid.cell(), then call grid.__layout(). Every two cells share one line and
+    // split it with fill-parent-flow, so no measured widths are needed; the cells stack full width
+    // when the inspector is too narrow for two labels side by side, and re-flow when it is resized.
+    // Not a right-wrap of two 50% cells: at some column widths the halves rounded past the row
+    // and the second one wrapped under the first, half width (seen while dragging the column).
+    function toggleGrid(parent) {
+      endTileLine(parent);
+      var g = mk('Panel', parent); g.hittest = false; g.hittestchildren = true;
+      g.style.flowChildren = 'down'; g.style.width = '100%';
+      var cells = [], lines = [];
+      g.cell = function () {
+        if (cells.length % 2 === 0) {
+          var ln = mk('Panel', g); ln.hittest = false; ln.hittestchildren = true;
+          ln.style.flowChildren = 'right'; ln.style.width = '100%';
+          lines.push(ln);
+        }
+        var c = mk('Panel', lines[lines.length - 1]); c.hittest = false; c.hittestchildren = true;
+        c.style.flowChildren = 'down'; c.style.width = 'fill-parent-flow(1.0)';
+        cells.push(c);
+        return c;
+      };
+      // Each cell holds one togglePill row: [label, state text, switch]. Two to a row they go
+      // compact -- the label fills, the state text takes only what it says, the switch its width.
+      g.__layout = function () {
+        var gap = UI.line.cellGap;
+        var two = cfgPaneInnerW() + 2 * UI.line.padH >= 2 * (2 * UI.line.padH + 120 + 44) + gap;
+        for (var li = 0; li < lines.length; li++) lines[li].style.flowChildren = two ? 'right' : 'down';
+        for (var i = 0; i < cells.length; i++) {
+          var cell = cells[i], row = cell.GetChild(0);
+          // An odd one out at the end has its line to itself, so it fills the whole row.
+          var half = two && !(i === cells.length - 1 && i % 2 === 0);
+          cell.style.width = two ? 'fill-parent-flow(1.0)' : '100%';
+          if (!row) continue;
+          row.style.width = 'fill-parent-flow(1.0)';
+          row.style.marginRight = (half && i % 2 === 0) ? gap + 'px' : '0px';
+          var tl = row.GetChild(0), sl = row.GetChild(1), vc = row.GetChild(2);
+          if (!tl || !sl || !vc) continue;
+          tl.style.width = half ? 'fill-parent-flow(1.0)' : UI.line.label + 'px';
+          sl.style.width = half ? 'fit-children' : 'fill-parent-flow(1.0)';
+          sl.style.marginLeft = (half ? 6 : UI.line.colGap) + 'px';
+          sl.style.marginRight = (half ? 6 : UI.line.colGap) + 'px';
+          vc.style.width = half ? 'fit-children' : UI.line.value + 'px';
+        }
+      };
+      cfgRelayoutHooks.push(g.__layout);
+      return g;
+    }
     function togglePill(parent, label, hint, onClick, tip, __proxy) {
       endTileLine(parent);
       var c = mk('Panel', parent); c.hittest = true;
@@ -935,7 +983,7 @@ R"CFJS(
     // length (UI.line.ch per 12px bold character), the same estimate the browser mockup uses.
     function cfgPaneInnerW() {
       var w = (typeof INSPECTOR_W === 'number' && INSPECTOR_W > 0) ? INSPECTOR_W : UI.col.w;
-      return w - 2 * UI.col.pad - UI.rail.w - UI.rail.gap - 2 * UI.line.padH;
+      return w - 2 * UI.col.pad - mvmRailW(w) - UI.rail.gap - 2 * UI.line.padH;
     }
     function cfgCtlW() { return cfgPaneInnerW() - UI.line.label - UI.line.colGap; }
     function cfgCaptionW(text) { return ('' + text).length * UI.line.ch + UI.line.padCell; }
@@ -1709,47 +1757,62 @@ R"CFJS(
     // A named set of commands: the name in the label column and the buttons wrapping beside it,
     // or -- with no name -- the buttons on ONE right-aligned line. Buttons never stack under a
     // gutter. items: [[caption, onClick], ...]. Returns { row, btns, note }.
-    function actionGroup(parent, label, items, perRow, note) {
+    // A labelled set of action chips. The chips form an even grid that fills the row beside the
+    // label -- `perRow` columns, fewer when the widest caption would not fit a cell, so no caption is
+    // ever clipped -- instead of a left-packed run that leaves the rest of the row empty. The grid
+    // re-flows when the inspector column is resized (cfgRelayoutHooks).
+    function actionGroup(parent, label, items, perRow) {
       endTileLine(parent);
       var r = mk('Panel', parent); r.hittest = false; r.hittestchildren = true;
       r.style.flowChildren = 'down'; r.style.width = '100%';
       r.style.marginTop = (UI.line.gap + 3) + 'px';
       var line = mk('Panel', r); line.hittest = false; line.hittestchildren = true;
       line.style.flowChildren = 'right'; line.style.width = '100%';
-      line.style.paddingLeft = label ? UI.line.padH + 'px' : '0px';
+      line.style.paddingLeft = UI.line.padH + 'px'; line.style.paddingRight = UI.line.padH + 'px';
       var cells = line;
       if (label) {
         var cap = lbl(line, label, S.label, 13); cap.hittest = false;
         cap.style.width = UI.line.label + 'px'; cap.style.whiteSpace = 'nowrap';
         cap.style.textOverflow = 'ellipsis'; cap.style.paddingTop = '5px';
         cells = mk('Panel', line); cells.hittest = false; cells.hittestchildren = true;
-        cells.style.flowChildren = 'right-wrap'; cells.style.width = 'fill-parent-flow(1.0)';
+        cells.style.width = 'fill-parent-flow(1.0)';
         cells.style.marginLeft = UI.line.colGap + 'px';
       } else {
-        var push = mk('Panel', line); push.hittest = false;
-        push.style.width = 'fill-parent-flow(1.0)'; push.style.height = '1px';
+        cells = mk('Panel', line); cells.hittest = false; cells.hittestchildren = true;
+        cells.style.width = '100%';
       }
-      var btns = [];
+      cells.style.flowChildren = 'right-wrap';
+      var gap = UI.line.cellGap;
+      var wraps = [], btns = [];
       for (var i = 0; i < items.length; i++) (function (caption, onClick) {
-        var b = mk('Panel', cells);
-        b.style.marginRight = label ? '4px' : '0px'; b.style.marginLeft = label ? '0px' : '6px';
-        b.style.marginBottom = label ? '4px' : '0px';
+        // The cell takes an exact share of the row; the gap is the button's margin inside it (a
+        // cell's own padding would add to its percentage width and push the last column down).
+        var w = mk('Panel', cells); w.hittest = false; w.hittestchildren = true;
+        w.style.flowChildren = 'right';
+        var b = mk('Panel', w);
+        b.style.width = 'fill-parent-flow(1.0)';
+        b.style.marginRight = gap + 'px'; b.style.marginBottom = gap + 'px';
         b.style.paddingTop = '5px'; b.style.paddingBottom = '5px';
-        b.style.paddingLeft = '11px'; b.style.paddingRight = '11px';
+        b.style.paddingLeft = '8px'; b.style.paddingRight = '8px';
         b.style.borderRadius = '3px';
         var l = lbl(b, caption, S.label, 12);
         l.hittest = false; l.style.fontWeight = 'bold'; l.style.whiteSpace = 'nowrap';
+        l.style.horizontalAlign = 'center'; l.style.textAlign = 'center';
         makeInteractive(b, l, onClick, { fg: S.label });
-        btns.push(b);
+        wraps.push(w); btns.push(b);
       })(items[i][0], items[i][1]);
-      var noteLbl = null;
-      if (note) {
-        noteLbl = lbl(r, note, S.hint, 12);
-        noteLbl.hittest = false; noteLbl.style.whiteSpace = 'normal';
-        noteLbl.style.width = '100%'; noteLbl.style.marginTop = '4px';
-        noteLbl.style.paddingLeft = UI.line.padH + 'px'; noteLbl.style.paddingRight = UI.line.padH + 'px';
+      function layout() {
+        var avail = (label ? cfgCtlW() : cfgPaneInnerW()) + gap;
+        var widest = 0;
+        for (var k = 0; k < btns.length; k++) widest = Math.max(widest, cfgCaptionW(btns[k].__lbl ? btns[k].__lbl.text : items[k][0]) + gap);
+        var cols = Math.max(1, Math.min(perRow || items.length, items.length));
+        while (cols > 1 && widest * cols > avail) cols--;
+        var pct = (100 / cols).toFixed(3) + '%';
+        for (var j = 0; j < wraps.length; j++) wraps[j].style.width = pct;
       }
-      return { row: r, btns: btns, note: noteLbl };
+      layout();
+      cfgRelayoutHooks.push(layout);
+      return { row: r, btns: btns, note: null };
     }
 )CFJS"
 R"CFJS(
@@ -2052,6 +2115,31 @@ R"CFJS(
 
     // A labelled pick from a list too long for a segmented strip: a dropdown that issues
     // `<cmdPrefix> <value> quiet`. sync(value) mirrors console-side changes back.
+    // Presets as ONE dropdown row (the same field and list as the per-movement-state curve picker)
+    // instead of a grid of buttons. Same signature and handle as optionGrid: items are
+    // [[key, caption], ...]; picking runs onPick(key, index); sync(key) shows the active preset
+    // (or the placeholder when none matches). perRow and font are accepted and unused.
+    function presetDropdown(parent, label, items, perRow, tip, onPick, font) {
+      var keys = [];
+      for (var i = 0; i < items.length; i++) keys.push(items[i][0]);
+      var d = dropdownRow(parent, label, items, function (key) {
+        var idx = keys.indexOf(key);
+        if (onPick) onPick(key, idx);
+      }, { placeholder: T('Choose…') });
+      if (tip) attachTip(d.label || d.row, tip);
+      return { row: d.row, sync: function (key) {
+        if (keys.indexOf(key) >= 0) d.sync(key); else d.setText(T('Choose…'), true);
+      } };
+    }
+    // An actionGroup of presets as a dropdown: items are [[caption, fn], ...].
+    function presetActions(parent, label, actions) {
+      var items = [];
+      for (var i = 0; i < actions.length; i++) items.push([String(i), actions[i][0]]);
+      return presetDropdown(parent, label, items, 0, null, function (key) {
+        var fn = actions[parseInt(key, 10)] && actions[parseInt(key, 10)][1];
+        if (fn) fn();
+      });
+    }
     function cycleRow(parent, label, cmdPrefix, items, tip) {
       var d = dropdownRow(parent, label, items, function (v) { cmd(cmdPrefix + ' ' + v + ' quiet'); });
       // The state label explains the assignment; the selected curve explains its motion.

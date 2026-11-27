@@ -29,7 +29,7 @@ R"CFJS(
       ['sky_grade_heat_haze', T('Sky grade & heat haze')],
       ['depth_spotlight', T('Depth spotlight')]
     ];
-    var nodesPresetGrid = optionGrid(nodesSec, T('Starter presets'), NODE_PRESETS, 2,
+    var nodesPresetGrid = presetDropdown(nodesSec, T('Starter presets'), NODE_PRESETS, 2,
       T('Loads a ready-made node graph and turns Effect Nodes on. Open the Graph Editor below to inspect and tweak every node and wire.'),
       function (k) { nodesCmd('preset ' + k); }, 12);
 
@@ -47,7 +47,7 @@ R"CFJS(
       [T('+ Fog'), function () { nodesCmd('add fog_mask'); }],
       [T('+ Luma'), function () { nodesCmd('add luma_key'); }],
       [T('+ Combine'), function () { nodesCmd('add mask_combine'); }]
-    ], 3, T('Adds a mask producer node to the graph.'));
+    ], 3);
 
     subHead(nodesSec, T('Add effect node'));
     actionGroup(nodesSec, T('Effects'), [
@@ -55,7 +55,7 @@ R"CFJS(
       [T('+ Glow'), function () { nodesCmd('add glow'); }],
       [T('+ Outline'), function () { nodesCmd('add outline'); }],
       [T('+ Distort'), function () { nodesCmd('add distortion'); }]
-    ], 2, T('Adds a post-process effect node wired before Output.'));
+    ], 2);
 
     subHead(nodesSec, T('Graph nodes'));
     var nodesListHost = mk('Panel', nodesSec);

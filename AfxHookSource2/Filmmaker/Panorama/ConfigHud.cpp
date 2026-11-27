@@ -1,4 +1,5 @@
 #include "../Takes/ActorAnimations.h"
+#include "PanoramaPerfProbe.h"
 #include "ConfigHud.h"
 #include "../Localization/Localization.h"
 #include "../Takes/Takes.h"
@@ -198,6 +199,24 @@ void ConfigHud::Teardown() {
 	}
 }
 
+void ConfigHud::Park() {
+	if (!m_built || !m_hudPanel || !m_bridge.ContextPanel()) { Teardown(); return; }
+	Environment::StopPositionEditing();
+	Props_StopEditing();
+	m_bridge.RunScript("$.ConfigHud && $.ConfigHud.park && $.ConfigHud.park();");
+	// Clearing the cached state makes the first frame after the next open push it again, and
+	// that render() is what shows the panel.
+	m_lastState.clear();
+	m_textCapture = false;
+	m_popupOpen = false;
+	m_mapViewOpen = false;
+	m_viewEdit = false;
+	{
+		std::lock_guard<std::mutex> lk(m_charMutex);
+		m_pendingChars.clear();
+	}
+}
+
 void ConfigHud::OnEnter() {
 	// LATCH which panel this is, once, at open time. Everything downstream keys off this rather
 	// than calling PlayingDemo() per frame: that reading blips false during a demo_gototick seek
@@ -257,7 +276,10 @@ void ConfigHud::OnExit() {
 	m_previewValid = false;
 	m_demoScaleActive = false;
 	WorkspacePreviewRef().Release(WorkspacePreview::Owner::Config);
-	Teardown();
+	// The demo workspace keeps its panel for the next switch. The live sidebar, and a panel whose
+	// demo just ended, are torn down: the next open may be in the other context.
+	if (!IsLive() && PlayingDemo()) Park();
+	else Teardown();
 }
 
 // Demo Config is a real workspace and uses the same scaled-preview bridge as the Camera
@@ -350,6 +372,9 @@ std::string ConfigHud::BuildStateJson() {
 	{
 		int cmx = 0, cmy = 0; bool clmb = false, crmb = false, cshift = false; unsigned cseq = 0;
 		CameraBridge_GetUiCursor(cmx, cmy, clmb, crmb, cshift, cseq);
+		// The MODULAR window's title bar and corners read the raw button: whether Customize's card
+		// covers the press is ModuleWindowJs.h's cover test, so the window stays movable beside it.
+		o << ",\"winLmb\":" << (clmb ? "true" : "false");
 		// Customize Player can sit over this panel (CameraEditorHud::RunCustomizeOverConfig): while it
 		// is up, a press belongs to it, so no CONFIG slider or gizmo under the window may start a drag.
 		if (CameraEditor_CustomizeModalOpen()) clmb = false;
@@ -607,8 +632,10 @@ void ConfigHud::RunFrame() {
 		return;
 	}
 
-	std::string state = BuildStateJson();
+	std::string state;
+	{ PanoramaPerf_Scope _p("confighud.state"); state = BuildStateJson(); }
 	if (state != m_lastState) {
+		PanoramaPerf_Scope _p("confighud.push");
 		m_bridge.SetAttributeString(m_root, m_symState, state.c_str());
 		m_lastState = state;
 	}
@@ -624,7 +651,7 @@ void ConfigHud::RunFrame() {
 	if (!IsLive())
 		TimelineDock_Claim(DockHost::Config);
 	TimelineDock_Apply(DockHost::Config);
-	m_bridge.RunScriptCached("$.ConfigHud && $.ConfigHud.render();", "mvm/confighud.render");
+	{ PanoramaPerf_Scope _p("confighud.js"); m_bridge.RunScriptCached("$.ConfigHud && $.ConfigHud.render();", "mvm/confighud.render"); }
 	// Where the MODULAR window is ('' in the WORKSPACE layout), for the click router.
 	UiLayout_SetPanelRectString(UiPanel::Config, m_bridge.GetAttributeString(m_root, m_symWinRect, "").c_str());
 	if (m_bridge.GetAttributeString(m_root, m_symWinFront, "0") == "1") UiLayout_SetFrontWindow(UiPanel::Config);

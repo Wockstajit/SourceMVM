@@ -56,6 +56,7 @@ function hud() {
   ]);
   const sandbox = { ctx, OURS: { MovieHudRoot: 1 } };
   sandbox.findNative = (id) => ctx.FindChildTraverse(id);
+  sandbox.isOurPanel = (p) => !!(p && sandbox.OURS[p.id]);
   vm.createContext(sandbox);
   vm.runInContext(hidePassSource() + "\nthis.setHudKeep = setHudKeep; this.applyHudView = applyHudView;", sandbox);
   const shown = (id) => ctx.FindChildTraverse(id).visible;

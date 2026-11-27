@@ -21,16 +21,18 @@ R"CFJS(
     // The old Effects page held only three switches, so they are a CHIP ROW at the top of the
     // card now (Docs/features/filmmaker_config_panel.md): visible whichever page is open, and one fewer tab to look under.
     subHead(svSec, T('View'));
-    var svFalling = togglePill(svSec, T('Fall pitch'),
-      T('Pitches the camera during a fall.'),
+    var svViewGrid = toggleGrid(svSec);
+    var svFalling = togglePill(svViewGrid.cell(), T('Fall pitch'),
+      '',
       function () { cmd('mirv_filmmaker smoothview falling toggle'); });
-    var svJumping = togglePill(svSec, T('Jump kick'),
-      T('Kicks the camera on take-off and landing.'),
+    var svJumping = togglePill(svViewGrid.cell(), T('Jump kick'),
+      '',
       function () { cmd('mirv_filmmaker smoothview jumping toggle'); });
     // Fisheye is its own D3D pass with its own command; it lives here because it is a camera LOOK.
-    var fisheyeBtn = togglePill(svSec, T('Fisheye Lens'),
-      T('Barrel-distortion wide-angle lens pass.'),
+    var fisheyeBtn = togglePill(svViewGrid.cell(), T('Fisheye Lens'),
+      '',
       function () { cmd('mirv_filmmaker fisheye toggle'); });
+    svViewGrid.__layout();
 
     // ONE page, grouped (2026-10 sidebar cleanup): thirteen rows fit the pane without paging.
     var svPageBreathing = svSec.__group(T('Breathing'));
@@ -47,12 +49,14 @@ R"CFJS(
     var svRunAmp = sliderRow(svPageBreathing, { label: T('Run Amp'), tip: T('Size of the breathing sway while running, in degrees.'), cmd: 'mirv_filmmaker smoothview runAmp', min: 0, max: 2, decimals: 2, unit: ' deg' });
 
     // ---- TILT ----
-    var svTiltEnabled = togglePill(svPageTilt, T('Strafe Tilt'),
-      T('Leans the camera into strafing movement.'),
+    var svTiltGrid = toggleGrid(svPageTilt);
+    var svTiltEnabled = togglePill(svTiltGrid.cell(), T('Strafe Tilt'),
+      '',
       function () { cmd('mirv_filmmaker smoothview tiltEnabled toggle'); });
-    var svTiltInv = togglePill(svPageTilt, T('Reverse tilt'),
-      T('Leans away from the movement instead of into it.'),
+    var svTiltInv = togglePill(svTiltGrid.cell(), T('Reverse tilt'),
+      '',
       function () { cmd('mirv_filmmaker smoothview tiltInv toggle'); });
+    svTiltGrid.__layout();
     var svTilt = sliderRow(svPageTilt, { label: T('Tilt Angle'), tip: T('How far the view leans into a strafe. 0 keeps the horizon level.'), cmd: 'mirv_filmmaker smoothview tilt', min: 0, max: 60, unit: '' });
     var svTiltSpeed = sliderRow(svPageTilt, { label: T('Tilt Speed'), tip: T('How quickly the lean reaches full angle and returns. Higher is snappier.'), cmd: 'mirv_filmmaker smoothview tiltSpeed',
       min: 0.5, max: 30, decimals: 1, unit: 'x' });
@@ -85,12 +89,14 @@ R"CFJS(
       function () { cmd('mirv_filmmaker handheld toggle'); },
       T('Adds natural handheld camera movement.'));
     subHead(hhSec, T('General'));
-    var hhVmToggle = togglePill(hhSec, T('Decouple Viewmodel'),
+    var hhLockGrid = toggleGrid(hhSec);
+    var hhVmToggle = togglePill(hhLockGrid.cell(), T('Decouple Viewmodel'),
       T('Keeps the weapon independent from handheld movement.'),
       function () { cmd('mirv_filmmaker handheld viewmodel toggle'); });
-    var hhCenterLockToggle = togglePill(hhSec, T('Center Lock'),
+    var hhCenterLockToggle = togglePill(hhLockGrid.cell(), T('Center Lock'),
       T('Keeps recorded aim centered while the camera still moves.'),
       function () { cmd('mirv_filmmaker handheld centerlock toggle'); });
+    hhLockGrid.__layout();
     var hhCenterLock = sliderRow(hhSec, { label: T('Lock Strength'), tip: T('How strongly the recorded aim is pulled back to screen centre, so added motion never hides the action.'),
       cmd: 'mirv_filmmaker handheld centerlockpct', min: 0, max: 100 });
 
@@ -378,10 +384,6 @@ R"CFJS(
     // ---- CAMERA SHAKE ----
     // SHARES OF the kick set on the Weapon page, not extra kick: what reaches the screen is
     // (1 - share) * kick on the gun, so raising one makes the weapon look steadier.
-    var wrShakeNote = lbl(wrPageShake, T('Shares of the kick, not extra kick — higher moves the view '
-      + 'and steadies the gun.'), S.hint, 12);
-    wrShakeNote.style.width = '100%'; wrShakeNote.style.marginTop = '4px'; wrShakeNote.style.marginBottom = '2px';
-    wrShakeNote.style.paddingLeft = UI.line.padH + 'px'; wrShakeNote.style.paddingRight = UI.line.padH + 'px';
     var wrCamRot = sliderRow(wrPageShake, { label: T('Rotation'), tip: T('How much of the muzzle rise and sideways yaw the camera takes. MW sits around 15-30.'), cmd: 'mirv_filmmaker weaponrecoil camerarot',
       min: 0, max: 100, unit: '%' });
     var wrCamPos = sliderRow(wrPageShake, { label: T('Punch'), tip: T('How much of the backward kick moves the camera with it. Higher means the view takes the punch and the weapon moves less on screen, not that the punch gets bigger.'), cmd: 'mirv_filmmaker weaponrecoil camerapos',
@@ -389,7 +391,7 @@ R"CFJS(
     var wrCamRoll = sliderRow(wrPageShake, { label: T('Barrel Roll'), tip: T('How much of the roll around the barrel axis reaches the camera. The first one to lower if the screen feels like it is tipping.'), cmd: 'mirv_filmmaker weaponrecoil cameraroll',
       min: 0, max: 100, unit: '%' });
 
-    var wrAmount = sliderRow(wrPageWeapon, { label: T('Amount'), tip: T('Master strength of the kick on every shot.'), cmd: 'mirv_filmmaker weaponrecoil amount', offAtZero: true });
+    var wrAmount = sliderRow(wrPageWeapon, { label: T('Amount'), tip: '', cmd: 'mirv_filmmaker weaponrecoil amount', offAtZero: true });
     var wrPunch = sliderRow(wrPageWeapon, { label: T('Punch'), tip: T('How far the gun kicks straight backward per shot. Higher values pull it farther back; it returns to rest without bouncing forward.'), cmd: 'mirv_filmmaker weaponrecoil punch', offAtZero: true });
     var wrRot = sliderRow(wrPageWeapon, { label: T('Rotation'), tip: T('Muzzle climb, sideways yaw, and roll around the barrel per shot.'), cmd: 'mirv_filmmaker weaponrecoil rotation', offAtZero: true });
     var wrSnap = sliderRow(wrPageWeapon, { label: T('Snappiness'), tip: T('How hard the spring yanks the gun back to rest. Higher is a sharper, faster kick.'), cmd: 'mirv_filmmaker weaponrecoil snap', min: 25, max: 400 });
@@ -783,10 +785,6 @@ R"CFJS(
     var vmHand = togglePill(vmSec, T('Left-handed'),
       T('Mirrors the weapon to the other hand. Part of the shared viewmodel, so it only applies while per-player is off.'),
       function () { cmd('mirv_viewmodel set * * * * ' + (st.vmLeftHanded ? '0' : '1')); });
-    var vmNote = lbl(vmSec, '', S.hint, 12);
-    vmNote.hittest = false;
-    vmNote.style.whiteSpace = 'normal'; vmNote.style.width = '100%'; vmNote.style.marginTop = '9px';
-    vmNote.style.paddingLeft = UI.line.padH + 'px';
 
     renderHooks.push(function (st) {
       var perPlayer = st.vmPerPlayer !== false;
@@ -803,9 +801,6 @@ R"CFJS(
       });
       vmHand.row.style.opacity = perPlayer ? '0.4' : '1';
       vmReset.setDisabled(!!st.viewmodelDefault && !st.camFovOn);
-      vmNote.text = perPlayer
-        ? T('Each player keeps their own viewmodel, as recorded.')
-        : T('One viewmodel for every player.');
       var fovNote = st.camFovOn ? (Math.round(st.camFov || 90) + '° · ') : '';
       vmSec.__note(fovNote + (perPlayer
         ? T('Per-player')

@@ -4,15 +4,15 @@
 R"CFJS(
     // ONE page, grouped (2026-10 sidebar cleanup): Presets, Color and Lens are ten rows together.
     var envLooksPage = envLooksSec.__group(T('Presets'));
-    actionGroup(envLooksPage, T('Starting looks'), [
+    presetActions(envLooksPage, T('Starting looks'), [
       [T('Storm'), function () { envCommand('look storm'); }],
       [T('Winter'), function () { envCommand('look winter'); }],
       [T('Sunset'), function () { envCommand('look sunset'); }],
       [T('Night'), function () { envCommand('look night'); }],
       [T('Sandstorm'), function () { envCommand('look sandstorm'); }]
-    ], 3, T('Sets the sky, fog and weather together. Save the result with the preset menu in this card’s header.'));
+    ]);
     var envGradeColour = envLooksSec.__group(T('Color'));
-    envSceneSlider(envGradeColour, T('Exposure'), 'exposure', 0.05, 4, T('Brightness of the finished frame.'));
+    envSceneSlider(envGradeColour, T('Exposure'), 'exposure', 0.05, 4, '');
     cs(envGradeColour, 'saturation'); cs(envGradeColour, 'contrast');
     colorField(envGradeColour, T('Scene tint'), function () { var s = envState(); return s && {rgb:s.tint}; }, function (rgb) {
       ['tintR','tintG','tintB'].forEach(function (key,i) { envCommand('set '+key+' '+rgb[i]); });
@@ -106,10 +106,10 @@ R"CFJS(
       for (key in look.climate) envCommand('climate ' + key + ' ' + look.climate[key]);
       for (key in look.scene) envCommand('set ' + key + ' ' + look.scene[key]);
     }
-    actionGroup(envGroundFogPage, T('Start from'), [
+    presetActions(envGroundFogPage, T('Start from'), [
       [T('Street mist'), function () { applyGroundFogLook(GROUND_FOG_LOOKS.mist); }],
       [T('Thick sheet'), function () { applyGroundFogLook(GROUND_FOG_LOOKS.sheet); }]
-    ], 2, T('Sets the sliders below as a place to start. Street mist: thin torn fog with a milky haze. Thick sheet: one solid layer on the floor.'));
+    ]);
     // GROUND FOG'S OWN SWITCH (2026-11-18). On and off without dragging the density down: off holds
     // the density (pass-off, as the card switches do) and every setting below, on brings them back (1
     // the first time). The card's header switch is the height fog's alone.

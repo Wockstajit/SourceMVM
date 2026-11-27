@@ -20,7 +20,7 @@ R"CFJS(
       ['wave', T('World Wave')],
       ['fold', T('World Fold')]
     ];
-    var wwModeGrid = optionGrid(wwSec, T('World preset'), WW_MODES, 3,
+    var wwModeGrid = presetDropdown(wwSec, T('World preset'), WW_MODES, 3,
       T('Little Planet puts the street in the center with buildings fanning out and sky around the rim. Inception and Rolling Horizon curve the far street up or down. World Wave rolls a bend across the map. World Fold lifts one side overhead around a movable hinge axis.'),
       function (k) { cmd('mirv_filmmaker worldwarp mode ' + k + ' preset'); }, 12);
 
@@ -106,7 +106,7 @@ R"CFJS(
     actionGroup(wwOriginBox, T('Origin'), [
       [T('Place at camera'), function () { cmd('mirv_filmmaker worldwarp origin camera'); }],
       [T('Follow camera'), function () { cmd('mirv_filmmaker worldwarp origin clear'); }]
-    ], 2, T('Pin the bend/wave/fold origin in the scene at the current camera position, or keep it centered on the moving camera.'));
+    ], 2);
     var wwOriginNote = lbl(wwOriginBox, '', S.hint, 11);
     wwOriginNote.hittest = false; wwOriginNote.style.marginTop = '4px';
     wwOriginNote.style.paddingLeft = UI.line.padH + 'px';

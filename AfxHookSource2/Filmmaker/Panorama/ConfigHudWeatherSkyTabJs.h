@@ -112,6 +112,11 @@ R"CFJS(
     // Both libraries use the same centered three-column grid, including incomplete final rows.
     var SKY_TILE_W = 126, SKY_TILE_IMG_H = 54;
 
+    // A skybox name as ONE console argument: quoted, so a name with spaces reaches the command
+    // whole (unquoted, "my sky" applied or deleted the skybox named "my"); quote characters and line
+    // breaks cannot be part of a file name and are dropped so the quoting cannot be broken.
+    function skyNameArg(name) { return '"' + String(name).replace(/["\r\n]/g, '') + '"'; }
+
     function skyTile(rowPanel, entry, isLast) {
       var t = mk('Panel', rowPanel);
       t.style.flowChildren = 'down';
@@ -168,7 +173,7 @@ R"CFJS(
 
       t.SetPanelEvent('onactivate', function () {
         if (skyPendingDelete === entry.name) return; // armed for delete; the X is the target now
-        cmd('mirv_filmmaker world sky apply ' + entry.name);
+        cmd('mirv_filmmaker world sky apply ' + skyNameArg(entry.name));
       });
 
       // Right-click deletes, but only your own skyboxes -- CS2's are not yours to remove, and a
@@ -192,7 +197,7 @@ R"CFJS(
         delLbl.style.fontWeight = 'bold';
         delLbl.hittest = false;
         delOverlay.SetPanelEvent('onactivate', function () {
-          cmd('mirv_filmmaker world sky delete ' + entry.name);
+          cmd('mirv_filmmaker world sky delete ' + skyNameArg(entry.name));
           skyPendingDelete = '';
         });
 
@@ -302,7 +307,7 @@ R"CFJS(
     var skyPitchSlider = sliderRow(orientSec, {
       label: T('Tilt'), cmd: 'mirv_filmmaker world skyorient pitch',
       min: -180, max: 180, decimals: 0, unit: '°',
-      tip: T('Tilts the active skybox up or down while you drag.')
+      tip: ''
     });
 
     // Mirroring belongs WITH yaw and tilt: it is a third way to orient the same sky, not a
@@ -491,7 +496,7 @@ R"CFJS(
     var cloudBright = sliderRow(cloudSec, {
       label: T('Cloud brightness'), cmd: 'mirv_filmmaker world clouds brightness',
       min: 0, max: 3, decimals: 2, unit: 'x',
-      tip: T('Dims or lifts the clouds without touching their colour.')
+      tip: ''
     });
 
     var cloudActions = actionRowEnd(cloudSec, 10);

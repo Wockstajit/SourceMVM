@@ -56,7 +56,7 @@ R"CFJS(
     var dofFocusPage = dofSec.__page(T('Focus'));
     var DOF_PRESETS = [['cinematic',T('Cinematic')],['anamorphic',T('Anamorphic')],['portrait',T('Portrait')],
                        ['miniature',T('Miniature')],['hearts',T('Hearts')],['stars',T('Stars')]];
-    optionGrid(dofFocusPage, T('Look'), DOF_PRESETS, 3,
+    presetDropdown(dofFocusPage, T('Look'), DOF_PRESETS, 3,
       T('A complete depth-of-field look: focus, blur and bokeh shape together. Applying one resets the DEPTH OF FIELD values first, so nothing from the previous look is left behind. It never switches the effect on or off.'),
       function (key) { cmd('mirv_filmmaker lens preset dof ' + key + ' quiet'); }, 13);
     // One row for the three ways to choose what is sharp (they are two parameters underneath:
@@ -191,7 +191,7 @@ R"CFJS(
     // ---- page: LOOK ----
     var flareLookPage = flareSec.__page(T('Look'));
     var FLARE_PRESETS = [['cinematic',T('Cinematic')],['anamorphic',T('Anamorphic')],['classic',T('Classic')],['star',T('Star')],['dreamy',T('Dreamy')]];
-    optionGrid(flareLookPage, T('Look'), FLARE_PRESETS, 3,
+    presetDropdown(flareLookPage, T('Look'), FLARE_PRESETS, 3,
       T('A complete flare: which parts show and how strong, plus the colours. Applying one resets the LENS FLARE values first. It never switches the effect on or off.'),
       function (key) { cmd('mirv_filmmaker lens preset flare ' + key + ' quiet'); }, 13);
     lensSlider(flareLookPage, T('Intensity'), 'flare.intensity', 0, 2, 2, 'x',
@@ -263,7 +263,7 @@ R"CFJS(
       function () { cmd('mirv_filmmaker lens rain preview toggle quiet'); });
     var rainPage = rainSec.__page(T('Drops'));
     var RAIN_PRESETS = [['drizzle',T('Drizzle')],['rain',T('Rain')],['storm',T('Storm')],['windscreen',T('Windscreen')]];
-    optionGrid(rainPage, T('Look'), RAIN_PRESETS, 4,
+    presetDropdown(rainPage, T('Look'), RAIN_PRESETS, 4,
       T('A complete lens-rain look. Applying one resets the LENS RAIN values first. It never switches the effect on or off.'),
       function (key) { cmd('mirv_filmmaker lens preset rain ' + key + ' quiet'); }, 13);
     var rainSliders = [];

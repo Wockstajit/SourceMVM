@@ -100,6 +100,7 @@ bool CameraEditorHud::BuildIfNeeded() {
 	if (!m_bridge.RunScript(kCameraEditorJs))
 		return false;
 	m_symState = m_bridge.MakeSymbol("state");
+	m_symSceneCatalog = m_bridge.MakeSymbol("skcatalog");
 	m_symPreviewRect = m_bridge.MakeSymbol("previewrect");
 	m_symDebugPanels = m_bridge.MakeSymbol("debugpanels");
 	m_symRenderWorkspace = m_bridge.MakeSymbol("renderworkspace");
@@ -114,6 +115,7 @@ bool CameraEditorHud::BuildIfNeeded() {
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
+	m_lastSceneCatalog.clear();
 	return m_built;
 }
 
@@ -135,6 +137,22 @@ void CameraEditorHud::Teardown() {
 	m_customizeOpen = false; // don't leave input permanently swallowed if the editor tears down mid-modal
 	m_popupOpen = false;
 	m_textCapture = false;   // ...same for a focused text field
+}
+
+void CameraEditorHud::Park() {
+	if (!m_built || !m_hudPanel || !m_bridge.ContextPanel() || (m_root = FindRoot()) == nullptr) {
+		Teardown();
+		return;
+	}
+	// m_enabled is already false here, so this is the closed state: render() closes the settings
+	// card, Customize, the confirm dialog and the Render workspace, and hides the column.
+	const std::string state = BuildStateJson();
+	m_bridge.SetAttributeString(m_root, m_symState, state.c_str());
+	m_bridge.RunScriptCached("$.CamEditor && $.CamEditor.render();", "mvm/cameditor.render");
+	m_lastState.clear(); // the next open pushes its state again, and that render() shows the editor
+	m_customizeOpen = false;
+	m_popupOpen = false;
+	m_textCapture = false;
 }
 
 // Declared in Filmmaker.cpp.
@@ -243,7 +261,15 @@ void CameraEditorHud::OnExit() {
 	// released automatically that same frame.
 	WorkspacePreviewRef().Release(WorkspacePreview::Owner::CameraEditor);
 
-	Teardown();
+	// A HUD that is going away (demo ended, level change) has already cleared the context panel,
+	// so Park falls back to Teardown there.
+	Park();
+
+	// Switching to CONFIG: hand it the dock in this same frame. CONFIG's frame ran earlier, while
+	// the editor still held the dock, so without this the dock stood empty for one frame (seen as
+	// a black band under the preview on every Camera Editor -> CONFIG switch).
+	if (ConfigHud_Enabled() && TimelineDock_Claim(DockHost::Config))
+		TimelineDock_Apply(DockHost::Config);
 }
 
 std::string CameraEditorHud::BuildStateJson() {
@@ -283,7 +309,7 @@ std::string CameraEditorHud::BuildStateJson() {
 	o << ",\"debug\":" << (m_debugOverlay ? "true" : "false");
 	o << ",\"uiEditorInspector\":\""
 		<< FilmmakerSettings_UiString("editor.inspector", "path") << "\"";
-	o << ",\"sceneKeys\":" << SceneKeys_StateJson();
+	o << ",\"sceneKeys\":" << SceneKeys_StateJson(false); // catalog: PushSceneCatalog
 	// Every stored UI key, so the inspector restores each tab's selected rail card and each
 	// card's sub-page generically (editor.<tab>.sel / editor.<card>.page).
 	FilmmakerSettings_AppendUiJson(o);
@@ -531,6 +557,20 @@ void CameraEditorHud::RunFrame() {
 		return;
 	}
 
+	// The scene-key catalog is ~35 KB and almost never changes: it used to ride inside the state,
+	// which the panel re-parses every frame (the state carries the tick). Sent on its own, the
+	// panel parses it only when it changes.
+	// Building the string is itself ~0.15 ms, so it is redone at most every 60 frames (and at once
+	// after a rebuild, which clears m_lastSceneCatalog).
+	if (m_lastSceneCatalog.empty() || ++m_sceneCatalogFrames >= 60) {
+		PanoramaPerf_Scope _p("cameditor.catalog");
+		m_sceneCatalogFrames = 0;
+		std::string catalog = SceneKeys_CatalogJson();
+		if (catalog != m_lastSceneCatalog) {
+			m_bridge.SetAttributeString(m_root, m_symSceneCatalog, catalog.c_str());
+			m_lastSceneCatalog = std::move(catalog);
+		}
+	}
 	std::string state;
 	{ PanoramaPerf_Scope _p("cameditor.state"); state = BuildStateJson(); }
 	if (state != m_lastState) {

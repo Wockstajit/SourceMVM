@@ -135,12 +135,11 @@ R"EDJS(
     ]);
     var reposBtn = pathKeyActions.btns[0], retimeBtn = pathKeyActions.btns[1], delBtn = pathKeyActions.btns[2];
     mvmTourAdd('editor.repos', reposBtn);
-    edNote(pathSelPage, T('Reposition: fly the free cam to where you want it, then click (or press {0}) to drop the camera there.', K('marker.edit', 'F')));
 
     edSubHead(pathSelPage, T('Lens'));
     var pathFovTile = edValueTile(pathSelPage, {
       label: T('FOV'), min: 1, max: 170, decimals: 1, unit: '', fill: S.axis[6],
-      tip: T('Field of view on the selected camera.'),
+      tip: '',
       onChange: function (v) {
         if (st && st.selected >= 0) {
           cmd('mirv_filmmaker camtl setvalpreview ' + st.selected + ' ' + CH_FOV + ' ' + v.toFixed(3));
@@ -152,7 +151,7 @@ R"EDJS(
     mvmTourAdd('editor.fov', pathFovTile.tile);
     var pathRollTile = edValueTile(pathSelPage, {
       label: T('Roll'), min: -180, max: 180, decimals: 1, unit: '°', fill: S.axis[5],
-      tip: T('Camera roll on the selected camera.'),
+      tip: '',
       onChange: function (v) {
         if (st && st.selected >= 0) {
           cmd('mirv_filmmaker camtl setvalpreview ' + st.selected + ' ' + CH_ROLL + ' ' + v.toFixed(3));
@@ -187,8 +186,6 @@ R"EDJS(
       },
       T('Ease on the SELECTED key — the same value the timeline’s Ease button and its right-click '
       + 'menu write.'));
-    edNote(pathCurvePage, T('Ease belongs to the selected key; Curve is the whole path. Both mirror onto '
-      + 'the graph editor and the timeline.'));
 
     var pathSpeedPage = selSec.__group(T('Speed'));
     var SPEEDMODE = [['Manual', T('Manual')], ['Per-Segment', T('Per-Seg')], ['Constant', T('Constant')]];
@@ -256,12 +253,11 @@ R"EDJS(
     var pathTimingRow = edModeRow(pathSpeedPage, T('Timing'), TIMING, null, function (which) {
       if (!st || st.timing !== which) cmd('mirv_filmmaker marker timing toggle');
     }, T('Live plays the demo along the path; Freeze holds the tick.'));
-    var pathHint = edNote(pathSpeedPage, '');
 
     var dollyPage = selSec.__group(T('Dolly zoom'));
-    var pathDollyHelp = T('Aim at a player. Each button creates camera keys from this view and playhead, even while paused.');
-    var pathDollyNote = edNote(dollyPage, pathDollyHelp);
-    pathDollyNote.style.minHeight = '30px';
+    // Shows only a dolly result or error, and that the path is playing; nothing while idle.
+    var pathDollyNote = edNote(dollyPage, '');
+    pathDollyNote.visible = false;
     var dollySeconds = 3, dollyShare = 50;
     var dollyLenTile = edValueTile(dollyPage, { label: T('Duration'), min: 0.5, max: 12, decimals: 1, unit: 's', fill: S.value,
       tip: T('How long the shot lasts, from the current tick.'),
@@ -329,7 +325,8 @@ R"EDJS(
       btnEnable(pathDollyActions.btns[1], !pathDollyPlaying);
       var pathDollyHasResult = Date.now() < pathDollyUntil;
       var pathDollyCurrent = pathDollyPlaying ? T('Camera path playing')
-        : (pathDollyHasResult ? pathDollyMessage : pathDollyHelp);
+        : (pathDollyHasResult ? pathDollyMessage : '');
+      pathDollyNote.visible = pathDollyCurrent !== '';
       if (pathDollyNote.text !== pathDollyCurrent) {
         pathDollyNote.text = pathDollyCurrent;
         pathDollyNote.style.color = pathDollyPlaying ? S.value
@@ -338,8 +335,9 @@ R"EDJS(
 
       pathFovTile.sync(has ? num(st.sel.fov) : 1);
       pathRollTile.sync(has ? num(st.sel.roll) : 0);
-      lensHint.text = has ? T('FOV and roll belong to the selected camera and are keyed with it.')
-                          : T('Select a camera to edit its lens.');
+      // Only the empty state: with a camera selected the lens rows speak for themselves.
+      lensHint.text = has ? '' : T('Select a camera to edit its lens.');
+      lensHint.visible = !has;
 
       var interpName = st.interp || 'Linear';
       pathInterpRow.sync(interpName);
@@ -366,9 +364,6 @@ R"EDJS(
         : (constMode ? T('Constant  x{0}', st.constSpeed != null ? st.constSpeed.toFixed(2) : '1.00')
                      : T('not used in Manual'));
       mulLbl.style.color = mulUsable ? S.value : S.inactive;
-      pathHint.text = perSeg ? T('Per-Segment: each key carries its own speed into the next one.')
-                    : (constMode ? T('Constant: one speed for the whole path.')
-                                 : T('Manual: the path follows the demo timeline.'));
 
       // ---- the card summary: what the path is doing, for the pane header and the rail ----
       selSec.__note((has ? T('Camera {0} of {1}', st.selected + 1, st.count)

@@ -364,7 +364,7 @@ R"MHJS(
     // AND the player's radar scale. Recomputed each render (cheap; only writes the
     // style when the value actually changes).
     var kGap = 105;           // gap between the minimap bottom and the controls card
-    var lastTop = -1, lastLeft = -1, lastRight = -1, posTries = 0;
+    var lastTop = -1, lastLeft = -1, lastRight = -1, lastRightTop = -1, posTries = 0;
     function positionControlsCard() {
       var rsy = root.actualuiscale_y || 1, rsx = root.actualuiscale_x || 1;
       var rootTop = (root.actualyoffset || 0) / rsy;
@@ -401,6 +401,15 @@ R"MHJS(
       if (left !== lastLeft) { cardLeft.style.marginLeft = left + 'px'; lastLeft = left; }
       // Mirror the SAME inset to the director card so left/right spacing is even.
       if (left !== lastRight) { cardRight.style.marginRight = left + 'px'; lastRight = left; }
+      // MODULAR layout: the workspace header runs along the top of the screen, so the director card
+      // starts under it instead of behind it.
+      var hdr = $('#MvmHeaderRoot'), hdrTop = 4;
+      if (hdr && hdr.visible && hdr.GetChildCount && hdr.GetChildCount() > 0) {
+        var band = hdr.GetChild(0), bsy = band.actualuiscale_y || 1;
+        var bh = (band.actuallayoutheight || 0) / bsy;
+        if (bh > 0 && isFinite(bh)) hdrTop = Math.round(bh) + 8;
+      }
+      if (hdrTop !== lastRightTop) { cardRight.style.marginTop = hdrTop + 'px'; lastRightTop = hdrTop; }
       cardLeft.visible = true; // placed -> safe to show
     }
 

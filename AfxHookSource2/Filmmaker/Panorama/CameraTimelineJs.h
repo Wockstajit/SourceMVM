@@ -1088,6 +1088,7 @@ R"TLJS(
       'MvmEggRoot': 1,
       // Clippy's onboarding tutorial: it has to stay up while it explains the hidden-HUD views.
       'MvmOnboardingRoot': 1 };
+    var OURS_PREFIX = /^(CamEditor|CamTimeline|ConfigHud|ConfigEditor|Mvm|GraphExp|MarkerHud|MovieHud|SceneEditor)/;
     var VIEWPORT_HUD_ROOTS = {
       'HudBottomGradient': 1,
       'HudInWorld': 1,
@@ -1260,7 +1261,7 @@ R"TLJS(
         var nk = ctx.GetChildCount ? ctx.GetChildCount() : 0;
         for (var i = 0; i < nk; i++) {
           var c = ctx.GetChild(i);
-          if (!c || OURS[c.id]) continue;
+          if (!c || isOurPanel(c)) continue;
           if ((c.FindChildTraverse && (c.FindChildTraverse('SliderRow') || c.FindChildTraverse('ControlRow')))) continue;
           var kept = hudKeepIn[c.id];
           if (kept) {
@@ -1282,7 +1283,10 @@ R"TLJS(
 R"TLJS(
     var viewportHudPanels = [];
     function isOurPanel(p) {
-      return !!(p && OURS[p.id]);
+      // By name as well as by list: every root this project adds to the HUD context starts with one
+      // of these, and a new one (a settings card, a toast) must not have to be added here by hand or
+      // Hide All hides it the moment it opens.
+      return !!(p && (OURS[p.id] || OURS_PREFIX.test(p.id || '')));
     }
     function isViewportHudRoot(p) {
       return !!(p && VIEWPORT_HUD_ROOTS[p.id]);
@@ -2047,11 +2051,15 @@ R"TLJS(
         root.visible = false;
         return;
       }
-      applyHudView((hosted || cfgOpen) ? (st.hudView || 'full') : 'full');
+      // The MODULAR layout keeps the game HUD -- radar, player strip, money, weapons, ammo -- while
+      // Config or the Camera Editor is open: the game stays full screen with the windows floating
+      // over it, so hiding it on every open only took the match away (the owner's request).
+      var hudViewNow = ((hosted || cfgOpen) && !st.modular) ? (st.hudView || 'full') : 'full';
+      applyHudView(hudViewNow);
       // Move the native CS2 gameplay HUD into the same preview rect as the rendered game.
       // This includes radar, score, player strip, health/ammo, inventory and death notices,
       // while excluding our editor/timeline chrome and the docked native demo bar.
-      applyGameHudViewport((hosted || cfgOpen) && !!st.hudScale && (st.hudView || 'full') !== 'hidden', st.previewRect);
+      applyGameHudViewport((hosted || cfgOpen) && !st.modular && !!st.hudScale && hudViewNow !== 'hidden', st.previewRect);
       // Native demo bar visibility: SHOWN in Regular Timeline mode (and in normal play); hidden when
       // a camera/graph overlay is up, our standalone panel is open, or a clean preview frame is
       // needed. Done up here -- BEFORE the hosted-layout early-return below -- so it never flashes
@@ -2135,7 +2143,7 @@ R"TLJS(
         + ' tab=' + (nativeMode ? 'native' : (st.open ? 'camera' : (st.graphExp ? 'graph' : '?')))
         + ' bar=' + (nativeBarVisible ? 1 : 0)
         + ' dock=' + Math.round(fitRowW) + '/' + fitK.toFixed(2)
-        + ' hudView=' + (((hosted || cfgOpen) ? (st.hudView || 'full') : 'full'))
+        + ' hudView=' + hudViewNow
         + ' hudScale=' + (st.hudScale ? 1 : 0)
         + ' rect=' + (st.previewRect ? JSON.stringify(st.previewRect) : '-'));
 

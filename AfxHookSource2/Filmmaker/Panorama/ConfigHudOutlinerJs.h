@@ -321,7 +321,7 @@ R"CFJS(
     olHeadName.style.whiteSpace = 'nowrap'; olHeadName.style.textOverflow = 'shrink';
     olHeadName.style.width = 'fill-parent-flow(1.0)'; olHeadName.style.verticalAlign = 'center';
     olHeadName.style.fontWeight = 'bold'; olHeadName.style.letterSpacing = '1.5px';
-    [['eye', T('Shown in the view')], ['video', T('Kept in renders')], ['lock', T('Locked: cannot be picked or dragged in the view')]].forEach(function (c) {
+    [['eye', ''], ['video', T('Kept in renders')], ['lock', T('Locked: cannot be picked or dragged in the view')]].forEach(function (c) {
       var cell = mk('Panel', olHead); cell.style.width = '30px'; cell.style.height = '26px';
       olIcon(cell, c[0], 14, '#8b95a3ff');
       attachTip(cell, c[1]);
@@ -512,11 +512,11 @@ R"CFJS(
     var olAssetBox = mk('Panel', olCard);
     olAssetBox.style.width = '100%'; olAssetBox.style.flowChildren = 'down'; olAssetBox.style.marginTop = '6px';
     var olAssetSize = sliderRow(olAssetBox, {
-      label: T('Size'), min: 0.1, max: 5, decimals: 2, unit: '×', tip: T('Scale of the model. 1× is its size in the game.'),
+      label: T('Size'), min: 0.1, max: 5, decimals: 2, unit: '×', tip: '',
       onChange: function (v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' scale ' + v); }
     });
     var olAssetYaw = sliderRow(olAssetBox, {
-      label: T('Turn'), min: -180, max: 180, decimals: 0, unit: '°', tip: T('Which way it faces.'),
+      label: T('Turn'), min: -180, max: 180, decimals: 0, unit: '°', tip: '',
       onChange: function (v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' yaw ' + v); }
     });
     var olAssetSolid = togglePill(olAssetBox, T('Solid'), T('In a private match, you and the bots collide with it and can stand on it.'),
