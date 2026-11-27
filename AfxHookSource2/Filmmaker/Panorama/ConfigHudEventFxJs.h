@@ -63,9 +63,17 @@ R"CFJS(
       }
       return cells;
     }
-    var EV_CELL_LABEL = 78;
+    var EV_CELL_LABEL = 70;
     function evNarrow(handle) {
       if (handle && handle.label) handle.label.style.width = EV_CELL_LABEL + 'px';
+      return handle;
+    }
+    // A slider in a half-width cell: a short label, a short readout, so the track keeps its length.
+    function evNarrowSlider(handle) {
+      evNarrow(handle);
+      var ms = handle.row.GetChild(1), vl = handle.row.GetChild(2);
+      if (ms) { ms.style.marginLeft = '6px'; ms.style.marginRight = '6px'; }
+      if (vl) vl.style.width = '44px';
       return handle;
     }
 
@@ -159,7 +167,7 @@ R"CFJS(
     });
 
     function evSlider(cell, label, field, min, max, dec, unit, tip, format) {
-      return evNarrow(sliderRow(cell, {
+      return evNarrowSlider(sliderRow(cell, {
         label: label, min: min, max: max, decimals: dec || 0, unit: unit || '', tip: tip, format: format,
         onChange: function (v) { evSet(field, v); }
       }));
@@ -172,7 +180,7 @@ R"CFJS(
     var evLife = evSlider(evRowD[0], T('Keep for'), 'life', 0, 30, 1, 's',
       T('How long the effects stay before they are removed. 0 uses each effect\'s own length.'),
       function (v) { return v <= 0 ? T('Auto') : v.toFixed(1) + 's'; });
-    var evShake = evNarrow(sliderRow(evRowD[1], {
+    var evShake = evNarrowSlider(sliderRow(evRowD[1], {
       label: T('Camera shake'), min: 0, max: 100, decimals: 0, unit: '%', offAtZero: true,
       tip: T('Shakes the camera, less the farther it is from the effect. 0 is off.'),
       onChange: function (v) { evSet('shake', (v / 100).toFixed(2)); }
