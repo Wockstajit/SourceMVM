@@ -19,6 +19,28 @@ CompiledPlan g_plan;
 std::atomic<bool> g_active{ false };
 std::atomic<bool> g_needsWorldDepth{ false };
 bool g_graphCanvasOpen = false;
+// The last refused edit, for the graph editor to show over the canvas. `g_noteSeq` advances with
+// every new note so the same text twice still shows twice.
+std::string g_note;
+unsigned g_noteSeq = 0;
+
+void NoteLocked(const char* text) {
+	g_note = text ? text : "";
+	++g_noteSeq;
+}
+
+Node* FindNodeLocked(int id);
+
+// Connect (from -> to:port) after the same check the editor relies on; replaces whatever fed that
+// port. False (with a note) when the wire makes no sense.
+bool ConnectLocked(int fromId, int toId, int toPort) {
+	const ConnectCheck c = CheckConnect(g_graph, fromId, toId, toPort);
+	if (c != ConnectCheck::Ok) { NoteLocked(ConnectCheckText(c)); return false; }
+	g_graph.edges.erase(std::remove_if(g_graph.edges.begin(), g_graph.edges.end(),
+		[toId, toPort](const Edge& e) { return e.toNode == toId && e.toPort == toPort; }), g_graph.edges.end());
+	g_graph.edges.push_back(Edge{ g_graph.nextEdgeId++, fromId, 0, toId, toPort });
+	return true;
+}
 
 void RecompileLocked() {
 	g_plan = CompileGraph(g_graph);
@@ -74,6 +96,7 @@ void AppendStateJson(std::ostringstream& out) {
 		<< ",\"preset\":\"" << JsonBuilder::Escape(g_graph.presetName) << "\""
 		<< ",\"selected\":" << g_graph.selectedNodeId
 		<< ",\"steps\":" << g_plan.steps.size()
+		<< ",\"note\":\"" << JsonBuilder::Escape(g_note) << "\",\"noteSeq\":" << g_noteSeq
 		<< ",\"nodes\":[";
 	for (size_t i = 0; i < g_graph.nodes.size(); ++i) {
 		const Node& n = g_graph.nodes[i];
@@ -104,8 +127,8 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 			"%s nodes on|off|toggle|reset\n"
 			"%s nodes preset <color_subject_desat_world|glow_through_fog|player_neon_outline|sky_grade_heat_haze|depth_spotlight>\n"
 			"%s nodes canvas open|close|toggle\n"
-			"%s nodes add <depth_range|sky_mask|player_matte|fog_mask|luma_key|mask_combine|grade|glow|outline|distortion> [x y]\n"
-			"%s nodes select <id> | remove <id> | enable <id> <0|1> | move <id> <x> <y> | param <id> <idx 0..7> <val>\n"
+			"%s nodes add <depth_range|sky_mask|player_matte|fog_mask|luma_key|mask_combine|grade|glow|outline|distortion> [x y] [link <fromId>]\n"
+			"%s nodes select <id> | remove <id> | duplicate <id> | unlink <id> | enable <id> <0|1> | move <id> <x> <y> | param <id> <idx 0..7> <val>\n"
 			"%s nodes connect <fromId> <toId> [toPort 0|1] | disconnect <edgeId>\n",
 			cmd, cmd, cmd, cmd, cmd, cmd);
 		return;
@@ -143,10 +166,22 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 		std::lock_guard<std::mutex> lock(g_mutex);
 		const float x = argc >= 6 ? (float)std::atof(args->ArgV(4)) : (180.0f + (float)((g_graph.nodes.size() * 48) % 360));
 		const float y = argc >= 6 ? (float)std::atof(args->ArgV(5)) : (90.0f + (float)((g_graph.nodes.size() * 38) % 240));
+		// `link <fromId>`: the node was made by dropping a wire from that node on empty space, so it
+		// takes that wire (DefaultLinkPort) and is not spliced in front of Output.
+		int linkFrom = -1;
+		if (argc >= 8 && 0 == _stricmp(args->ArgV(6), "link")) linkFrom = std::atoi(args->ArgV(7));
 		Node n = MakeDefaultNode(g_graph.nextNodeId++, t, x, y);
 		const int newId = n.id;
 		g_graph.nodes.push_back(n);
 		g_graph.selectedNodeId = newId;
+		if (linkFrom > 0) {
+			if (const Node* src = FindNodeLocked(linkFrom)) {
+				const int port = DefaultLinkPort(src->type, t);
+				if (port >= 0) ConnectLocked(linkFrom, newId, port);
+			}
+			RecompileLocked();
+			return;
+		}
 		// Auto-splice an Effect node right before Output so newly added nodes show an immediate effect!
 		if (IsEffectNode(t)) {
 			int outId = -1;
@@ -172,6 +207,27 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 	if (0 == _stricmp(sub, "select") && argc >= 4) {
 		std::lock_guard<std::mutex> lock(g_mutex);
 		g_graph.selectedNodeId = std::atoi(args->ArgV(3));
+		return;
+	}
+	if (0 == _stricmp(sub, "duplicate") && argc >= 4) {
+		const int id = std::atoi(args->ArgV(3));
+		std::lock_guard<std::mutex> lock(g_mutex);
+		const Node* src = FindNodeLocked(id);
+		if (!src || src->type == NodeType::Output) return;
+		Node copy = *src;
+		copy.id = g_graph.nextNodeId++;
+		copy.x = src->x + 36.0f; copy.y = src->y + 36.0f;
+		g_graph.nodes.push_back(copy);   // `src` may dangle from here on
+		g_graph.selectedNodeId = copy.id;
+		RecompileLocked();
+		return;
+	}
+	if (0 == _stricmp(sub, "unlink") && argc >= 4) {
+		const int id = std::atoi(args->ArgV(3));
+		std::lock_guard<std::mutex> lock(g_mutex);
+		g_graph.edges.erase(std::remove_if(g_graph.edges.begin(), g_graph.edges.end(),
+			[id](const Edge& e) { return e.fromNode == id || e.toNode == id; }), g_graph.edges.end());
+		RecompileLocked();
 		return;
 	}
 	if (0 == _stricmp(sub, "remove") && argc >= 4) {
@@ -207,8 +263,9 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 		const int id = std::atoi(args->ArgV(3));
 		std::lock_guard<std::mutex> lock(g_mutex);
 		if (Node* n = FindNodeLocked(id)) {
-			n->x = std::clamp((float)std::atof(args->ArgV(4)), 0.0f, 1600.0f);
-			n->y = std::clamp((float)std::atof(args->ArgV(5)), 0.0f, 900.0f);
+			// The editor pans, so a node may sit well outside the first screenful.
+			n->x = std::clamp((float)std::atof(args->ArgV(4)), -4000.0f, 8000.0f);
+			n->y = std::clamp((float)std::atof(args->ArgV(5)), -4000.0f, 8000.0f);
 		}
 		return;
 	}
@@ -226,14 +283,9 @@ void RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 		const int fromId = std::atoi(args->ArgV(3));
 		const int toId = std::atoi(args->ArgV(4));
 		const int toPort = argc >= 6 ? std::clamp(std::atoi(args->ArgV(5)), 0, 1) : 0;
-		if (fromId == toId) return;
 		std::lock_guard<std::mutex> lock(g_mutex);
-		if (!FindNodeLocked(fromId) || !FindNodeLocked(toId)) return;
-		// Replace any existing wire feeding (toId, toPort).
-		g_graph.edges.erase(std::remove_if(g_graph.edges.begin(), g_graph.edges.end(),
-			[toId, toPort](const Edge& e) { return e.toNode == toId && e.toPort == toPort; }), g_graph.edges.end());
-		g_graph.edges.push_back(Edge{ g_graph.nextEdgeId++, fromId, 0, toId, toPort });
-		RecompileLocked();
+		if (ConnectLocked(fromId, toId, toPort)) RecompileLocked();
+		else advancedfx::Warning("%s nodes connect: %s.\n", cmd, g_note.c_str());
 		return;
 	}
 	if (0 == _stricmp(sub, "disconnect") && argc >= 4) {

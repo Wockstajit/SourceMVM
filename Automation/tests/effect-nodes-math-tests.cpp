@@ -144,7 +144,125 @@ void TestTooManyLiveMasksAreDroppedNotOverwritten() {
 }
 } // namespace
 
+// The graph editor asks CheckConnect before it wires two nodes: a mask never becomes the image the
+// Output shows, an image never becomes a mask, and no wire closes a loop.
+void TestConnectRules() {
+	NodeGraph g = BuildPreset("glow_through_fog", true);   // fog -> glow(mask), glow -> grade -> out
+	int fog = -1, glow = -1, grade = -1, out = -1;
+	for (const Node& n : g.nodes) {
+		if (n.type == NodeType::FogMask) fog = n.id;
+		if (n.type == NodeType::Glow) glow = n.id;
+		if (n.type == NodeType::ColorGrade) grade = n.id;
+		if (n.type == NodeType::Output) out = n.id;
+	}
+	CHECK(fog > 0 && glow > 0 && grade > 0 && out > 0);
+	CHECK(CheckConnect(g, grade, out, 0) == ConnectCheck::Ok);
+	CHECK(CheckConnect(g, fog, out, 0) == ConnectCheck::MaskIntoImage);
+	CHECK(CheckConnect(g, grade, out, 1) == ConnectCheck::NoSuchPort);
+	CHECK(CheckConnect(g, out, grade, 0) == ConnectCheck::NoSuchPort);
+	CHECK(CheckConnect(g, fog, glow, 0) == ConnectCheck::MaskIntoImage);
+	CHECK(CheckConnect(g, grade, glow, 1) == ConnectCheck::ImageIntoMask);
+	CHECK(CheckConnect(g, glow, fog, 0) == ConnectCheck::NoSuchPort);
+	// glow feeds grade, so grade -> glow would loop.
+	CHECK(CheckConnect(g, grade, glow, 0) == ConnectCheck::Cycle);
+	CHECK(CheckConnect(g, glow, glow, 0) == ConnectCheck::SameNode);
+	CHECK(CheckConnect(g, glow, 999, 0) == ConnectCheck::MissingNode);
+	// A wire dropped on empty space: masks land on the mask input, images on the image input.
+	CHECK(DefaultLinkPort(NodeType::FogMask, NodeType::Glow) == 1);
+	CHECK(DefaultLinkPort(NodeType::Glow, NodeType::ColorGrade) == 0);
+	CHECK(DefaultLinkPort(NodeType::SkyMask, NodeType::MaskCombine) == 0);
+	CHECK(DefaultLinkPort(NodeType::Glow, NodeType::MaskCombine) == -1);
+	CHECK(DefaultLinkPort(NodeType::Glow, NodeType::DepthRange) == -1);
+}
+
+// Every node type has a token that round-trips and is exactly one of mask, effect or output, and
+// Mask Feather reads the mask on its one input and compiles after it.
+void TestEveryTypeIsWired() {
+	for (int i = 0; i < (int)NodeType::Count; ++i) {
+		const NodeType t = (NodeType)i;
+		NodeType back = NodeType::Output;
+		CHECK(NodeTypeFromToken(NodeTypeToken(t), back) && back == t);
+		const int kinds = (IsMaskNode(t) ? 1 : 0) + (IsEffectNode(t) ? 1 : 0) + (t == NodeType::Output ? 1 : 0);
+		CHECK(kinds == 1);
+	}
+	NodeGraph g;
+	g.enabled = true;
+	g.nodes.push_back(MakeDefaultNode(1, NodeType::RadialMask, 0, 0));
+	g.nodes.push_back(MakeDefaultNode(2, NodeType::MaskFeather, 0, 0));
+	g.nodes.push_back(MakeDefaultNode(3, NodeType::Vignette, 0, 0));
+	g.nodes.push_back(MakeDefaultNode(4, NodeType::Output, 0, 0));
+	g.nextNodeId = 5;
+	CHECK(CheckConnect(g, 1, 2, 0) == ConnectCheck::Ok);
+	CHECK(CheckConnect(g, 1, 2, 1) == ConnectCheck::NoSuchPort);
+	CHECK(CheckConnect(g, 3, 2, 0) == ConnectCheck::ImageIntoMask);
+	CHECK(DefaultLinkPort(NodeType::RadialMask, NodeType::MaskFeather) == 0);
+	g.edges.push_back(Edge{ 1, 1, 0, 2, 0 });
+	g.edges.push_back(Edge{ 2, 2, 0, 3, 1 });
+	g.edges.push_back(Edge{ 3, 3, 0, 4, 0 });
+	CompiledPlan p = CompileGraph(g);
+	CHECK(p.steps.size() == 3);
+	if (p.steps.size() == 3) {
+		CHECK(p.steps[0].type == NodeType::RadialMask);
+		CHECK(p.steps[1].type == NodeType::MaskFeather);
+		CHECK(p.steps[1].maskSlotA == p.steps[0].outMaskSlot);
+		CHECK(p.steps[1].outMaskSlot >= 0 && p.steps[1].outMaskSlot != p.steps[1].maskSlotA);
+		CHECK(p.steps[2].type == NodeType::Vignette);
+		CHECK(p.steps[2].maskSlotA == p.steps[1].outMaskSlot);
+	}
+}
+
+// Every look preset compiles to masks before effects, keeps every mask it reads, and ends in an Output.
+// Solid Color Players fills every player (not only the picked one), and only the two time effects keep a
+// history.
+void TestLookPresetsCompile() {
+	const char* looks[] = { "solid_color_players", "neon_silhouettes", "sin_city", "comic_cel_shade", "teal_orange",
+		"old_film", "vhs_tape", "comic_book", "shimmering_players", "ghost_trails", "painting", "pencil_drawing",
+		"miniature", "anamorphic", "dreamy_glow", "night_vision_goggles", "thermal_scope" };
+	for (const char* name : looks) {
+		NodeGraph g = BuildPreset(name, true);
+		int outputs = 0;
+		for (const Node& n : g.nodes) if (n.type == NodeType::Output) ++outputs;
+		CHECK(outputs == 1);
+		const CompiledPlan p = CompileGraph(g);
+		if (p.steps.empty() || p.droppedForMaskSlots != 0 || !SlotsHoldTheirMasks(p)) std::cerr << "look " << name << "\n";
+		CHECK(!p.steps.empty());
+		CHECK(p.droppedForMaskSlots == 0);
+		CHECK(SlotsHoldTheirMasks(p));
+	}
+	const CompiledPlan solid = CompileGraph(BuildPreset("solid_color_players", true));
+	CHECK(solid.steps.size() == 2);
+	if (solid.steps.size() == 2) {
+		CHECK(solid.steps[0].type == NodeType::PlayerMatte && solid.steps[0].p[0] < 0.5f);
+		CHECK(solid.steps[1].type == NodeType::Silhouette);
+		CHECK(solid.steps[1].maskSlotA == solid.steps[0].outMaskSlot);
+	}
+	for (int i = 0; i < (int)NodeType::Count; ++i) {
+		const NodeType t = (NodeType)i;
+		CHECK(NeedsHistory(t) == (t == NodeType::EchoTrails || t == NodeType::StopMotion));
+	}
+}
+
+// Mask Edge is a mask processor like Feather: one mask in, a mask out, no image in.
+void TestMaskEdgeConnects() {
+	NodeGraph g; g.enabled = true;
+	const int m = AddNode(g, NodeType::PlayerMatte);
+	const int edge = AddNode(g, NodeType::MaskEdge);
+	const int fx = AddNode(g, NodeType::Silhouette);
+	CHECK(CheckConnect(g, m, edge, 0) == ConnectCheck::Ok);
+	CHECK(CheckConnect(g, fx, edge, 0) == ConnectCheck::ImageIntoMask);
+	CHECK(CheckConnect(g, m, edge, 1) == ConnectCheck::NoSuchPort);
+	CHECK(DefaultLinkPort(NodeType::PlayerMatte, NodeType::MaskEdge) == 0);
+	Link(g, m, edge, 0);
+	Link(g, edge, fx, 1);
+	const int out = AddNode(g, NodeType::Output); Link(g, fx, out, 0);
+	const CompiledPlan p = CompileGraph(g);
+	CHECK(p.steps.size() == 3);
+	CHECK(SlotsHoldTheirMasks(p));
+}
+
 int main() {
+	TestLookPresetsCompile();
+	TestMaskEdgeConnects();
 	TestStarterPresetsCompileCleanly();
 	TestPlayerPresetsFollowThePick();
 	TestCycleSafety();
@@ -152,6 +270,8 @@ int main() {
 	TestDeepCombineTreeKeepsLiveBranches();
 	TestTooManyLiveMasksAreDroppedNotOverwritten();
 	TestDisabledGraphProducesNoSteps();
+	TestConnectRules();
+	TestEveryTypeIsWired();
 	if (g_failed) {
 		std::cerr << g_failed << " EffectNodesMathTests failed\n";
 		return 1;

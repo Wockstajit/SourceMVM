@@ -462,7 +462,8 @@ R"CFJS(
         // Read the resting value while the button is UP: at press time the native Slider may
         // already have jumped to the click position on the same frame.
         if (!lmb && !rec.__held) rec.__restV = clamp01(rec.sl.value);
-        if (lmb && !cfgLastLmb && cfgOverPanel(host, mx, my)) {
+        // Not through the node graph window floating over the column (ConfigHudNodesTabJs.h ngCovers).
+        if (lmb && !cfgLastLmb && cfgOverPanel(host, mx, my) && !ngCovers(mx, my)) {
           rec.__held = true; rec.__moved = false; rec.__anchorX = mx; rec.__baseV = rec.__restV;
           rec.__fine = fine;
           if (rec.__tile) { rec.__tile.__held = true; rec.__tile.__moved = false; paintTile(rec.__tile); }

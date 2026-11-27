@@ -10,6 +10,7 @@
 #include "../Cosmetics/CustomizeTargetMath.h"
 #include "../Platform/JsonBuilder.h"
 #include "../WorldDecals/WorldDecals.h"
+#include "../EffectNodes/EffectNodes.h" // a Player Matte node keeps its mask to the players' bodies
 #include "../Debug/MvmDebugLog.h"
 #include "../../ClientEntitySystem.h"
 #include "../../SchemaSystem.h"
@@ -237,7 +238,10 @@ void RenderPlayerMatte_RunMainThreadFrame() {
 			RefreshRoster();
 		}
 	}
-	const bool needCapsules = g_selectedController >= 0 || g_highlight.enabled || WorldDecals::AnyEnabled();
+	// Effect Nodes too: a Player Matte keeps only what stands near a player's body, so a plant that
+	// swayed between the scene and the world reference does not light up.
+	const bool nodes = EffectNodes::Active();
+	const bool needCapsules = g_selectedController >= 0 || g_highlight.enabled || WorldDecals::AnyEnabled() || nodes;
 	if (!needCapsules)
 		return;
 
@@ -265,7 +269,7 @@ void RenderPlayerMatte_RunMainThreadFrame() {
 		}
 	}
 
-	if (next.hasTarget || WorldDecals::AnyEnabled()) {
+	if (next.hasTarget || WorldDecals::AnyEnabled() || nodes) {
 		for (const RosterPlayer& other : g_roster) {
 			if ((next.hasTarget && other.controller == next.controller) || other.pawn < 0) continue;
 			if (next.otherCount >= PlayerMatte::kMaxOtherPlayers) break;

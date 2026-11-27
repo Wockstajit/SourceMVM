@@ -158,6 +158,7 @@ bool ConfigHud::BuildIfNeeded() {
 	m_symViewEdit = m_bridge.MakeSymbol("viewedit");
 	m_symWinRect = m_bridge.MakeSymbol("winrect");
 	m_symWinFront = m_bridge.MakeSymbol("winfront");
+	m_symGraphRect = m_bridge.MakeSymbol("graphrect");
 	m_root = FindRoot();
 	m_built = (m_root != nullptr);
 	m_lastState.clear();
@@ -236,6 +237,8 @@ void ConfigHud::ReconcileMovieHud() {
 }
 
 void ConfigHud::OnExit() {
+	// The node graph window goes with the panel: a stale rect would keep claiming clicks.
+	UiLayout_SetPanelRect(UiPanel::NodeGraph, 0, 0, 0, 0);
 	// Hand the mouse back to the game: the live panel clears its own flag.
 	if (IsLive())
 		m_liveCursor = false;
@@ -627,6 +630,8 @@ void ConfigHud::RunFrame() {
 	m_bridge.RunScriptCached("$.ConfigHud && $.ConfigHud.render();", "mvm/confighud.render");
 	// Where the MODULAR window is ('' in the WORKSPACE layout), for the click router.
 	UiLayout_SetPanelRectString(UiPanel::Config, m_bridge.GetAttributeString(m_root, m_symWinRect, "").c_str());
+	// The node graph window, so MovieMode keeps its clicks and wheel off the game and Config below.
+	UiLayout_SetPanelRectString(UiPanel::NodeGraph, m_bridge.GetAttributeString(m_root, m_symGraphRect, "").c_str());
 	if (m_bridge.GetAttributeString(m_root, m_symWinFront, "0") == "1") UiLayout_SetFrontWindow(UiPanel::Config);
 	UpdateTextCapture();
 	DispatchChars();

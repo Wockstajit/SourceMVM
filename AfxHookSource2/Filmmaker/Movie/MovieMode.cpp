@@ -152,7 +152,7 @@ static void PushWorkspaceWheel(int notches, int x, int y) {
 	if (UiLayout_Modular()) {
 		const UiPanel at = UiLayout_PanelAt(x, y);
 		if (at == UiPanel::Editor && CameraEditor_Active()) { CameraEditor_PushWheel(notches); return; }
-		if (at == UiPanel::Config && ConfigHud_Enabled()) { ConfigHud_PushWheel(notches); return; }
+		if ((at == UiPanel::Config || at == UiPanel::NodeGraph) && ConfigHud_Enabled()) { ConfigHud_PushWheel(notches); return; }
 	}
 	if (ConfigHud_Enabled()) ConfigHud_PushWheel(notches);
 	else if (CameraEditor_Active()) CameraEditor_PushWheel(notches);
@@ -324,6 +324,10 @@ UiClick::Input MovieMode::ClickInput(int x, int y) {
 	// are), CS2's demo bar, and the TIMELINE dock along the bottom.
 	// The header's Editor Settings card covers the whole screen (a click beside it closes it), so
 	// while it is up every point is on it.
+	// The node graph window floats over the preview in the docked layout too: a point on it is the
+	// graph's, so a click there neither flies the camera nor reaches what lies under it.
+	if (!UiLayout_Modular() && x >= 0 && y >= 0)
+		in.onPanel = UiLayout_PanelAt(x, y) == UiPanel::NodeGraph;
 	if (UiLayout_Modular() && x >= 0 && y >= 0) {
 		in.onPanel = WorkspaceHeader_PopupOpen()
 			|| UiLayout_PanelAt(x, y) != UiPanel::None

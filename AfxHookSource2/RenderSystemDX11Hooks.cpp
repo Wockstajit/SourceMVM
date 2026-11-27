@@ -3694,9 +3694,12 @@ public:
                 const bool lensRuns = beautyEffects && !rainOnly && Filmmaker::LensFx_Active();
                 const bool rainRuns = rainHasWater && (rainOnly || picture);
                 const bool reshadeRuns = beautyEffects && picture && g_ReShadeAdvancedfx.IsConnected() && g_bEnableReShade;
-                // This render also feeds the pass compositor: it reads the scene from before the lens
-                // and before ReShade. Either one alone changes the scene, so either one needs the copy.
-                if ((lensRuns || rainRuns || reshadeRuns) && pLensCommands && pLensCommands->KeepCleanColor) {
+                // Effect Nodes are a Beauty effect too: never on a Key (green screen), Depth or Normal
+                // plate, nor on the live view of one.
+                const bool nodesRun = beautyEffects && !keyPass && Filmmaker::EffectNodes::Active();
+                // This render also feeds the pass compositor: it reads the scene from before the lens,
+                // ReShade and the Effect Nodes. Any one of them changes the scene, so any one needs the copy.
+                if ((lensRuns || rainRuns || reshadeRuns || nodesRun) && pLensCommands && pLensCommands->KeepCleanColor) {
                     ID3D11Resource* pSceneResource = nullptr;
                     pRenderTargetViews[0]->GetResource(&pSceneResource);
                     if (pSceneResource) {
@@ -3840,14 +3843,26 @@ public:
                             f.hasWorldToClip ? f.projection.data() : nullptr,
                             eye, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
                     } else {
-                        if (Filmmaker::EffectNodes::Active()) {
+                        if (nodesRun) {
                             AfxRenderPass::WorldReferenceView refView;
                             ID3D11ShaderResourceView* refDepth = AfxRenderPass::WorldDepthReferenceSrv(refView);
+                            {
+                                // The smokes, so a Player Matte never shows a player through one.
+                                const auto& smokes = g_EnvironmentFrame.active ? g_EnvironmentFrame.smokes : g_LensSmokes;
+                                float spheres[8 * 4] = {};
+                                const int count = (int)(std::min)(smokes.size(), (size_t)8);
+                                for (int s = 0; s < count; ++s) {
+                                    spheres[s * 4] = smokes[s].center.x; spheres[s * 4 + 1] = smokes[s].center.y;
+                                    spheres[s * 4 + 2] = smokes[s].center.z; spheres[s * 4 + 3] = smokes[s].radius;
+                                }
+                                Filmmaker::EffectNodes::SetSmokes(spheres, count);
+                            }
                             Filmmaker::EffectNodes::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                                 refDepth, refView.worldToClip, refView.depthMin, refView.depthMax,
                                 f.hasWorldToClip ? f.worldToClip.data() : nullptr,
                                 f.hasWorldToClip ? f.projection.data() : nullptr,
-                                eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
+                                eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time,
+                                pLensCommands ? pLensCommands->PassOrdinal : -1);
                         }
                         Filmmaker::EventFx_RenderPost(pDeviceContext, pRenderTargetViews[0], f.time);
                         if (Filmmaker::WorldWarp_Active()) {
@@ -9304,10 +9319,10 @@ void RenderSystemDX11_EngineThread_Prepare() {
         memcpy(environmentWorldToClip.data(), g_WorldToScreenMatrix.m, sizeof(g_WorldToScreenMatrix.m));
         auto environmentFrame = Filmmaker::Environment::CaptureFrame(environmentProjection, environmentWorldToClip);
         environmentFrame.exporting = AfxStreams_IsRcording() && !Filmmaker::Relight::PreviewCapture();
-        // Depth of field blurs a smoke at its own distance, so it needs the smokes even while the
-        // Environment, which collects them for its own frame, is off.
+        // Depth of field blurs a smoke at its own distance, and a Player Matte hides a player behind
+        // one, so both need the smokes even while the Environment, which collects them, is off.
         std::vector<Filmmaker::Environment::SmokeVolume> lensSmokes;
-        if (!environmentFrame.active && Filmmaker::LensFx_DofOn())
+        if (!environmentFrame.active && (Filmmaker::LensFx_DofOn() || Filmmaker::EffectNodes::Active()))
             Filmmaker::Environment::CaptureSmokeVolumes(lensSmokes);
         queue.Push([frame = std::move(environmentFrame), smokes = std::move(lensSmokes)]() mutable {
             g_EnvironmentFrame = std::move(frame);

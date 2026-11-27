@@ -16,7 +16,7 @@ namespace {
 struct PanelRect { int x = 0, y = 0, w = 0, h = 0; };
 
 std::mutex g_mutex;
-PanelRect g_rects[4];
+PanelRect g_rects[5];
 UiPanel g_front = UiPanel::Editor;
 // The settings store is main-thread only, and MovieMode asks from the input thread: the choice is
 // mirrored here once a frame (UiLayout_MainThreadFrame) and on every change made through this file.
@@ -41,7 +41,7 @@ void UiLayout_MainThreadFrame() {
 
 void UiLayout_SetPanelRect(UiPanel panel, int x, int y, int w, int h) {
 	const int i = (int)panel;
-	if (i <= 0 || i >= 4) return;
+	if (i <= 0 || i >= 5) return;
 	std::lock_guard<std::mutex> lk(g_mutex);
 	g_rects[i] = PanelRect{ x, y, w, h };
 }
@@ -66,6 +66,7 @@ UiPanel UiLayout_FrontWindow() {
 UiPanel UiLayout_PanelAt(int x, int y) {
 	if (x < 0 || y < 0) return UiPanel::None;
 	std::lock_guard<std::mutex> lk(g_mutex);
+	if (Contains(g_rects[(int)UiPanel::NodeGraph], x, y)) return UiPanel::NodeGraph;
 	if (Contains(g_rects[(int)UiPanel::Header], x, y)) return UiPanel::Header;
 	const UiPanel back = (g_front == UiPanel::Config) ? UiPanel::Editor : UiPanel::Config;
 	if (Contains(g_rects[(int)g_front], x, y)) return g_front;
