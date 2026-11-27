@@ -1956,6 +1956,7 @@
  "Spark shower": "Chuva de faíscas",
  "Add effect": "Adicionar efeito",
  "Choose…": "Escolher…",
+ "New": "Novo",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Coloca o efeito onde a mira aponta. Ele toca ali quando o evento acontece.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Nada colocado ainda. Mire num ponto e escolha um efeito acima.",
  "{0} effect || {0} effects": [

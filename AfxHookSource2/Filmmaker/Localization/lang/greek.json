@@ -1956,6 +1956,7 @@
  "Spark shower": "Βροχή σπινθήρων",
  "Add effect": "Προσθήκη εφέ",
  "Choose…": "Επιλογή…",
+ "New": "Νέο",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Τοποθετεί το εφέ εκεί που δείχνει το στόχαστρο. Παίζει εκεί όταν συμβεί το συμβάν του.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Τίποτα τοποθετημένο ακόμα. Σημάδεψε ένα σημείο και διάλεξε ένα εφέ παραπάνω.",
  "{0} effect || {0} effects": [

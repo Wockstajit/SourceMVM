@@ -1925,6 +1925,7 @@
  "Spark shower": "火花雨",
  "Add effect": "新增效果",
  "Choose…": "選擇…",
+ "New": "新增",
  "Places the effect where the crosshair points. It plays there when its event happens.": "將效果放在準星所指的位置。事件發生時在那裡播放。",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "還沒有放置任何效果。瞄準一個位置，然後在上方選擇效果。",
  "{0} effect || {0} effects": [

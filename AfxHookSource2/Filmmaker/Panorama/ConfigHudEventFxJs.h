@@ -74,7 +74,9 @@ R"CFJS(
     var evAdd = dropdownRow(evSec, T('Add effect'), [], function (k) {
       evCmd('addfrom ' + k);
       evAdd.setText(T('Choose…'), true); // a pick adds one; the field is ready for the next
-    }, { placeholder: T('Choose…') });
+    }, { placeholder: T('Choose…'),
+      // A blank one to build from the effect lists, placed the same way.
+      button: ['+ ' + T('New'), function () { evCmd('addfrom 0'); }] });
     attachTip(evAdd.row, T('Places the effect where the crosshair points. It plays there when its event happens.'));
     var evAddSig = '';
 
@@ -159,6 +161,14 @@ R"CFJS(
     var evFx = [0, 1, 2].map(function (i) {
       return dropdownRow(evFxCells[i], '', EV_EFFECT_ITEMS, function (k) { evSet('effect' + i, k); }, { placeholder: T('None') });
     });
+    // The chosen effect heads its list, then None, then the rest in catalog order (user request).
+    var evFxKeys = ['', '', ''];
+    function evFxItems(key) {
+      if (key === '-') return EV_EFFECT_ITEMS;
+      var first = null, rest = [];
+      EV_EFFECTS.forEach(function (it) { if (it[0] === key) first = it; else rest.push(it); });
+      return (first ? [first] : []).concat([['-', T('None')]]).concat(rest);
+    }
 
     // Sliders take a full row each: a paired slider's track was too short to drag (user report).
     function evSlider(label, field, min, max, dec, unit, tip, format) {
@@ -240,7 +250,11 @@ R"CFJS(
       evMoveBtn.visible = sel.where === 'spot';
       evTrig.sync(sel.trigger || 'kill');
       evWhere.sync(sel.where || 'event');
-      for (var e = 0; e < 3; e++) evFx[e].sync((sel.effects && sel.effects[e]) || '-');
+      for (var e = 0; e < 3; e++) {
+        var fxKey = (sel.effects && sel.effects[e]) || '-';
+        if (fxKey !== evFxKeys[e]) { evFxKeys[e] = fxKey; evFx[e].setItems(evFxItems(fxKey)); }
+        evFx[e].sync(fxKey);
+      }
       evLift.sync(sel.lift || 0);
       evCopies.sync(sel.copies || 1);
       evSpread.sync(sel.spread || 0);

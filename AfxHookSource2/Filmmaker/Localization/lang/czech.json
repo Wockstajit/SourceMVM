@@ -1987,6 +1987,7 @@
  "Spark shower": "Sprcha jisker",
  "Add effect": "Přidat efekt",
  "Choose…": "Vybrat…",
+ "New": "Nový",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Umístí efekt tam, kam míří zaměřovač. Přehraje se tam, když nastane jeho událost.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Zatím nic není umístěno. Zamiřte na místo a nahoře vyberte efekt.",
  "{0} effect || {0} effects": [

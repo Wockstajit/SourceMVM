@@ -1956,6 +1956,7 @@
  "Spark shower": "Kıvılcım yağmuru",
  "Add effect": "Efekt ekle",
  "Choose…": "Seç…",
+ "New": "Yeni",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Efekti nişangâhın gösterdiği yere koyar. Olayı gerçekleştiğinde orada oynar.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Henüz hiçbir şey yerleştirilmedi. Bir noktaya nişan al ve yukarıdan bir efekt seç.",
  "{0} effect || {0} effects": [

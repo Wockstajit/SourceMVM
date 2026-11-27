@@ -1925,6 +1925,7 @@
  "Spark shower": "ฝนประกายไฟ",
  "Add effect": "เพิ่มเอฟเฟกต์",
  "Choose…": "เลือก…",
+ "New": "ใหม่",
  "Places the effect where the crosshair points. It plays there when its event happens.": "วางเอฟเฟกต์ตรงจุดที่เป้าเล็งชี้ จะเล่นที่นั่นเมื่อเหตุการณ์เกิดขึ้น",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "ยังไม่ได้วางอะไร เล็งไปที่จุดหนึ่งแล้วเลือกเอฟเฟกต์ด้านบน",
  "{0} effect || {0} effects": [

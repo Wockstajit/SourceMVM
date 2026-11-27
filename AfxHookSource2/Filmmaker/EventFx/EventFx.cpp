@@ -482,14 +482,21 @@ void EventFx_AppendStateJson(std::ostringstream& out) {
 void EventFx_Spots(std::vector<EventFxSpot>& out) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	for (const auto& p : g_presets) {
-		if (p.where != EventFx::Where::Spot) continue;
 		EventFxSpot s;
+		if (p.where == EventFx::Where::Spot) {
+			s.pos[0] = p.spot[0]; s.pos[1] = p.spot[1]; s.pos[2] = p.spot[2] + p.lift;
+		} else {
+			// At the event or in front of the camera: it has no fixed place, so its icon is where it
+			// last played (none until it has).
+			auto it = std::find_if(g_lastAt.begin(), g_lastAt.end(), [&](const LastAt& l) { return l.id == p.id; });
+			if (it == g_lastAt.end()) continue;
+			std::memcpy(s.pos, it->pos, sizeof(s.pos));
+		}
 		s.id = p.id;
 		s.name = p.name;
 		s.trigger = EventFx::TriggerToken(p.trigger);
 		s.enabled = p.enabled;
 		s.selected = p.id == g_selectedPresetId;
-		s.pos[0] = p.spot[0]; s.pos[1] = p.spot[1]; s.pos[2] = p.spot[2] + p.lift;
 		out.push_back(s);
 	}
 }
@@ -567,14 +574,18 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 	if (0 == _stricmp(sub, "addfrom") && argc >= 4) {
 		// A template from the dropdown, copied into the scene and placed where the crosshair points.
 		// Picking one is asking for it, so Event FX switches on.
+		// Template 0 is a blank one to build (the card's + New): one HE blast, played on an HE grenade.
 		const int templateId = std::atoi(args->ArgV(3));
 		float at[3];
 		const bool aimed = Props_CrosshairPoint(at);
 		std::lock_guard<std::mutex> l(g_mutex);
-		for (const auto& t : EventFx::Templates()) {
+		auto templates = EventFx::Templates();
+		templates.push_back(EventFx::MakePreset(0, "Custom", EventFx::TriggerKind::HeGrenadePop, "he", nullptr, nullptr));
+		for (const auto& t : templates) {
 			if (t.id != templateId) continue;
 			EventFx::EventPreset p = t;
 			p.id = g_nextPresetId++;
+			if (templateId == 0) p.name = "Custom " + std::to_string(p.id);
 			p.enabled = true;
 			if (aimed) { p.where = EventFx::Where::Spot; std::memcpy(p.spot, at, sizeof(at)); }
 			g_presets.push_back(p);

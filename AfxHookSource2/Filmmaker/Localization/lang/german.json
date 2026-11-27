@@ -1956,6 +1956,7 @@
  "Spark shower": "Funkenregen",
  "Add effect": "Effekt hinzufügen",
  "Choose…": "Auswählen…",
+ "New": "Neu",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Platziert den Effekt dort, wo das Fadenkreuz hinzeigt. Er spielt dort, wenn sein Ereignis eintritt.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Noch nichts platziert. Ziele auf eine Stelle und wähle oben einen Effekt.",
  "{0} effect || {0} effects": [

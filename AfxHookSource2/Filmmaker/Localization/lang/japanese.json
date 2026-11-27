@@ -1925,6 +1925,7 @@
  "Spark shower": "火花のシャワー",
  "Add effect": "エフェクトを追加",
  "Choose…": "選択…",
+ "New": "新規",
  "Places the effect where the crosshair points. It plays there when its event happens.": "照準の先にエフェクトを配置します。そのイベントが起きると、そこで再生されます。",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "まだ何も配置されていません。場所に照準を合わせて、上でエフェクトを選んでください。",
  "{0} effect || {0} effects": [

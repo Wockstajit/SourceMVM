@@ -1956,6 +1956,7 @@
  "Spark shower": "Gnistregn",
  "Add effect": "Legg til effekt",
  "Choose…": "Velg…",
+ "New": "Ny",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Plasserer effekten der siktet peker. Den spilles der når hendelsen skjer.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Ingenting plassert ennå. Sikt på et sted og velg en effekt ovenfor.",
  "{0} effect || {0} effects": [

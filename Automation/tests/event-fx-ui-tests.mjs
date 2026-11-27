@@ -94,3 +94,12 @@ test('effects are loaded before any event can fire them', () => {
   assert.match(fx, /if \(0 == _stricmp\(sub, "on"\)\) \{ std::lock_guard<std::mutex> l\(g_mutex\); g_masterEnabled = true; WarmNowLocked\(\); return; \}/);
   assert.match(fx, /WarmNowLocked\(\); \/\/ a new effect is loaded before it can fire/);
 });
+
+// + New adds a blank one to build; each Effect list starts with its chosen effect; and an entry
+// that plays at the event or in front of the camera shows its icon where it last played.
+test('+ New, chosen effect first, and an icon for every entry that has played', () => {
+  assert.match(card, /button: \['\+ ' \+ T\('New'\), function \(\) \{ evCmd\('addfrom 0'\); \}\]/);
+  assert.match(card, /return \(first \? \[first\] : \[\]\)\.concat\(\[\['-', T\('None'\)\]\]\)\.concat\(rest\);/);
+  assert.match(fx, /templates\.push_back\(EventFx::MakePreset\(0, "Custom", EventFx::TriggerKind::HeGrenadePop, "he", nullptr, nullptr\)\);/);
+  assert.match(fx, /auto it = std::find_if\(g_lastAt\.begin\(\), g_lastAt\.end\(\), \[&\]\(const LastAt& l\) \{ return l\.id == p\.id; \}\);\n\s*if \(it == g_lastAt\.end\(\)\) continue;/);
+});

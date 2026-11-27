@@ -1956,6 +1956,7 @@
  "Spark shower": "Дъжд от искри",
  "Add effect": "Добави ефект",
  "Choose…": "Избери…",
+ "New": "Нов",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Поставя ефекта там, където сочи мерникът. Пуска се там, когато настъпи събитието му.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Още нищо не е поставено. Прицелете се в място и изберете ефект горе.",
  "{0} effect || {0} effects": [

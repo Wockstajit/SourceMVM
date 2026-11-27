@@ -1987,6 +1987,7 @@
  "Spark shower": "Deszcz iskier",
  "Add effect": "Dodaj efekt",
  "Choose…": "Wybierz…",
+ "New": "Nowy",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Umieszcza efekt tam, gdzie wskazuje celownik. Odtwarza się tam, gdy nastąpi jego zdarzenie.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Nic jeszcze nie umieszczono. Wyceluj w miejsce i wybierz efekt powyżej.",
  "{0} effect || {0} effects": [

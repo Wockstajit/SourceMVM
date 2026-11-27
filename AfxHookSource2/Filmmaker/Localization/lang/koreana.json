@@ -1925,6 +1925,7 @@
  "Spark shower": "불꽃 소나기",
  "Add effect": "효과 추가",
  "Choose…": "선택…",
+ "New": "새로 만들기",
  "Places the effect where the crosshair points. It plays there when its event happens.": "조준점이 가리키는 곳에 효과를 배치합니다. 해당 이벤트가 일어나면 그곳에서 재생됩니다.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "아직 배치된 것이 없습니다. 한 지점을 조준하고 위에서 효과를 고르세요.",
  "{0} effect || {0} effects": [

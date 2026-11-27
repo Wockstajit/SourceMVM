@@ -1956,6 +1956,7 @@
  "Spark shower": "Szikraeső",
  "Add effect": "Effekt hozzáadása",
  "Choose…": "Válassz…",
+ "New": "Új",
  "Places the effect where the crosshair points. It plays there when its event happens.": "Oda helyezi az effektet, ahová a célkereszt mutat. Ott játszódik le, amikor az eseménye bekövetkezik.",
  "Nothing placed yet. Aim at a spot and pick an effect above.": "Még nincs semmi elhelyezve. Célozz egy helyre, és válassz fent egy effektet.",
  "{0} effect || {0} effects": [
