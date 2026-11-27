@@ -131,7 +131,12 @@ R"CFJS(
       var p = evSelected(); if (p) evCmd('test ' + p.id);
     }, EV_ACCENT + 'ff');
     evTestBtn.style.marginRight = '4px';
-    attachTip(evTestBtn, T('Plays it now in front of the camera, even while the demo is paused.'));
+    attachTip(evTestBtn, T('Plays it now in front of the camera. While the demo is paused, it plays for a moment and comes back.'));
+    var evGotoBtn = btn(evInspHead, T('Go to'), function () {
+      var p = evSelected(); if (p && p.played) evCmd('goto ' + p.id);
+    }, S.label);
+    evGotoBtn.style.marginRight = '4px';
+    attachTip(evGotoBtn, T('Moves the camera to where this preset last played.'));
     var evPlaceBtn = btn(evInspHead, T('Place in world'), function () {
       var p = evSelected(); if (p) evCmd('place ' + p.id);
     }, S.accent);
@@ -225,6 +230,7 @@ R"CFJS(
       evInsp.visible = !!sel;
       if (!sel) return;
       evInspTitle.text = sel.name;
+      setBtnDisabled(evGotoBtn, !sel.played);
       evTrig.sync(sel.trigger || 'kill');
       evWhere.sync(sel.where || 'event');
       for (var e = 0; e < 3; e++) evFx[e].sync((sel.effects && sel.effects[e]) || '-');

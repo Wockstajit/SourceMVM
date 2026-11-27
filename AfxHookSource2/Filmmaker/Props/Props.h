@@ -36,6 +36,8 @@ bool Props_PrecacheEffect(const char* system);
 // Creates a particle system at a world point through the game's particle manager; -1 on failure.
 int Props_SpawnEffect(const char* system, const float position[3]);
 void Props_DestroyEffect(int particle);
+// Moves the free camera to look at a world point from a little back and above. Main thread.
+void Props_LookAt(const float pos[3]);
 // A demo event happened ("kill", "headshot", "flashbang", "hegrenade", "smoke", "molotov", "bomb",
 // "marker"): placed effects set to play on it start again. Any thread; handled on the next frame.
 void Props_FireTrigger(const char* token);

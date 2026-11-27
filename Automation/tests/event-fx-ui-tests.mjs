@@ -60,3 +60,16 @@ test('the event shake never accumulates into a free camera', () => {
   assert.match(main, /g_MirvInputEx\.ShakeAngles\[0\] = shook \? \(double\)Rx - preRx : 0\.0;/);
   assert.match(runtime, /rX = LastCameraAngles\[0\] - ShakeAngles\[0\];/);
 });
+
+// A paused demo freezes particles, so Test and Play now play the demo for the effect's length and
+// go back to the tick they started from; Go to moves the camera to a preset's last place or an effect.
+test('Test plays through a pause, and Go to finds the effect', () => {
+  const header = read('AfxHookSource2/Filmmaker/EventFx/EventFx.h');
+  assert.match(header, /void EventFx_PreviewWhilePaused\(double seconds\);/);
+  assert.match(fx, /if \(g_preview\.active \|\| !fx::DemoIsPaused\(\)\) return;/);
+  assert.match(fx, /snprintf\(c, sizeof\(c\), "demo_pause; demo_gototick %d", g_preview\.tick\);/);
+  assert.match(fx, /EventFx_PreviewWhilePaused\(longest \+ p->delay\);/);
+  assert.match(props, /EventFx_PreviewWhilePaused\(p->playLife > 0 \? p->playLife : 6\.0\);/);
+  assert.match(card, /evCmd\('goto ' \+ p\.id\)/);
+  assert.match(outliner, /propsCommand\('goto ' \+ it\.id\)/);
+});

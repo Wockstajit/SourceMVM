@@ -24,6 +24,10 @@ void EventFx_OnLevelInit();
 // View-setup additive camera shake (pitch/yaw/roll in degrees), called from main.cpp.
 bool EventFx_ApplyCameraImpulse(double curTime, float& pitch, float& yaw, float& roll, float& fov);
 
+// A paused demo freezes particles: plays the demo for `seconds`, then pauses and goes back to the
+// tick it was on, so Test and Play now show their effect moving. Nothing while it plays. Main thread.
+void EventFx_PreviewWhilePaused(double seconds);
+
 // State JSON and console commands (`mirv_filmmaker eventfx ...`)
 void EventFx_AppendStateJson(std::ostringstream& out);
 void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);

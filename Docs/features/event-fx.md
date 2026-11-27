@@ -18,8 +18,10 @@ which effects play, and where:
 | Light burst | A real CS2 light flashes at the point (warm blast or white flash) |
 | Camera shake | Off by default; weaker the farther the camera is from the effect. **Speed** (slow to very fast) and **Length** (short to very long) sit under it; on **Auto** both follow the strength, so a light shake swings slowly and briefly and a hard one quickly and for longer |
 
-**Test** plays the preset in front of the camera on the wall clock, so it plays while the demo is
-paused. **Place in world** puts the preset's effects at the crosshair as Scene Objects that play
+**Test** plays the preset in front of the camera. CS2 freezes particles while a demo is paused, so
+then the demo plays for the effect's length (up to six seconds) and goes back to the tick it was on;
+**Play now** on a placed effect does the same. **Go to** moves the camera to where the preset last
+played (a Test or its event), and a placed effect's **Go to** moves the camera to look at it. **Place in world** puts the preset's effects at the crosshair as Scene Objects that play
 on the same event (below).
 
 The built-in presets: HE bigger blast, bomb huge blast, molotov fireball, kill blood burst,

@@ -562,6 +562,8 @@ R"CFJS(
     var olFxActs = actionRowEnd(olFxBox, 10);
     var olFxTickBtn = actionBtn(olFxActs, T('Set to playhead'), function () { olFxSet('playtick', 'here'); });
     var olFxFireBtn = actionBtn(olFxActs, T('Play now'), function () { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('fire ' + it.id); });
+    var olFxGotoBtn = actionBtn(olFxActs, T('Go to'), function () { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('goto ' + it.id); });
+    attachTip(olFxGotoBtn, T('Moves the camera to look at it.'));
     // Light and mesh: their inspectors land in these hosts.
     var olLightHost = mk('Panel', olCard);
     olLightHost.style.width = '100%'; olLightHost.style.flowChildren = 'down';

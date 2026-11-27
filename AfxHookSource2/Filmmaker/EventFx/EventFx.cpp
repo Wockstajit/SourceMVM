@@ -11,6 +11,8 @@
 #include "../Props/Props.h"
 #include "../../ClientEntitySystem.h"
 #include "../../MirvTime.h"
+#include "../../../Deps/release/prop/AfxHookSource/SourceSdkShared.h"
+#include "../../../Deps/release/prop/cs2/sdk_src/public/cdll_int.h" // ISource2EngineToClient (demo pause / seek)
 #include "../../../Deps/release/prop/cs2/sdk_src/public/igameevents.h"
 #include "../../../Deps/release/prop/cs2/sdk_src/public/tier1/utlstring.h"
 #include "../../../Shared/AfxConsole.h"
@@ -22,6 +24,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+
+extern SOURCESDK::CS2::ISource2EngineToClient* g_pEngineToClient;
 
 namespace Filmmaker {
 namespace {
@@ -53,6 +57,15 @@ struct DedupStamp { int trigger = -1; int tick = -1; ULONGLONG wallMs = 0; };
 std::vector<DedupStamp> g_recentTriggers;
 int g_lastDemoTick = -1;
 double g_lastDemoTime = -1.0;
+
+// A paused demo freezes particles: Test and Play now play the demo for the effect's length, then
+// pause and go back to the tick they started from (EventFx_PreviewWhilePaused). Main thread.
+struct Preview { bool active = false; int tick = -1; ULONGLONG until = 0; };
+Preview g_preview;
+void Console(const char* c) { if (g_pEngineToClient) g_pEngineToClient->ExecuteClientCmd(0, c, true); }
+// Where each preset last played (id -> point), for Go to.
+struct LastAt { int id = 0; float pos[3] = {0, 0, 0}; };
+std::vector<LastAt> g_lastAt;
 
 // Systems loaded for the enabled presets on this level (the precache rule).
 std::vector<std::string> g_warmed;
@@ -149,6 +162,12 @@ void StartFiring(const Firing& f) {
 	else InFrontOfCamera(at, 220.0f);
 	const double now = f.wallClock ? WallClock() : DemoClock();
 	const uint32_t seed = ++g_seed;
+	{
+		auto it = std::find_if(g_lastAt.begin(), g_lastAt.end(), [&](const LastAt& l) { return l.id == p.id; });
+		if (it == g_lastAt.end()) { g_lastAt.push_back(LastAt{ p.id }); it = g_lastAt.end() - 1; }
+		std::memcpy(it->pos, at, sizeof(at));
+		it->pos[2] += p.lift;
+	}
 	for (const auto& s : EventFx::PlanSpawns(p, at, now, seed)) {
 		if (g_spawns.size() >= 64) break;
 		LiveSpawn l; l.plan = s; l.wallClock = f.wallClock;
@@ -217,6 +236,8 @@ void EventFx_OnLevelInit() {
 	g_recentTriggers.clear();
 	g_warmed.clear();
 	g_bombKnown = false;
+	g_lastAt.clear();
+	g_preview = Preview{};
 	g_levelSince = GetTickCount64();
 	g_lastDemoTick = -1;
 	g_lastDemoTime = -1.0;
@@ -330,6 +351,14 @@ void EventFx_RunMainThreadFrame() {
 		MvmDebugLog_LinefAlways("eventfx.precache", "%s -> %d", s.c_str(), ok ? 1 : 0);
 	}
 
+	if (g_preview.active && GetTickCount64() >= g_preview.until) {
+		g_preview.active = false;
+		StopAllSpawns();
+		char c[64];
+		snprintf(c, sizeof(c), "demo_pause; demo_gototick %d", g_preview.tick);
+		Console(c);
+		MvmDebugLog_LinefAlways("eventfx.preview", "done: back to tick %d", g_preview.tick);
+	}
 	// A rewind takes the demo-clock effects away with the moment they belonged to.
 	if (rewound) {
 		g_spawns.erase(std::remove_if(g_spawns.begin(), g_spawns.end(), [](LiveSpawn& s) {
@@ -373,6 +402,17 @@ bool EventFx_ApplyCameraImpulse(double curTime, float& pitch, float& yaw, float&
 	return true;
 }
 
+void EventFx_PreviewWhilePaused(double seconds) {
+	if (g_preview.active || !fx::DemoIsPaused()) return;
+	const int tick = fx::DemoTick();
+	if (tick < 0) return;
+	g_preview.active = true;
+	g_preview.tick = tick;
+	g_preview.until = GetTickCount64() + (ULONGLONG)(std::clamp(seconds, 0.5, 6.0) * 1000.0);
+	Console("demo_resume");
+	MvmDebugLog_LinefAlways("eventfx.preview", "paused at tick %d: playing %.1fs to show the effect", tick, seconds);
+}
+
 void EventFx_AppendStateJson(std::ostringstream& out) {
 	std::lock_guard<std::mutex> lock(g_mutex);
 	JsonBuilder j;
@@ -401,6 +441,7 @@ void EventFx_AppendStateJson(std::ostringstream& out) {
 		j.DoubleField("shake", p.shake);
 		j.DoubleField("shakeSpeed", p.shakeSpeed);
 		j.DoubleField("shakeLength", p.shakeLength);
+		j.BoolField("played", std::any_of(g_lastAt.begin(), g_lastAt.end(), [&](const LastAt& l) { return l.id == p.id; }));
 		j.EndObject();
 	}
 	j.EndArray();
@@ -412,7 +453,7 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 	if (argc < 3) {
 		advancedfx::Message(
 			"%s eventfx on|off|toggle|reset\n"
-			"%s eventfx test <id> | select <id> | enable <id> <0|1> | add | remove <id> | place <id>\n"
+			"%s eventfx test <id> | goto <id> | select <id> | enable <id> <0|1> | add | remove <id> | place <id>\n"
 			"%s eventfx set <id> trigger|effect0|effect1|effect2|where|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|shakeSpeed|shakeLength|name <value>\n"
 			"%s eventfx effects  (the effects a preset can spawn)\n",
 			cmd, cmd, cmd, cmd);
@@ -454,7 +495,24 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		if (auto* p = FindPresetLocked(std::atoi(args->ArgV(3)))) {
 			for (const auto& s : EventFx::SystemsOf({ *p })) Props_PrecacheEffect(s.c_str());
 			QueueFiringLocked(*p, false, nullptr, true);
+			double longest = 0;
+			for (const auto& key : p->effects)
+				if (const auto* def = EventFx::FindEffect(key)) longest = (std::max)(longest, (double)(p->life > 0 ? p->life : def->life));
+			EventFx_PreviewWhilePaused(longest + p->delay);
 		}
+		return;
+	}
+	if (0 == _stricmp(sub, "goto") && argc >= 4) {
+		// The camera to where this preset last played (Test or a demo event), looking at it.
+		const int id = std::atoi(args->ArgV(3));
+		float at[3];
+		bool known = false;
+		{
+			std::lock_guard<std::mutex> l(g_mutex);
+			for (const auto& la : g_lastAt) if (la.id == id) { std::memcpy(at, la.pos, sizeof(at)); known = true; }
+		}
+		if (!known) { advancedfx::Warning("%s eventfx: that preset has not played yet; Test it or play the demo to its event.\n", cmd); return; }
+		Props_LookAt(at);
 		return;
 	}
 	if (0 == _stricmp(sub, "place") && argc >= 4) {

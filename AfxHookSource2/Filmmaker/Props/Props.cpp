@@ -16,6 +16,7 @@
 #include "../Environment/MapCollisionGrid.h"
 #include "../MapData/MapSources.h"
 #include "../Movie/CameraBridge.h"
+#include "../EventFx/EventFx.h" // a paused demo plays for a moment so Play now shows its effect
 #include "../Movie/MovieMode.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
@@ -1259,6 +1260,19 @@ int Props_SpawnEffect(const char* system, const float position[3]) {
 
 void Props_DestroyEffect(int particle) { DestroyEffect(particle); }
 
+void Props_LookAt(const float pos[3]) {
+	// From the side the camera is on now, a little back and above, looking down at the point.
+	double org[3] = {}, ang[3] = {}, fov = 90.0;
+	CameraBridge_GetCurrentCamera(org, ang, fov);
+	const double kPi = 3.14159265358979, back = 260.0, up = 110.0;
+	const double dx = pos[0] - org[0], dy = pos[1] - org[1];
+	const double yaw = std::sqrt(dx * dx + dy * dy) > 1.0 ? std::atan2(dy, dx) : ang[1] * kPi / 180.0;
+	CameraBridge_SetFreeCamEnabled(true);
+	CameraBridge_SetCameraPose(pos[0] - std::cos(yaw) * back, pos[1] - std::sin(yaw) * back, pos[2] + up,
+		std::atan2(up, back) * 180.0 / kPi, yaw * 180.0 / kPi, 0.0, fov);
+	MvmDebugLog_LinefAlways("props.goto", "look at %.1f %.1f %.1f from yaw %.1f", pos[0], pos[1], pos[2], yaw * 180.0 / kPi);
+}
+
 int Props_AddTriggeredEffect(const char* system, const char* play, float life, const char* group, float lift) {
 	if (g_map.empty() || !system || !Props::IsEffect(system)) return 0;
 	Placed p;
@@ -1778,6 +1792,13 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			if (!p) throw std::runtime_error("No such prop");
 			if (!Triggered(*p)) throw std::runtime_error("It plays all the time already");
 			Props_FireTrigger(("#" + std::to_string(p->id)).c_str());
+			EventFx_PreviewWhilePaused(p->playLife > 0 ? p->playLife : 6.0);
+			return;
+		}
+		if (!_stricmp(sub, "goto")) { // goto <id>: the camera to the object, looking at it
+			if (!p) throw std::runtime_error("No such prop");
+			const float at[3] = {p->position.x, p->position.y, p->position.z};
+			Props_LookAt(at);
 			return;
 		}
 		if (!_stricmp(sub, "floor")) { // rest the prop on the floor under it
