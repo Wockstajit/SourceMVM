@@ -48,6 +48,10 @@ public:
 	double LastCameraOrigin[3];
 	double LastCameraAngles[3];
 	double LastCameraFov;
+	// The Event FX shake added to LastCameraAngles this frame (main.cpp). A free camera re-reads the
+	// last view every frame (MirvInput OffsetMode_Last); without taking this back out, each frame's
+	// shake became the next frame's pose and the camera stayed tilted after the shake ended.
+	double ShakeAngles[3] = {0, 0, 0};
 
 	double GameCameraOrigin[3];
 	double GameCameraAngles[3];
@@ -80,9 +84,9 @@ private:
 		x = LastCameraOrigin[0];
 		y = LastCameraOrigin[1];
 		z = LastCameraOrigin[2];
-		rX = LastCameraAngles[0];
-		rY = LastCameraAngles[1];
-		rZ = LastCameraAngles[2];
+		rX = LastCameraAngles[0] - ShakeAngles[0];
+		rY = LastCameraAngles[1] - ShakeAngles[1];
+		rZ = LastCameraAngles[2] - ShakeAngles[2];
 		fov = LastCameraFov;
 	}
 

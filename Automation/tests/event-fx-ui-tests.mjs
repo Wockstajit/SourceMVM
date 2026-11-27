@@ -51,3 +51,12 @@ test('Event FX sits beside Scene Objects, and placed effects show an icon', () =
   assert.match(props, /return p && \(Alive\(\*p\) \|\| Props::IsEffect\(p->model\)\) \? p : nullptr;/);
   assert.match(gizmo, /\} else if \(kind === 'effect'\) \{/);
 });
+
+// The shake jogs the frame only: a free camera reads the last view back every frame, so the shake's
+// offset is taken out of that read, or each frame's shake became the next frame's pose.
+test('the event shake never accumulates into a free camera', () => {
+  const main = read('AfxHookSource2/main.cpp');
+  const runtime = read('AfxHookSource2/Filmmaker/Movie/CameraRuntimeInternal.h');
+  assert.match(main, /g_MirvInputEx\.ShakeAngles\[0\] = shook \? \(double\)Rx - preRx : 0\.0;/);
+  assert.match(runtime, /rX = LastCameraAngles\[0\] - ShakeAngles\[0\];/);
+});
