@@ -774,7 +774,8 @@ const Placed* GizmoTarget() {
 	if (g_brush.active) return nullptr;
 	if (g_placing) return Live(g_ghost) ? &g_ghost : nullptr;
 	const Placed* p = Find(g_selected);
-	return p && Alive(*p) ? p : nullptr;
+	// An effect waiting for its event has no particle yet, but it still has a place to move.
+	return p && (Alive(*p) || Props::IsEffect(p->model)) ? p : nullptr;
 }
 
 std::vector<Vec3> StrokeNearBrush();
@@ -998,7 +999,20 @@ int PickAt(float u, float v) {
 	std::vector<Props::PickCandidate> candidates;
 	for (const Placed& q : g_props) {
 		Vec3 mins, maxs, corners[8];
-		if (q.locked || !Alive(q) || !PropBounds(q, mins, maxs)) continue;
+		if (q.locked) continue;
+		if (Props::IsEffect(q.model)) {
+			// An effect is picked by its icon (AppendMarkers), live or waiting for its event.
+			if (!q.visible) continue;
+			const auto c = Environment::GizmoProject(vp, q.position);
+			if (!c.visible) continue;
+			Props::ScreenRect r;
+			r.x0 = c.x - kMarkerReach; r.x1 = c.x + kMarkerReach;
+			r.y0 = c.y - kMarkerReach; r.y1 = c.y + kMarkerReach;
+			r.valid = true;
+			candidates.push_back({q.id, r, 0.f});
+			continue;
+		}
+		if (!Alive(q) || !PropBounds(q, mins, maxs)) continue;
 		Props::BoxCorners(q.position, q.angles, q.scale, mins, maxs, corners);
 		const Vec3 d = q.position - eye;
 		candidates.push_back({q.id, Props::ProjectRect(vp, corners, 8), std::sqrt(Environment::Dot(d, d))});
@@ -1058,6 +1072,22 @@ void AppendMarkers(JsonBuilder& j) {
 			j.StringField("accent", color);
 		}
 		j.Key("at"); point(box.center);
+		j.EndObject();
+	}
+	// Every placed effect: a particle has nothing to click, and one waiting for its event shows
+	// nothing at all, so its icon is where it is (Event FX's orange; the tag names its event).
+	for (const Placed& p : g_props) {
+		if (!Props::IsEffect(p.model) || !p.visible) continue;
+		j.BeginObject();
+		j.IntField("id", p.id);
+		j.StringField("kind", "effect");
+		j.StringField("name", Props::DisplayName(p.model));
+		j.BoolField("selected", p.id == g_selected);
+		j.StringField("color", "#ffb86b");
+		j.StringField("accent", "#ffb86b");
+		j.StringField("play", p.play);
+		j.BoolField("playing", p.playing);
+		j.Key("at"); point(p.position);
 		j.EndObject();
 	}
 	j.EndArray();

@@ -29,10 +29,25 @@ test('the screen pulse is gone: effects spawn in the world instead', () => {
 });
 
 test('a placed effect can wait for an event or a tick', () => {
-  assert.match(outliner, /var olFxPlay = dropdownRow\(olFxBox, T\('Plays'\), OL_PLAYS/);
+  assert.match(outliner, /var olFxPlay = dropdownRow\(olFxCellA, T\('Plays'\), OL_PLAYS/);
   assert.match(outliner, /olFxSet\('playtick', 'here'\)/);
   assert.match(outliner, /propsCommand\('fire ' \+ it\.id\)/);
   assert.match(props, /if \(Triggered\(p\) && !p\.playing\) \{ Props::PrecacheModel\(p\.model\.c_str\(\)\); return; \}/);
   assert.match(props, /\|\| \(Triggered\(p\) && !p\.playing\)\) continue;/);
   assert.match(props, /j\.StringField\("play", p\.play\);/);
+});
+
+// The card lives on ENVIRONMENT beside Scene Objects, its presets are tiles two to a row, and every
+// placed effect has an icon in the view that picks it, live or waiting for its event.
+test('Event FX sits beside Scene Objects, and placed effects show an icon', () => {
+  const widgets = read('AfxHookSource2/Filmmaker/Panorama/ConfigHudWidgetsJs.h');
+  const gizmo = read('AfxHookSource2/Filmmaker/Panorama/ConfigHudPropsGizmoJs.h');
+  assert.match(card, /section\(pageEnvironment, T\('EVENT FX'\), true, false, 'env\.eventfx'/);
+  assert.doesNotMatch(card, /pageEffects/);
+  assert.match(widgets, /\[T\('Scene'\), \['env\.scene', 'env\.eventfx', 'env\.heat'\]\]/);
+  assert.match(card, /var cells = evCells\(evGrid, 2\);/);
+  assert.match(props, /j\.StringField\("kind", "effect"\);/);
+  assert.match(props, /if \(Props::IsEffect\(q\.model\)\) \{\n\s*\/\/ An effect is picked by its icon/);
+  assert.match(props, /return p && \(Alive\(\*p\) \|\| Props::IsEffect\(p->model\)\) \? p : nullptr;/);
+  assert.match(gizmo, /\} else if \(kind === 'effect'\) \{/);
 });

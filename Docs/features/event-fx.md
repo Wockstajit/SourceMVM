@@ -1,7 +1,10 @@
 # Event FX
 
-`CONFIG > EFFECTS > EVENT FX` spawns CS2's own particle effects when something happens in the
-demo. A preset says which event plays it, which effects play, and where:
+`CONFIG > ENVIRONMENT > EVENT FX`, beside Scene Objects, spawns CS2's own particle effects when
+something happens in the demo. The presets are tiles, two to a row, each showing its event, how
+many effects it plays and how many are placed in the map; the selected one's settings sit in two-
+and three-column rows under them, so the card shows whole. A preset says which event plays it,
+which effects play, and where:
 
 | Setting | What it does |
 | --- | --- |
@@ -45,7 +48,10 @@ A placed effect in **ENVIRONMENT > Scene Objects** has a **Plays** setting: all 
 default), on one of the events above, or **At a tick** (when the playhead crosses it; **Set to
 playhead** takes the current one). An effect set to an event waits, loaded, and starts from its
 first frame each time the event happens, for **Plays for** seconds (0 is six). It is moved, grouped
-and hidden like any other scene object, and saved with the map's objects. Placed effects play on
+and hidden like any other scene object, and saved with the map's objects. Every placed effect has
+an icon in the view on the ENVIRONMENT tab (an orange burst, tagged with what starts it, such as
+ON KILL, or PLAYING): a click on it selects it and shows its move gizmo, even while it waits and
+has no particle to click. Placed effects play on
 their event whether or not the Event FX presets are on. `Props.cpp` (`PumpTriggers`) runs this
 every frame.
 

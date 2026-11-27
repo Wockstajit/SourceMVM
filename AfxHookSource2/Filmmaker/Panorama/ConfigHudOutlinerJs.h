@@ -542,11 +542,21 @@ R"CFJS(
       ['molotov', T('On a molotov')], ['bomb', T('When the bomb explodes')], ['marker', T('At a timeline marker')],
       ['tick', T('At a tick')]];
     function olFxSet(field, v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' ' + field + ' ' + v); }
-    var olFxPlay = dropdownRow(olFxBox, T('Plays'), OL_PLAYS, function (k) { olFxSet('play', k); });
-    var olFxLife = sliderRow(olFxBox, {
+    // Plays and Plays for side by side, each with a short label column: one row, no dead space.
+    var olFxLine = mk('Panel', olFxBox); olFxLine.hittest = false; olFxLine.hittestchildren = true;
+    olFxLine.style.width = '100%'; olFxLine.style.flowChildren = 'right';
+    var olFxCellA = mk('Panel', olFxLine), olFxCellB = mk('Panel', olFxLine);
+    [olFxCellA, olFxCellB].forEach(function (c, i) {
+      c.hittest = false; c.hittestchildren = true; c.style.flowChildren = 'down';
+      c.style.width = 'fill-parent-flow(1.0)'; if (i) c.style.marginLeft = '8px';
+    });
+    var olFxPlay = dropdownRow(olFxCellA, T('Plays'), OL_PLAYS, function (k) { olFxSet('play', k); });
+    olFxPlay.label.style.width = '58px';
+    var olFxLife = sliderRow(olFxCellB, {
       label: T('Plays for'), min: 0, max: 30, decimals: 1, unit: 's', tip: T('How long it plays each time. 0 is 6 seconds.'),
       onChange: function (v) { olFxSet('playlife', v); }
     });
+    olFxLife.label.style.width = '70px';
     var olFxNote = lbl(olFxBox, '', S.muted, 12);
     olFxNote.style.marginTop = '8px'; olFxNote.style.marginLeft = UI.line.padH + 'px';
     var olFxActs = actionRowEnd(olFxBox, 10);
@@ -700,7 +710,9 @@ R"CFJS(
         return;
       }
       olMultiActs.visible = false;
-      var kind = isGroup ? ['#e0b861', T('GROUP')] : [OL_KIND[it.kind][0], OL_KIND[it.kind][1].toUpperCase()];
+      var kind = isGroup ? ['#e0b861', T('GROUP')]
+        : it.kind === 'asset' && /\.vpcf$/i.test(it.model || '') ? ['#ffb86b', T('EFFECT')]
+        : [OL_KIND[it.kind][0], OL_KIND[it.kind][1].toUpperCase()];
       olCardTitle.text = isGroup ? olSel.substring(2) : it.name;
       olCardKind.text = kind[1]; olCardKind.style.color = kind[0] + 'ff';
       olCardChip.style.backgroundColor = kind[0] + '1f';
@@ -720,7 +732,7 @@ R"CFJS(
       if (olIsFx) {
         olFxPlay.sync(it.play || '-');
         olFxLife.sync(it.playLife || 0);
-        olFxLife.row.visible = !!it.play;
+        olFxCellB.visible = !!it.play;
         olFxTickBtn.visible = it.play === 'tick';
         olFxFireBtn.visible = !!it.play;
         olFxNote.visible = !!it.play;

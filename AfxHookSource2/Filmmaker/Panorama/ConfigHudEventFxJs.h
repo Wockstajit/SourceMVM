@@ -1,14 +1,16 @@
 #pragma once
 
-// EVENT FX card in CONFIG > EFFECTS (EventFx.h): CS2's own particle effects -- explosions, fire,
-// blood, sparks, fireworks -- spawned where a kill, a headshot, a grenade, the bomb or a timeline
-// marker happens. Place in world puts a preset's effects at the crosshair as Scene Objects that
-// play on the same event (ENVIRONMENT > Scene Objects moves them).
+// EVENT FX card in CONFIG > ENVIRONMENT, beside Scene Objects (EventFx.h): CS2's own particle
+// effects -- explosions, fire, blood, fireworks -- spawned where a kill, a headshot, a grenade, the
+// bomb or a timeline marker happens. The presets are a grid of tiles; the selected one's settings
+// sit in two- and three-column rows so the whole card shows without scrolling. Place in world puts
+// a preset's effects at the crosshair as Scene Objects that play on the same event, with an icon in
+// the view (ConfigHudPropsGizmoJs.h) and a move gizmo like any other object.
 
 R"CFJS(
     var EV_ACCENT = '#ffb86b';
-    var evSec = section(pageEffects, T('EVENT FX'), true, false, 'fx.eventfx', EV_ACCENT + 'ff');
-    var evReset = evSec.__headerReset(['mirv_filmmaker eventfx reset'], 'fx.eventfx');
+    var evSec = section(pageEnvironment, T('EVENT FX'), true, false, 'env.eventfx', EV_ACCENT + 'ff');
+    var evReset = evSec.__headerReset(['mirv_filmmaker eventfx reset'], 'env.eventfx');
     var evPill = evSec.__headerPill(function () {
       cmd('mirv_filmmaker eventfx toggle');
     }, T('Spawns CS2 effects (explosions, fire, blood, sparks, fireworks) where a kill, a grenade, the bomb or a timeline marker happens.'));
@@ -47,23 +49,86 @@ R"CFJS(
     ];
     var EV_EFFECT_ITEMS = [['-', T('None')]].concat(EV_EFFECTS);
 
-    var evAddBtn = wideBtn(evSec, T('+ New preset'), function () { evCmd('add'); }, EV_ACCENT + 'ff');
-    evAddBtn.__bgBase = '#ffb86b18'; evAddBtn.__brBase = '#ffb86b66'; paintBtn(evAddBtn);
+    // A row of `n` equal cells; each control built into a cell gets a narrower label column.
+    function evCells(parent, n, top) {
+      var line = mk('Panel', parent); line.hittest = false; line.hittestchildren = true;
+      line.style.flowChildren = 'right'; line.style.width = '100%';
+      if (top) line.style.marginTop = top + 'px';
+      var cells = [];
+      for (var i = 0; i < n; i++) {
+        var c = mk('Panel', line); c.hittest = false; c.hittestchildren = true;
+        c.style.width = 'fill-parent-flow(1.0)'; c.style.flowChildren = 'down';
+        if (i) c.style.marginLeft = '8px';
+        cells.push(c);
+      }
+      return cells;
+    }
+    var EV_CELL_LABEL = 78;
+    function evNarrow(handle) {
+      if (handle && handle.label) handle.label.style.width = EV_CELL_LABEL + 'px';
+      return handle;
+    }
 
-    var evListHost = mk('Panel', evSec);
-    evListHost.style.width = '100%'; evListHost.style.flowChildren = 'down'; evListHost.style.marginTop = '6px';
+    // ---- the preset tiles: two to a row --------------------------------------------------------
+    var evTop = mk('Panel', evSec); evTop.hittest = false; evTop.hittestchildren = true;
+    evTop.style.width = '100%'; evTop.style.flowChildren = 'right'; evTop.style.marginTop = '2px';
+    var evHint = lbl(evTop, T('Pick a preset, choose its event and effects, then Test or Place in world.'), S.muted, 12);
+    evHint.style.width = 'fill-parent-flow(1.0)'; evHint.style.verticalAlign = 'center';
+    var evAddBtn = btn(evTop, '+ ' + T('New preset'), function () { evCmd('add'); }, EV_ACCENT + 'ff');
+    evAddBtn.style.marginRight = '0px';
 
+    var evGrid = mk('Panel', evSec); evGrid.hittest = false; evGrid.hittestchildren = true;
+    evGrid.style.width = '100%'; evGrid.style.flowChildren = 'down'; evGrid.style.marginTop = '8px';
+
+    function evPlacedCount(p) {
+      var placed = (st && st.props && st.props.placed) || [], n = 0;
+      for (var i = 0; i < placed.length; i++) if (placed[i].play && placed[i].group === p.name) n++;
+      return n;
+    }
+    function evEffectCount(p) {
+      var n = 0;
+      for (var i = 0; i < 3; i++) if (p.effects && p.effects[i]) n++;
+      return n;
+    }
+    function evTile(cell, p, on) {
+      var t = mk('Panel', cell); t.hittest = true; t.hittestchildren = true;
+      t.style.width = '100%'; t.style.height = '54px'; t.style.flowChildren = 'down';
+      t.style.padding = '6px 6px 0px 10px'; t.style.marginBottom = '6px'; t.style.borderRadius = '4px';
+      t.style.backgroundColor = on ? '#ffb86b26' : '#ffffff08';
+      t.style.border = '1px solid ' + (on ? EV_ACCENT + 'ff' : '#ffffff14');
+      var top = mk('Panel', t); top.hittest = false; top.hittestchildren = true;
+      top.style.width = '100%'; top.style.flowChildren = 'right';
+      var nm = lbl(top, p.name, on ? S.value : S.label, 13); nm.hittest = false; nm.style.fontWeight = 'bold';
+      nm.style.width = 'fill-parent-flow(1.0)'; nm.style.whiteSpace = 'nowrap'; nm.style.textOverflow = 'ellipsis';
+      nm.style.verticalAlign = 'center';
+      var eb = btn(top, p.enabled ? T('On') : T('Off'), function () { evCmd('enable ' + p.id + ' ' + (p.enabled ? 0 : 1)); },
+        p.enabled ? EV_ACCENT + 'ff' : S.muted);
+      eb.style.marginRight = '0px'; eb.style.paddingTop = '1px'; eb.style.paddingBottom = '1px';
+      var bot = mk('Panel', t); bot.hittest = false; bot.hittestchildren = true;
+      bot.style.width = '100%'; bot.style.flowChildren = 'right'; bot.style.marginTop = '2px';
+      var placed = evPlacedCount(p);
+      var info = evTriggerName(p.trigger) + '  ·  ' + TN(evEffectCount(p), '{0} effect', '{0} effects')
+        + (placed ? '  ·  ' + T('{0} placed', placed) : '');
+      var tg = lbl(bot, info, EV_ACCENT + 'ff', 11); tg.hittest = false;
+      tg.style.width = 'fill-parent-flow(1.0)'; tg.style.whiteSpace = 'nowrap'; tg.style.textOverflow = 'ellipsis';
+      tg.style.verticalAlign = 'center';
+      var tb = btn(bot, '▶ ' + T('Test'), function () { evCmd('test ' + p.id); }, EV_ACCENT + 'ff');
+      tb.style.marginRight = '0px'; tb.style.paddingTop = '1px'; tb.style.paddingBottom = '1px';
+      t.SetPanelEvent('onactivate', function () { evCmd('select ' + p.id); });
+    }
+
+    // ---- the selected preset ------------------------------------------------------------------
     var evInsp = mk('Panel', evSec);
     evInsp.style.width = '100%'; evInsp.style.flowChildren = 'down';
-    evInsp.style.marginTop = '10px'; evInsp.style.padding = '10px';
+    evInsp.style.marginTop = '4px'; evInsp.style.padding = '8px 8px 10px 8px';
     evInsp.style.backgroundColor = S.drawer; evInsp.style.borderRadius = '4px';
     evInsp.style.border = '1px solid #ffffff14'; evInsp.visible = false;
 
     var evInspHead = mk('Panel', evInsp); evInspHead.style.width = '100%'; evInspHead.style.flowChildren = 'right';
-    var evInspTitle = lbl(evInspHead, '', S.value, 13);
+    var evInspTitle = lbl(evInspHead, '', S.value, 14);
     evInspTitle.style.fontWeight = 'bold'; evInspTitle.style.width = 'fill-parent-flow(1.0)'; evInspTitle.style.verticalAlign = 'center';
-    evInspTitle.style.whiteSpace = 'nowrap'; evInspTitle.style.textOverflow = 'ellipsis';
-    var evTestBtn = btn(evInspHead, T('Test'), function () {
+    evInspTitle.style.whiteSpace = 'nowrap'; evInspTitle.style.textOverflow = 'ellipsis'; evInspTitle.style.marginLeft = '2px';
+    var evTestBtn = btn(evInspHead, '▶ ' + T('Test'), function () {
       var p = evSelected(); if (p) evCmd('test ' + p.id);
     }, EV_ACCENT + 'ff');
     evTestBtn.style.marginRight = '4px';
@@ -79,45 +144,44 @@ R"CFJS(
     evDelBtn.style.marginRight = '0px';
 
     function evSet(field, v) { var p = evSelected(); if (p) evCmd('set ' + p.id + ' ' + field + ' ' + v); }
-    var evTrig = dropdownRow(evInsp, T('Plays on'), EV_TRIGGERS, function (k) { evSet('trigger', k); });
+    var evRowA = evCells(evInsp, 2, 4);
+    var evTrig = evNarrow(dropdownRow(evRowA[0], T('Plays on'), EV_TRIGGERS, function (k) { evSet('trigger', k); }));
+    var evWhere = evNarrow(dropdownRow(evRowA[1], T('Place'), [['event', T('At the event')], ['camera', T('In front of camera')]],
+      function (k) { evSet('where', k); }));
+    attachTip(evWhere.row, T('At the event: where the grenade went off, the player who died, the bomb. A timeline marker has no place, so it plays in front of the camera.'));
 
-    subHead(evInsp, T('Effects'));
+    var evFxHead = lbl(evInsp, T('Effects'), S.muted, 11);
+    evFxHead.style.fontWeight = 'bold'; evFxHead.style.letterSpacing = '1px'; evFxHead.style.marginTop = '10px';
+    evFxHead.style.marginLeft = UI.line.padH + 'px';
+    var evFxCells = evCells(evInsp, 3);
     var evFx = [0, 1, 2].map(function (i) {
-      return dropdownRow(evInsp, T('Effect {0}', i + 1), EV_EFFECT_ITEMS, function (k) { evSet('effect' + i, k); });
+      return dropdownRow(evFxCells[i], '', EV_EFFECT_ITEMS, function (k) { evSet('effect' + i, k); }, { placeholder: T('None') });
     });
 
-    subHead(evInsp, T('Where'));
-    var evWhere = modeRow(evInsp, T('Place'), [['event', T('At the event')], ['camera', T('In front of camera')]], '100%',
-      function (k) { evSet('where', k); },
-      T('At the event: where the grenade went off, the player who died, the bomb. A timeline marker has no place, so it plays in front of the camera.'), 12);
-    function evSlider(label, field, min, max, dec, unit, tip) {
-      return sliderRow(evInsp, {
-        label: label, min: min, max: max, decimals: dec || 0, unit: unit || '', tip: tip,
+    function evSlider(cell, label, field, min, max, dec, unit, tip, format) {
+      return evNarrow(sliderRow(cell, {
+        label: label, min: min, max: max, decimals: dec || 0, unit: unit || '', tip: tip, format: format,
         onChange: function (v) { evSet(field, v); }
-      });
+      }));
     }
-    var evLift = evSlider(T('Height'), 'lift', -100, 300, 0, 'u', T('Raises the effect above the point it plays at.'));
-    var evCopies = evSlider(T('Copies'), 'copies', 1, 6, 0, '', T('More of the same effect, scattered around the point.'));
-    var evSpread = evSlider(T('Spread'), 'spread', 0, 600, 0, 'u', T('How far apart the copies land.'));
-    var evDelay = evSlider(T('Delay'), 'delay', 0, 5, 2, 's', T('Waits this long after the event.'));
-    var evLife = sliderRow(evInsp, {
-      label: T('Keep for'), min: 0, max: 30, decimals: 1, unit: 's',
-      tip: T('How long the effects stay before they are removed. 0 uses each effect\'s own length.'),
-      format: function (v) { return v <= 0 ? T('Auto') : v.toFixed(1) + 's'; },
-      onChange: function (v) { evSet('life', v); }
-    });
-
-    subHead(evInsp, T('Light and camera'));
-    var evLight = togglePill(evInsp, T('Light burst'),
-      T('A real CS2 light flashes where the effect plays.'),
-      function () { var p = evSelected(); if (p) evSet('lightBurst', p.lightBurst ? 0 : 1); });
-    var evLightStyle = modeRow(evInsp, T('Light colour'), [['0', T('Warm blast')], ['1', T('White flash')]], '100%',
-      function (k) { evSet('lightFlash', k); }, '', 12);
-    var evShake = sliderRow(evInsp, {
-      label: T('Camera shake'), min: 0, max: 100, decimals: 0, unit: '%',
+    var evRowB = evCells(evInsp, 2, 4), evRowC = evCells(evInsp, 2), evRowD = evCells(evInsp, 2), evRowE = evCells(evInsp, 2);
+    var evLift = evSlider(evRowB[0], T('Height'), 'lift', -100, 300, 0, 'u', T('Raises the effect above the point it plays at.'));
+    var evDelay = evSlider(evRowB[1], T('Delay'), 'delay', 0, 5, 2, 's', T('Waits this long after the event.'));
+    var evCopies = evSlider(evRowC[0], T('Copies'), 'copies', 1, 6, 0, '', T('More of the same effect, scattered around the point.'));
+    var evSpread = evSlider(evRowC[1], T('Spread'), 'spread', 0, 600, 0, 'u', T('How far apart the copies land.'));
+    var evLife = evSlider(evRowD[0], T('Keep for'), 'life', 0, 30, 1, 's',
+      T('How long the effects stay before they are removed. 0 uses each effect\'s own length.'),
+      function (v) { return v <= 0 ? T('Auto') : v.toFixed(1) + 's'; });
+    var evShake = evNarrow(sliderRow(evRowD[1], {
+      label: T('Camera shake'), min: 0, max: 100, decimals: 0, unit: '%', offAtZero: true,
       tip: T('Shakes the camera, less the farther it is from the effect. 0 is off.'),
       onChange: function (v) { evSet('shake', (v / 100).toFixed(2)); }
-    });
+    }));
+    var evLight = togglePill(evRowE[0], T('Light burst'),
+      T('A real CS2 light flashes where the effect plays.'),
+      function () { var p = evSelected(); if (p) evSet('lightBurst', p.lightBurst ? 0 : 1); });
+    var evLightStyle = evNarrow(dropdownRow(evRowE[1], T('Light colour'), [['0', T('Warm blast')], ['1', T('White flash')]],
+      function (k) { evSet('lightFlash', k); }));
 
     var evListSig = '';
     renderHooks.push(function (st) {
@@ -129,29 +193,18 @@ R"CFJS(
       for (var k = 0; k < presets.length; k++) if (presets[k].enabled) armed++;
       evSec.__note(es.on ? T('{0} armed', armed) : T('Off'));
 
-      var sig = es.selected + '|' + presets.map(function (p) { return p.id + ':' + p.name + ':' + p.trigger + ':' + (p.enabled ? 1 : 0); }).join('|');
+      var placedSig = ((st.props && st.props.placed) || []).map(function (q) { return q.play ? q.group : ''; }).join(',');
+      var sig = es.selected + '|' + placedSig + '|' + presets.map(function (p) {
+        return p.id + ':' + p.name + ':' + p.trigger + ':' + (p.enabled ? 1 : 0) + ':' + (p.effects || []).join(',');
+      }).join('|');
       if (sig !== evListSig) {
         evListSig = sig;
-        evListHost.RemoveAndDeleteChildren();
-        for (var i = 0; i < presets.length; i++) (function (p) {
-          var on = p.id === es.selected;
-          var r = mk('Panel', evListHost); r.hittest = true;
-          r.style.width = '100%'; r.style.height = '30px'; r.style.flowChildren = 'right';
-          r.style.paddingLeft = '8px'; r.style.paddingRight = '6px'; r.style.marginBottom = '3px';
-          r.style.borderRadius = '3px';
-          r.style.backgroundColor = on ? '#ffb86b28' : '#ffffff08';
-          r.style.border = '1px solid ' + (on ? EV_ACCENT + 'ff' : '#ffffff12');
-          var nm = lbl(r, p.name, on ? S.value : S.label, 12); nm.hittest = false;
-          nm.style.width = 'fill-parent-flow(1.0)'; nm.style.verticalAlign = 'center';
-          nm.style.whiteSpace = 'nowrap'; nm.style.textOverflow = 'ellipsis';
-          var tg = lbl(r, evTriggerName(p.trigger), EV_ACCENT + 'ff', 11); tg.hittest = false;
-          tg.style.verticalAlign = 'center'; tg.style.marginLeft = '8px'; tg.style.marginRight = '8px'; tg.style.whiteSpace = 'nowrap';
-          var tb = btn(r, T('Test'), function () { evCmd('test ' + p.id); }, EV_ACCENT + 'ff');
-          tb.style.marginRight = '4px';
-          var eb = btn(r, p.enabled ? T('On') : T('Off'), function () { evCmd('enable ' + p.id + ' ' + (p.enabled ? 0 : 1)); }, p.enabled ? EV_ACCENT + 'ff' : S.muted);
-          eb.style.marginRight = '0px';
-          r.SetPanelEvent('onactivate', function () { evCmd('select ' + p.id); });
-        })(presets[i]);
+        evGrid.RemoveAndDeleteChildren();
+        for (var i = 0; i < presets.length; i += 2) {
+          var cells = evCells(evGrid, 2);
+          evTile(cells[0], presets[i], presets[i].id === es.selected);
+          if (presets[i + 1]) evTile(cells[1], presets[i + 1], presets[i + 1].id === es.selected);
+        }
       }
 
       var sel = evSelected();
@@ -159,15 +212,15 @@ R"CFJS(
       if (!sel) return;
       evInspTitle.text = sel.name;
       evTrig.sync(sel.trigger || 'kill');
-      for (var e = 0; e < 3; e++) evFx[e].sync((sel.effects && sel.effects[e]) || '-');
       evWhere.sync(sel.where || 'event');
+      for (var e = 0; e < 3; e++) evFx[e].sync((sel.effects && sel.effects[e]) || '-');
       evLift.sync(sel.lift || 0);
       evCopies.sync(sel.copies || 1);
       evSpread.sync(sel.spread || 0);
       evDelay.sync(sel.delay || 0);
       evLife.sync(sel.life || 0);
+      evShake.sync(Math.round((sel.shake || 0) * 100));
       evLight.set(!!sel.lightBurst);
       evLightStyle.sync(sel.lightFlash ? '1' : '0');
-      evShake.sync(Math.round((sel.shake || 0) * 100));
     });
 )CFJS"
