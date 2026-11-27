@@ -71,7 +71,8 @@ R"CFJS(
       ((st.props && st.props.placed) || []).forEach(function (q) {
         out.push({ key: 'p' + q.id, src: 'p', id: q.id, name: q.name, kind: 'asset', group: q.group || '',
                    visible: !!q.visible, render: q.render !== false, locked: !!q.locked,
-                   model: q.model, folder: q.folder, source: q.source || '', scale: q.scale, ang: q.ang || [0, 0, 0] });
+                   model: q.model, folder: q.folder, source: q.source || '', scale: q.scale, ang: q.ang || [0, 0, 0],
+                   play: q.play || '', playTick: q.playTick || 0, playLife: q.playLife || 0, playing: !!q.playing });
       });
       var s = envState();
       ((s && s.objects) || []).forEach(function (o) {
@@ -532,6 +533,25 @@ R"CFJS(
     actionBtn(olAssetActs, T('Drop to floor'), function () { olAct(olFind(olSel), 'floor'); });
     actionBtn(olAssetActs, T('To crosshair'), function () { olAct(olFind(olSel), 'here'); });
     var olUprightBtn = actionBtn(olAssetActs, T('Stand upright'), function () { olAct(olFind(olSel), 'upright'); });
+    // An effect plays all the time, or only on a demo event or when the playhead crosses a tick, for
+    // a few seconds each time (Props.cpp PumpTriggers). Event FX's Place in world sets these.
+    var olFxBox = mk('Panel', olCard);
+    olFxBox.style.width = '100%'; olFxBox.style.flowChildren = 'down'; olFxBox.style.marginTop = '6px';
+    var OL_PLAYS = [['-', T('All the time')], ['kill', T('On a kill')], ['headshot', T('On a headshot')],
+      ['flashbang', T('On a flashbang')], ['hegrenade', T('On an HE grenade')], ['smoke', T('On a smoke grenade')],
+      ['molotov', T('On a molotov')], ['bomb', T('When the bomb explodes')], ['marker', T('At a timeline marker')],
+      ['tick', T('At a tick')]];
+    function olFxSet(field, v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' ' + field + ' ' + v); }
+    var olFxPlay = dropdownRow(olFxBox, T('Plays'), OL_PLAYS, function (k) { olFxSet('play', k); });
+    var olFxLife = sliderRow(olFxBox, {
+      label: T('Plays for'), min: 0, max: 30, decimals: 1, unit: 's', tip: T('How long it plays each time. 0 is 6 seconds.'),
+      onChange: function (v) { olFxSet('playlife', v); }
+    });
+    var olFxNote = lbl(olFxBox, '', S.muted, 12);
+    olFxNote.style.marginTop = '8px'; olFxNote.style.marginLeft = UI.line.padH + 'px';
+    var olFxActs = actionRowEnd(olFxBox, 10);
+    var olFxTickBtn = actionBtn(olFxActs, T('Set to playhead'), function () { olFxSet('playtick', 'here'); });
+    var olFxFireBtn = actionBtn(olFxActs, T('Play now'), function () { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('fire ' + it.id); });
     // Light and mesh: their inspectors land in these hosts.
     var olLightHost = mk('Panel', olCard);
     olLightHost.style.width = '100%'; olLightHost.style.flowChildren = 'down';
@@ -692,6 +712,18 @@ R"CFJS(
       olGroupDrop.row.visible = !isGroup;
       olCardHint.visible = !isGroup;
       olAssetBox.visible = !!it && it.kind === 'asset';
+      var olIsFx = !!it && it.kind === 'asset' && /\.vpcf$/i.test(it.model || '');
+      olFxBox.visible = olIsFx;
+      if (olIsFx) {
+        olFxPlay.sync(it.play || '-');
+        olFxLife.sync(it.playLife || 0);
+        olFxLife.row.visible = !!it.play;
+        olFxTickBtn.visible = it.play === 'tick';
+        olFxFireBtn.visible = !!it.play;
+        olFxNote.visible = !!it.play;
+        olFxNote.text = !it.play ? '' : (it.playing ? T('Playing now')
+          : it.play === 'tick' ? T('Plays when the playhead crosses tick {0}', it.playTick || 0) : T('Waits for its event'));
+      }
       olLightHost.visible = !!it && it.kind === 'light';
       olMeshHost.visible = !!it && it.kind === 'mesh';
       if (isGroup) {

@@ -1,62 +1,69 @@
 #define NOMINMAX
 #include "EventFx.h"
 
-#include "../Debug/GpuPassProfiler.h"
+#include "../Cosmetics/CosmeticEntityAccess.h"
 #include "../Debug/MvmDebugLog.h"
-#include "../Environment/EnvironmentShaderCompiler.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/CameraPath.h"
 #include "../Movie/ParticleFxInternal.h"
-#include "../Movie/SceneKeys.h"
-#include "../Movie/SceneKeyframeCatalog.h"
-#include "../Movie/SceneKeyframeTrackMath.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
-#include "../Render/RenderPrivateTextureScope.h"
+#include "../Props/Props.h"
+#include "../../ClientEntitySystem.h"
 #include "../../MirvTime.h"
 #include "../../../Deps/release/prop/cs2/sdk_src/public/igameevents.h"
 #include "../../../Deps/release/prop/cs2/sdk_src/public/tier1/utlstring.h"
 #include "../../../Shared/AfxConsole.h"
 
-#include <d3dcompiler.h>
-#include <wrl/client.h>
+#include <Windows.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
-#include <thread>
 
 namespace Filmmaker {
-using Microsoft::WRL::ComPtr;
 namespace {
 
 std::mutex g_mutex;
 bool g_masterEnabled = false;
 std::vector<EventFx::EventPreset> g_presets = EventFx::DefaultPresets();
-int g_nextPresetId = 6;
+int g_nextPresetId = EventFx::kFirstCustomPresetId;
 int g_selectedPresetId = 1;
-std::vector<EventFx::ActiveCue> g_activeCues;
-uint32_t g_cueSeed = 1;
+uint32_t g_seed = 1;
+
+// A planned particle waiting for its start, or alive until its end. Main thread only.
+struct LiveSpawn {
+	EventFx::PlannedSpawn plan;
+	bool wallClock = false; // Test: runs on the wall clock, so it plays while the demo is paused
+	int particle = -1;
+	bool started = false;
+};
+std::vector<LiveSpawn> g_spawns;
+// Firings from the event hook, turned into spawns on the main thread.
+struct Firing { EventFx::EventPreset preset; bool hasPos = false; float pos[3] = {0, 0, 0}; bool wallClock = false; };
+std::vector<Firing> g_firings;
+
+std::vector<EventFx::ActiveShake> g_shakes;
+std::atomic<bool> g_hasShakes{ false };
 
 // Deduplication for double server/client event delivery.
-struct DedupStamp {
-	int trigger = -1;
-	int tick = -1;
-	ULONGLONG wallMs = 0;
-};
+struct DedupStamp { int trigger = -1; int tick = -1; ULONGLONG wallMs = 0; };
 std::vector<DedupStamp> g_recentTriggers;
 int g_lastDemoTick = -1;
 double g_lastDemoTime = -1.0;
 
-std::atomic<bool> g_hasActiveCues{ false };
+// Systems loaded for the enabled presets on this level (the precache rule).
+std::vector<std::string> g_warmed;
+ULONGLONG g_levelSince = 0;
 
-double CurrentClock() {
+double DemoClock() {
 	double t = 0.0;
 	if (!g_MirvTime.GetCurrentDemoTime(t)) t = g_MirvTime.curtime_get();
 	return std::isfinite(t) ? t : 0.0;
 }
+double WallClock() { return (double)GetTickCount64() * 0.001; }
 
 EventFx::EventPreset* FindPresetLocked(int id) {
 	for (auto& p : g_presets)
@@ -64,168 +71,105 @@ EventFx::EventPreset* FindPresetLocked(int id) {
 	return nullptr;
 }
 
-void FirePresetLocked(const EventFx::EventPreset& p, double nowTime, bool hasPos, float x, float y, float z) {
-	EventFx::ActiveCue cue;
-	cue.preset = p;
-	cue.triggerTime = nowTime;
-	cue.seed = ++g_cueSeed;
-	if (g_activeCues.size() >= 24) g_activeCues.erase(g_activeCues.begin());
-	g_activeCues.push_back(cue);
-	g_hasActiveCues.store(true, std::memory_order_release);
+// ---- Where an event happened ----------------------------------------------------------------------
+bool Finite3(const float* v) { return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]); }
 
-	// Optional native CS2 world light burst (flashbang or warm HE style).
-	if (p.lightBurst) {
-		float lx = x, ly = y, lz = z;
-		if (!hasPos) {
-			double org[3] = {}, ang[3] = {}, fov = 90.0;
-			CameraBridge_GetCurrentCamera(org, ang, fov);
-			const float yaw = (float)ang[1] * 3.14159265f / 180.0f;
-			lx = (float)org[0] + std::cos(yaw) * 96.0f;
-			ly = (float)org[1] + std::sin(yaw) * 96.0f;
-			lz = (float)org[2];
-		}
-		fx::NativeLightFx_OnDetonate(p.lightFlashStyle, (int)(cue.seed & 0xFFFF), lx, ly, lz);
-	}
+// The victim of a player_death: their eye for a headshot, else their feet (a preset lifts it).
+bool PlayerPosition(int userid, bool eye, float out[3]) {
+	__try {
+		auto controller = CosmeticEntFromIndex(userid + 1);
+		if (!controller || !controller->IsPlayerController()) return false;
+		const auto handle = controller->GetPlayerPawnHandle();
+		auto pawn = handle.IsValid() ? CosmeticEntFromIndex(handle.GetEntryIndex()) : nullptr;
+		if (!pawn || !pawn->IsPlayerPawn()) return false;
+		if (eye) pawn->GetRenderEyeOrigin(out);
+		else pawn->GetOrigin(out[0], out[1], out[2]);
+		return Finite3(out) && (out[0] != 0.0f || out[1] != 0.0f);
+	} __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
-void TriggerKindLocked(EventFx::TriggerKind kind, bool hasPos, float x, float y, float z) {
-	if (!g_masterEnabled) return;
+// bomb_exploded carries no position: the planted bomb is still there when it fires.
+bool BombPosition(float out[3]) {
+	__try {
+		const int highest = (std::min)(GetHighestEntityIndex(), 32768);
+		for (int i = 0; i <= highest; ++i) {
+			auto e = CosmeticEntFromIndex(i);
+			const char* cls = e ? e->GetClassName() : nullptr;
+			if (cls && !std::strcmp(cls, "planted_c4")) { e->GetOrigin(out[0], out[1], out[2]); return Finite3(out); }
+		}
+	} __except (EXCEPTION_EXECUTE_HANDLER) {}
+	return false;
+}
+
+// A little ahead of the camera, where an effect with no place of its own shows.
+void InFrontOfCamera(float out[3], float ahead) {
+	double org[3] = {}, ang[3] = {}, fov = 90.0;
+	CameraBridge_GetCurrentCamera(org, ang, fov);
+	const double pitch = ang[0] * 3.14159265358979 / 180.0, yaw = ang[1] * 3.14159265358979 / 180.0;
+	out[0] = (float)(org[0] + std::cos(pitch) * std::cos(yaw) * ahead);
+	out[1] = (float)(org[1] + std::cos(pitch) * std::sin(yaw) * ahead);
+	out[2] = (float)(org[2] - std::sin(pitch) * ahead - 24.0);
+}
+
+// ---- Firing --------------------------------------------------------------------------------------
+void QueueFiringLocked(const EventFx::EventPreset& p, bool hasPos, const float* pos, bool wallClock) {
+	if (g_firings.size() >= 32) return;
+	Firing f; f.preset = p; f.hasPos = hasPos; f.wallClock = wallClock;
+	if (hasPos) std::memcpy(f.pos, pos, sizeof(f.pos));
+	g_firings.push_back(f);
+}
+
+void TriggerKindLocked(EventFx::TriggerKind kind, bool hasPos, const float* pos) {
 	int tick = 0;
 	g_MirvTime.GetCurrentDemoTick(tick);
 	const ULONGLONG wall = GetTickCount64();
-	for (const auto& r : g_recentTriggers) {
-		if (r.trigger == (int)kind && (r.tick == tick || (wall - r.wallMs) < 120))
-			return;
-	}
+	for (const auto& r : g_recentTriggers)
+		if (r.trigger == (int)kind && (r.tick == tick || (wall - r.wallMs) < 120)) return;
 	if (g_recentTriggers.size() >= 32) g_recentTriggers.erase(g_recentTriggers.begin());
 	g_recentTriggers.push_back({ (int)kind, tick, wall });
 
-	const double now = CurrentClock();
-	for (const auto& p : g_presets) {
-		if (p.enabled && p.trigger == kind)
-			FirePresetLocked(p, now, hasPos, x, y, z);
+	// Effects placed in the map (Scene Objects) play on their event whether or not presets are on.
+	Props_FireTrigger(EventFx::TriggerToken(kind));
+	if (!g_masterEnabled) return;
+	for (const auto& p : g_presets)
+		if (p.enabled && p.trigger == kind) QueueFiringLocked(p, hasPos, pos, false);
+}
+
+// Main thread: a firing becomes its particle spawns, its light burst and its shake.
+void StartFiring(const Firing& f) {
+	const EventFx::EventPreset& p = f.preset;
+	float at[3];
+	if (p.where == EventFx::Where::AtEvent && f.hasPos) std::memcpy(at, f.pos, sizeof(at));
+	else InFrontOfCamera(at, 220.0f);
+	const double now = f.wallClock ? WallClock() : DemoClock();
+	const uint32_t seed = ++g_seed;
+	for (const auto& s : EventFx::PlanSpawns(p, at, now, seed)) {
+		if (g_spawns.size() >= 64) break;
+		LiveSpawn l; l.plan = s; l.wallClock = f.wallClock;
+		g_spawns.push_back(l);
 	}
-}
-
-// ---- Lightweight D3D11 Post-Process Pulse Pass ----
-constexpr char kPostShader[] = R"HLSL(
-cbuffer EventPulseCB : register(b0) {
-    float4 pulseA; // exposureScale, tintStrength, chromatic, vignette
-    float4 pulseB; // tintR, tintG, tintB, 0
-};
-Texture2D<float4> sceneColor : register(t0);
-SamplerState linearClamp : register(s0);
-
-struct VsOut {
-    float4 pos : SV_Position;
-    float2 uv  : TEXCOORD0;
-};
-
-VsOut VS(uint id : SV_VertexID) {
-    VsOut o;
-    float2 p = float2((id << 1) & 2, id & 2);
-    o.pos = float4(p * float2(2, -2) + float2(-1, 1), 0, 1);
-    o.uv = p;
-    return o;
-}
-
-float4 PS(VsOut i) : SV_Target {
-    float2 c = i.uv - 0.5;
-    float r = length(c);
-    float ch = pulseA.z * 0.012 * (0.4 + r * 1.4);
-    float2 dir = normalize(c + 1e-5) * ch;
-    float3 col;
-    col.r = sceneColor.SampleLevel(linearClamp, saturate(i.uv + dir), 0).r;
-    col.g = sceneColor.SampleLevel(linearClamp, i.uv, 0).g;
-    col.b = sceneColor.SampleLevel(linearClamp, saturate(i.uv - dir), 0).b;
-
-    // Soft-knee exposure boost so bright flashes bloom gracefully without harsh clipping.
-    col *= pulseA.x;
-    col = col / (1.0 + max(col - 0.85, 0.0) * 0.45);
-    col = lerp(col, pulseB.rgb, saturate(pulseA.y));
-    float vig = 1.0 - smoothstep(0.32, 0.88, r) * saturate(pulseA.w) * 0.85;
-    col *= vig;
-    return float4(saturate(col), 1.0);
-}
-)HLSL";
-
-struct PostCb {
-	float pulseA[4];
-	float pulseB[4];
-};
-
-struct PostBlobs {
-	ComPtr<ID3DBlob> vs, ps;
-	bool ok = false;
-};
-std::mutex g_blobLock;
-std::shared_ptr<const PostBlobs> g_blobs;
-std::atomic<bool> g_compileStarted{ false };
-
-struct PostGpu {
-	ComPtr<ID3D11Device> device;
-	ComPtr<ID3D11DeviceContext> ctx;
-	ComPtr<ID3D11VertexShader> vs;
-	ComPtr<ID3D11PixelShader> ps;
-	ComPtr<ID3D11Buffer> cb;
-	ComPtr<ID3D11SamplerState> sampler;
-	ComPtr<ID3D11RasterizerState> raster;
-	ComPtr<ID3D11DepthStencilState> dsOff;
-	ComPtr<ID3D11BlendState> blendOpaque;
-	ComPtr<ID3D11Texture2D> colorCopy;
-	ComPtr<ID3D11ShaderResourceView> colorSrv;
-	UINT w = 0, h = 0;
-	DXGI_FORMAT fmt = DXGI_FORMAT_UNKNOWN;
-	bool failed = false;
-} g_gpu;
-
-DXGI_FORMAT TypedColorFormat(DXGI_FORMAT f) {
-	switch (f) {
-	case DXGI_FORMAT_R8G8B8A8_TYPELESS: return DXGI_FORMAT_R8G8B8A8_UNORM;
-	case DXGI_FORMAT_B8G8R8A8_TYPELESS: return DXGI_FORMAT_B8G8R8A8_UNORM;
-	case DXGI_FORMAT_B8G8R8X8_TYPELESS: return DXGI_FORMAT_B8G8R8X8_UNORM;
-	case DXGI_FORMAT_R10G10B10A2_TYPELESS: return DXGI_FORMAT_R10G10B10A2_UNORM;
-	case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
-	default: return f;
+	if (p.lightBurst)
+		fx::NativeLightFx_OnDetonate(p.lightFlashStyle, (int)(seed & 0xFFFF), at[0], at[1], at[2] + p.lift + 16.0f);
+	if (p.shake > 0.001f) {
+		double org[3] = {}, ang[3] = {}, fov = 90.0;
+		CameraBridge_GetCurrentCamera(org, ang, fov);
+		const float dx = at[0] - (float)org[0], dy = at[1] - (float)org[1], dz = at[2] - (float)org[2];
+		EventFx::ActiveShake s;
+		s.start = now; s.seed = seed; s.useWallClock = f.wallClock;
+		s.strength = p.shake * EventFx::ShakeFalloff(std::sqrt(dx * dx + dy * dy + dz * dz));
+		std::lock_guard<std::mutex> lock(g_mutex);
+		if (g_shakes.size() >= 16) g_shakes.erase(g_shakes.begin());
+		g_shakes.push_back(s);
+		g_hasShakes.store(true, std::memory_order_release);
 	}
+	MvmDebugLog_LinefAlways("eventfx.fire", "preset=%d '%s' at %.1f %.1f %.1f (event pos %d) spawns=%zu",
+		p.id, p.name.c_str(), at[0], at[1], at[2], f.hasPos ? 1 : 0, g_spawns.size());
 }
 
-void CompilePost() {
-	auto b = std::make_shared<PostBlobs>();
-	ComPtr<ID3DBlob> err;
-	const size_t n = sizeof(kPostShader) - 1;
-	b->ok = SUCCEEDED(Environment::CompileEnvironmentShader(kPostShader, n, "EventFxPost", nullptr, "VS", "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, &b->vs, &err))
-		&& SUCCEEDED(Environment::CompileEnvironmentShader(kPostShader, n, "EventFxPost", nullptr, "PS", "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS, &b->ps, &err));
-	std::lock_guard<std::mutex> lock(g_blobLock);
-	g_blobs = b;
-}
-
-bool EnsurePostShaders() {
-	if (g_gpu.vs) return true;
-	if (!g_gpu.device || g_gpu.failed) return false;
-	std::shared_ptr<const PostBlobs> b;
-	{ std::lock_guard<std::mutex> lock(g_blobLock); b = g_blobs; }
-	if (!b) return false;
-	if (!b->ok) { g_gpu.failed = true; return false; }
-
-	RenderPrivateTextureScope priv;
-	auto* d = g_gpu.device.Get();
-	if (FAILED(d->CreateVertexShader(b->vs->GetBufferPointer(), b->vs->GetBufferSize(), nullptr, &g_gpu.vs))
-		|| FAILED(d->CreatePixelShader(b->ps->GetBufferPointer(), b->ps->GetBufferSize(), nullptr, &g_gpu.ps))) {
-		g_gpu.failed = true; return false;
-	}
-	D3D11_BUFFER_DESC cbd{}; cbd.ByteWidth = sizeof(PostCb); cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	d->CreateBuffer(&cbd, nullptr, &g_gpu.cb);
-	D3D11_SAMPLER_DESC sd{}; sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-	sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP; sd.MaxLOD = D3D11_FLOAT32_MAX;
-	d->CreateSamplerState(&sd, &g_gpu.sampler);
-	D3D11_RASTERIZER_DESC rd{}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
-	d->CreateRasterizerState(&rd, &g_gpu.raster);
-	D3D11_DEPTH_STENCIL_DESC dd{}; dd.DepthEnable = FALSE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-	d->CreateDepthStencilState(&dd, &g_gpu.dsOff);
-	D3D11_BLEND_DESC bd{}; bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-	d->CreateBlendState(&bd, &g_gpu.blendOpaque);
-	return g_gpu.cb && g_gpu.sampler && g_gpu.raster && g_gpu.dsOff && g_gpu.blendOpaque;
+void StopAllSpawns() {
+	for (auto& s : g_spawns)
+		if (s.particle >= 0) Props_DestroyEffect(s.particle);
+	g_spawns.clear();
 }
 
 typedef bool (*SaveKV3AsJSON_t)(const SOURCESDK::CS2::KeyValues3* kv,
@@ -253,268 +197,226 @@ bool EventDataToJson(SOURCESDK::CS2::CGameEvent* event, JsonValue& out) {
 	return JsonParse(text.Get(), out) && out.type == JsonValue::Type::Object;
 }
 
+const char* WhereToken(EventFx::Where w) { return w == EventFx::Where::FrontOfCamera ? "camera" : "event"; }
+
 } // namespace
 
 void EventFx_OnLevelInit() {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	g_activeCues.clear();
+	g_firings.clear();
+	g_spawns.clear(); // the level took the particles with it
+	g_shakes.clear();
 	g_recentTriggers.clear();
+	g_warmed.clear();
+	g_levelSince = GetTickCount64();
 	g_lastDemoTick = -1;
 	g_lastDemoTime = -1.0;
-	g_hasActiveCues.store(false, std::memory_order_release);
+	g_hasShakes.store(false, std::memory_order_release);
 }
 
 void EventFx_OnGameEvent(SOURCESDK::CS2::CGameEvent* event) {
 	if (!event) return;
 	const char* name = event->GetName();
 	if (!name || !*name) return;
-
-	bool headshot = false;
-	bool hasPos = false;
-	float x = 0.0f, y = 0.0f, z = 0.0f;
-	const bool isDeath = (0 == std::strcmp(name, "player_death"));
-	const bool isGrenade = (0 == std::strcmp(name, "flashbang_detonate")
-		|| 0 == std::strcmp(name, "hegrenade_detonate")
-		|| 0 == std::strcmp(name, "smokegrenade_detonate")
-		|| 0 == std::strcmp(name, "inferno_startburn"));
-	const bool isBomb = (0 == std::strcmp(name, "bomb_exploded"));
+	const bool isDeath = !std::strcmp(name, "player_death");
+	const bool isGrenade = !std::strcmp(name, "flashbang_detonate") || !std::strcmp(name, "hegrenade_detonate")
+		|| !std::strcmp(name, "smokegrenade_detonate") || !std::strcmp(name, "inferno_startburn");
+	const bool isBomb = !std::strcmp(name, "bomb_exploded");
 	if (!isDeath && !isGrenade && !isBomb) return;
 
-	if (isDeath || isGrenade) {
-		JsonValue root;
-		if (EventDataToJson(event, root)) {
-			if (isDeath) {
-				if (const JsonValue* v = root.Find("headshot"))
-					headshot = v->AsBool(false) || v->AsInt(0) != 0;
-			} else if (isGrenade) {
-				const JsonValue* jx = root.Find("x");
-				const JsonValue* jy = root.Find("y");
-				const JsonValue* jz = root.Find("z");
-				if (jx && jy && jz) {
-					x = (float)jx->AsNumber(0.0);
-					y = (float)jy->AsNumber(0.0);
-					z = (float)jz->AsNumber(0.0);
-					hasPos = std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && (x != 0.0f || y != 0.0f);
-				}
-			}
+	bool headshot = false, hasPos = false, hasHead = false;
+	float pos[3] = {0, 0, 0}, head[3] = {0, 0, 0};
+	JsonValue root;
+	const bool data = (isDeath || isGrenade) && EventDataToJson(event, root);
+	if (isDeath && data) {
+		if (const JsonValue* v = root.Find("headshot")) headshot = v->AsBool(false) || v->AsInt(0) != 0;
+		if (const JsonValue* v = root.Find("userid")) {
+			const int userid = v->AsInt(-1);
+			hasPos = userid >= 0 && PlayerPosition(userid, false, pos);
+			hasHead = userid >= 0 && PlayerPosition(userid, true, head);
 		}
+	} else if (isGrenade && data) {
+		const JsonValue* jx = root.Find("x");
+		const JsonValue* jy = root.Find("y");
+		const JsonValue* jz = root.Find("z");
+		if (jx && jy && jz) {
+			pos[0] = (float)jx->AsNumber(0.0); pos[1] = (float)jy->AsNumber(0.0); pos[2] = (float)jz->AsNumber(0.0);
+			hasPos = Finite3(pos) && (pos[0] != 0.0f || pos[1] != 0.0f);
+		}
+	} else if (isBomb) {
+		hasPos = BombPosition(pos);
 	}
 
 	std::lock_guard<std::mutex> lock(g_mutex);
-	if (!g_masterEnabled) return;
 	if (isDeath) {
-		TriggerKindLocked(EventFx::TriggerKind::Kill, false, 0, 0, 0);
-		if (headshot) TriggerKindLocked(EventFx::TriggerKind::Headshot, false, 0, 0, 0);
-	} else if (0 == std::strcmp(name, "flashbang_detonate")) {
-		TriggerKindLocked(EventFx::TriggerKind::FlashbangPop, hasPos, x, y, z);
-	} else if (0 == std::strcmp(name, "hegrenade_detonate")) {
-		TriggerKindLocked(EventFx::TriggerKind::HeGrenadePop, hasPos, x, y, z);
-	} else if (0 == std::strcmp(name, "smokegrenade_detonate")) {
-		TriggerKindLocked(EventFx::TriggerKind::SmokePop, hasPos, x, y, z);
-	} else if (0 == std::strcmp(name, "inferno_startburn")) {
-		TriggerKindLocked(EventFx::TriggerKind::MolotovPop, hasPos, x, y, z);
+		TriggerKindLocked(EventFx::TriggerKind::Kill, hasPos, pos);
+		if (headshot) TriggerKindLocked(EventFx::TriggerKind::Headshot, hasHead || hasPos, hasHead ? head : pos);
+	} else if (!std::strcmp(name, "flashbang_detonate")) {
+		TriggerKindLocked(EventFx::TriggerKind::FlashbangPop, hasPos, pos);
+	} else if (!std::strcmp(name, "hegrenade_detonate")) {
+		TriggerKindLocked(EventFx::TriggerKind::HeGrenadePop, hasPos, pos);
+	} else if (!std::strcmp(name, "smokegrenade_detonate")) {
+		TriggerKindLocked(EventFx::TriggerKind::SmokePop, hasPos, pos);
+	} else if (!std::strcmp(name, "inferno_startburn")) {
+		TriggerKindLocked(EventFx::TriggerKind::MolotovPop, hasPos, pos);
 	} else if (isBomb) {
-		TriggerKindLocked(EventFx::TriggerKind::BombExplode, false, 0, 0, 0);
+		TriggerKindLocked(EventFx::TriggerKind::BombExplode, hasPos, pos);
 	}
 }
 
 void EventFx_RunMainThreadFrame() {
 	int tick = 0;
 	const bool haveTick = g_MirvTime.GetCurrentDemoTick(tick);
-	const double now = CurrentClock();
+	const double now = DemoClock(), wall = WallClock();
 
-	std::lock_guard<std::mutex> lock(g_mutex);
-	// Clear active cues on backward seek so scrubbed playback stays clean.
-	if (g_lastDemoTime >= 0.0 && now < g_lastDemoTime - 0.15) {
-		g_activeCues.clear();
-		g_recentTriggers.clear();
-	}
-	g_lastDemoTime = now;
-
-	// Detect timeline marker crossings when moving forward in demo time.
-	if (g_masterEnabled && haveTick && g_lastDemoTick >= 0 && tick > g_lastDemoTick && (tick - g_lastDemoTick) <= 64) {
-		const auto& markers = CameraPathRef().Markers();
-		for (const auto& m : markers) {
-			if (m.tick > g_lastDemoTick && m.tick <= tick) {
-				TriggerKindLocked(EventFx::TriggerKind::TimelineMarker, false, 0, 0, 0);
-				break;
+	std::vector<Firing> firings;
+	std::vector<std::string> warm;
+	bool rewound = false;
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		rewound = g_lastDemoTime >= 0.0 && now < g_lastDemoTime - 0.15;
+		if (rewound) {
+			g_shakes.erase(std::remove_if(g_shakes.begin(), g_shakes.end(),
+				[](const EventFx::ActiveShake& s) { return !s.useWallClock; }), g_shakes.end());
+			g_recentTriggers.clear();
+		}
+		g_lastDemoTime = now;
+		// A timeline marker crossed while the demo plays forward.
+		if (haveTick && g_lastDemoTick >= 0 && tick > g_lastDemoTick && (tick - g_lastDemoTick) <= 64) {
+			for (const auto& m : CameraPathRef().Markers()) {
+				if (m.tick > g_lastDemoTick && m.tick <= tick) {
+					TriggerKindLocked(EventFx::TriggerKind::TimelineMarker, false, nullptr);
+					break;
+				}
 			}
 		}
+		if (haveTick) g_lastDemoTick = tick;
+		firings.swap(g_firings);
+		g_shakes.erase(std::remove_if(g_shakes.begin(), g_shakes.end(), [now, wall](const EventFx::ActiveShake& s) {
+			const double age = (s.useWallClock ? wall : now) - s.start;
+			return age < -0.5 || age > (double)(EventFx::kShakeAttack + EventFx::kShakeDecay) + 0.05;
+		}), g_shakes.end());
+		g_hasShakes.store(!g_shakes.empty(), std::memory_order_release);
+		// The precache rule: every system an enabled preset can spawn is loaded once the level has
+		// settled, one a frame, so a blast in the middle of playback never stalls on a load.
+		if (g_masterEnabled && GetTickCount64() - g_levelSince > 3000)
+			for (const auto& s : EventFx::SystemsOf(g_presets))
+				if (std::find(g_warmed.begin(), g_warmed.end(), s) == g_warmed.end()) { warm.push_back(s); break; }
+		for (const auto& s : warm) g_warmed.push_back(s);
 	}
-	if (haveTick) g_lastDemoTick = tick;
+	for (const auto& s : warm) {
+		const bool ok = Props_PrecacheEffect(s.c_str());
+		MvmDebugLog_LinefAlways("eventfx.precache", "%s -> %d", s.c_str(), ok ? 1 : 0);
+	}
 
-	// Prune finished cues.
-	const double wallNow = (double)GetTickCount64() * 0.001;
-	g_activeCues.erase(std::remove_if(g_activeCues.begin(), g_activeCues.end(),
-		[now, wallNow](const EventFx::ActiveCue& c) {
-			const double clock = c.useWallClock ? wallNow : now;
-			const double age = clock - c.triggerTime;
-			return age < -0.5 || age > (double)(c.preset.attackSec + c.preset.decaySec + 0.05f);
-		}), g_activeCues.end());
-	g_hasActiveCues.store(!g_activeCues.empty(), std::memory_order_release);
+	// A rewind takes the demo-clock effects away with the moment they belonged to.
+	if (rewound) {
+		g_spawns.erase(std::remove_if(g_spawns.begin(), g_spawns.end(), [](LiveSpawn& s) {
+			if (s.wallClock) return false;
+			if (s.particle >= 0) Props_DestroyEffect(s.particle);
+			return true;
+		}), g_spawns.end());
+	}
+	for (const Firing& f : firings) StartFiring(f);
+	g_spawns.erase(std::remove_if(g_spawns.begin(), g_spawns.end(), [now, wall](LiveSpawn& s) {
+		const double clock = s.wallClock ? wall : now;
+		if (!s.started && clock >= s.plan.start) {
+			s.started = true;
+			s.particle = Props_SpawnEffect(s.plan.system.c_str(), s.plan.pos);
+			if (s.particle < 0) {
+				MvmDebugLog_LinefAlways("eventfx.spawn", "refused %s", s.plan.system.c_str());
+				return true;
+			}
+		}
+		if (s.started && clock >= s.plan.start + s.plan.life) {
+			Props_DestroyEffect(s.particle);
+			return true;
+		}
+		return false;
+	}), g_spawns.end());
 }
 
 bool EventFx_ApplyCameraImpulse(double curTime, float& pitch, float& yaw, float& roll, float& fov) {
-	if (!g_hasActiveCues.load(std::memory_order_acquire)) return false;
-	std::vector<EventFx::ActiveCue> copy;
+	(void)fov;
+	if (!g_hasShakes.load(std::memory_order_acquire)) return false;
+	std::vector<EventFx::ActiveShake> copy;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
-		copy = g_activeCues;
+		copy = g_shakes;
 	}
-	const double wallNow = (double)GetTickCount64() * 0.001;
-	const auto ev = EventFx::EvaluateActiveCues(copy, curTime, wallNow);
+	const auto ev = EventFx::EvaluateShakes(copy, curTime, WallClock());
 	if (!ev.active) return false;
-	pitch += ev.pitchDelta;
-	yaw += ev.yawDelta;
-	roll += ev.rollDelta;
-	fov = std::clamp(fov + ev.fovDelta, 10.0f, 165.0f);
-	return true;
-}
-
-void EventFx_BeginDevice(ID3D11Device* device) {
-	EventFx_EndDevice();
-	if (!device) return;
-	g_gpu.device = device;
-	g_gpu.failed = false;
-	device->CreateDeferredContext(0, &g_gpu.ctx);
-	if (!g_compileStarted.exchange(true)) {
-		std::thread(CompilePost).detach();
-	}
-}
-
-void EventFx_EndDevice() {
-	g_gpu = {};
-}
-
-bool EventFx_RenderPost(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, double demoTime) {
-	if (!g_hasActiveCues.load(std::memory_order_acquire) || !immediate || !target || !g_gpu.ctx || !EnsurePostShaders())
-		return false;
-
-	std::vector<EventFx::ActiveCue> copy;
-	{
-		std::lock_guard<std::mutex> lock(g_mutex);
-		copy = g_activeCues;
-	}
-	const double wallNow = (double)GetTickCount64() * 0.001;
-	const auto ev = EventFx::EvaluateActiveCues(copy, demoTime, wallNow);
-	if (!ev.active) return false;
-	if (std::fabs(ev.exposureEv) < 1e-3f && ev.tintStrength < 1e-3f && ev.chromatic < 1e-3f && ev.vignette < 1e-3f)
-		return false;
-
-	ComPtr<ID3D11Resource> res; target->GetResource(&res);
-	ComPtr<ID3D11Texture2D> src; if (!res || FAILED(res.As(&src))) return false;
-	D3D11_TEXTURE2D_DESC d{}; src->GetDesc(&d);
-	D3D11_RENDER_TARGET_VIEW_DESC rtvd{}; target->GetDesc(&rtvd);
-	const DXGI_FORMAT typed = TypedColorFormat(rtvd.Format != DXGI_FORMAT_UNKNOWN ? rtvd.Format : d.Format);
-
-	if (!g_gpu.colorCopy || g_gpu.w != d.Width || g_gpu.h != d.Height || g_gpu.fmt != typed) {
-		RenderPrivateTextureScope priv;
-		g_gpu.colorCopy.Reset(); g_gpu.colorSrv.Reset();
-		D3D11_TEXTURE2D_DESC td = d;
-		td.MipLevels = 1; td.ArraySize = 1; td.Format = typed; td.SampleDesc.Count = 1; td.SampleDesc.Quality = 0;
-		td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE; td.CPUAccessFlags = 0; td.MiscFlags = 0;
-		if (FAILED(g_gpu.device->CreateTexture2D(&td, nullptr, &g_gpu.colorCopy))
-			|| FAILED(g_gpu.device->CreateShaderResourceView(g_gpu.colorCopy.Get(), nullptr, &g_gpu.colorSrv)))
-			return false;
-		g_gpu.w = d.Width; g_gpu.h = d.Height; g_gpu.fmt = typed;
-	}
-
-	auto* c = g_gpu.ctx.Get();
-	if (d.SampleDesc.Count > 1) c->ResolveSubresource(g_gpu.colorCopy.Get(), 0, src.Get(), 0, typed);
-	else c->CopyResource(g_gpu.colorCopy.Get(), src.Get());
-
-	PostCb cb{};
-	cb.pulseA[0] = std::pow(2.0f, ev.exposureEv);
-	cb.pulseA[1] = ev.tintStrength;
-	cb.pulseA[2] = ev.chromatic;
-	cb.pulseA[3] = ev.vignette;
-	cb.pulseB[0] = ev.tint[0]; cb.pulseB[1] = ev.tint[1]; cb.pulseB[2] = ev.tint[2];
-	c->UpdateSubresource(g_gpu.cb.Get(), 0, nullptr, &cb, 0, 0);
-
-	D3D11_VIEWPORT vp{}; vp.Width = (float)d.Width; vp.Height = (float)d.Height; vp.MaxDepth = 1.0f;
-	c->RSSetViewports(1, &vp);
-	c->RSSetState(g_gpu.raster.Get());
-	c->OMSetDepthStencilState(g_gpu.dsOff.Get(), 0);
-	const float bf[4] = {};
-	c->OMSetBlendState(g_gpu.blendOpaque.Get(), bf, 0xffffffff);
-	c->IASetInputLayout(nullptr);
-	c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	c->VSSetShader(g_gpu.vs.Get(), nullptr, 0);
-	c->PSSetShader(g_gpu.ps.Get(), nullptr, 0);
-	ID3D11Buffer* cbs[1] = { g_gpu.cb.Get() };
-	c->PSSetConstantBuffers(0, 1, cbs);
-	ID3D11SamplerState* smps[1] = { g_gpu.sampler.Get() };
-	c->PSSetSamplers(0, 1, smps);
-	ID3D11ShaderResourceView* srvs[1] = { g_gpu.colorSrv.Get() };
-	c->PSSetShaderResources(0, 1, srvs);
-	ID3D11RenderTargetView* rts[1] = { target };
-	c->OMSetRenderTargets(1, rts, nullptr);
-	c->Draw(3, 0);
-	ID3D11ShaderResourceView* nullSrv[1] = {};
-	c->PSSetShaderResources(0, 1, nullSrv);
-	ID3D11RenderTargetView* nullRt[1] = {};
-	c->OMSetRenderTargets(1, nullRt, nullptr);
-
-	ComPtr<ID3D11CommandList> cl;
-	if (FAILED(c->FinishCommandList(FALSE, &cl)) || !cl) return false;
-	{ GPU_PASS_SCOPE(immediate, "event fx pulse"); immediate->ExecuteCommandList(cl.Get(), TRUE); }
+	pitch += ev.pitch;
+	yaw += ev.yaw;
+	roll += ev.roll;
 	return true;
 }
 
 void EventFx_AppendStateJson(std::ostringstream& out) {
 	std::lock_guard<std::mutex> lock(g_mutex);
-	out << ",\"eventFx\":{"
-		<< "\"on\":" << (g_masterEnabled ? "true" : "false")
-		<< ",\"selected\":" << g_selectedPresetId
-		<< ",\"activeCount\":" << g_activeCues.size()
-		<< ",\"presets\":[";
-	for (size_t i = 0; i < g_presets.size(); ++i) {
-		const auto& p = g_presets[i];
-		if (i) out << ",";
-		out << "{\"id\":" << p.id
-			<< ",\"name\":\"" << JsonBuilder::Escape(p.name) << "\""
-			<< ",\"trigger\":\"" << EventFx::TriggerToken(p.trigger) << "\""
-			<< ",\"enabled\":" << (p.enabled ? "true" : "false")
-			<< ",\"attack\":" << p.attackSec
-			<< ",\"decay\":" << p.decaySec
-			<< ",\"exposureEv\":" << p.exposureEv
-			<< ",\"tint\":[" << p.tint[0] << "," << p.tint[1] << "," << p.tint[2] << "]"
-			<< ",\"tintStrength\":" << p.tintStrength
-			<< ",\"shakeAmp\":" << p.shakeAmp
-			<< ",\"shakeRoll\":" << p.shakeRoll
-			<< ",\"shakeFreq\":" << p.shakeFreq
-			<< ",\"fovKick\":" << p.fovKick
-			<< ",\"lightBurst\":" << (p.lightBurst ? "true" : "false")
-			<< ",\"lightFlash\":" << (p.lightFlashStyle ? "true" : "false")
-			<< ",\"chromatic\":" << p.chromatic
-			<< ",\"vignette\":" << p.vignette
-			<< "}";
+	JsonBuilder j;
+	j.BeginObject();
+	j.BoolField("on", g_masterEnabled);
+	j.IntField("selected", g_selectedPresetId);
+	j.IntField("live", (int)g_spawns.size());
+	j.Key("presets"); j.BeginArray();
+	for (const auto& p : g_presets) {
+		j.BeginObject();
+		j.IntField("id", p.id);
+		j.StringField("name", p.name);
+		j.StringField("trigger", EventFx::TriggerToken(p.trigger));
+		j.BoolField("enabled", p.enabled);
+		j.Key("effects"); j.BeginArray();
+		for (const auto& e : p.effects) j.ValueString(e);
+		j.EndArray();
+		j.StringField("where", WhereToken(p.where));
+		j.DoubleField("lift", p.lift);
+		j.IntField("copies", p.copies);
+		j.DoubleField("spread", p.spread);
+		j.DoubleField("delay", p.delay);
+		j.DoubleField("life", p.life);
+		j.BoolField("lightBurst", p.lightBurst);
+		j.BoolField("lightFlash", p.lightFlashStyle);
+		j.DoubleField("shake", p.shake);
+		j.EndObject();
 	}
-	out << "]}";
+	j.EndArray();
+	j.EndObject();
+	out << ",\"eventFx\":" << j.Str();
 }
 
 void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 	if (argc < 3) {
 		advancedfx::Message(
 			"%s eventfx on|off|toggle|reset\n"
-			"%s eventfx test <id> | select <id> | enable <id> <0|1> | add | remove <id>\n"
-			"%s eventfx set <id> <field> <value>\n"
-			"%s eventfx bake <id>  (stamps exposure envelope into Scene Keyframes at playhead)\n",
+			"%s eventfx test <id> | select <id> | enable <id> <0|1> | add | remove <id> | place <id>\n"
+			"%s eventfx set <id> trigger|effect0|effect1|effect2|where|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|name <value>\n"
+			"%s eventfx effects  (the effects a preset can spawn)\n",
 			cmd, cmd, cmd, cmd);
 		return;
 	}
 	const char* sub = args->ArgV(2);
 	if (0 == _stricmp(sub, "on")) { std::lock_guard<std::mutex> l(g_mutex); g_masterEnabled = true; return; }
-	if (0 == _stricmp(sub, "off")) { std::lock_guard<std::mutex> l(g_mutex); g_masterEnabled = false; g_activeCues.clear(); g_hasActiveCues.store(false); return; }
+	if (0 == _stricmp(sub, "off")) {
+		std::lock_guard<std::mutex> l(g_mutex);
+		g_masterEnabled = false; g_firings.clear(); g_shakes.clear(); g_hasShakes.store(false);
+		StopAllSpawns();
+		return;
+	}
 	if (0 == _stricmp(sub, "toggle")) { std::lock_guard<std::mutex> l(g_mutex); g_masterEnabled = !g_masterEnabled; return; }
 	if (0 == _stricmp(sub, "reset")) {
 		std::lock_guard<std::mutex> l(g_mutex);
 		g_masterEnabled = false;
 		g_presets = EventFx::DefaultPresets();
-		g_nextPresetId = 6;
+		g_nextPresetId = EventFx::kFirstCustomPresetId;
 		g_selectedPresetId = 1;
-		g_activeCues.clear();
-		g_hasActiveCues.store(false);
+		g_firings.clear(); g_shakes.clear(); g_hasShakes.store(false);
+		StopAllSpawns();
+		return;
+	}
+	if (0 == _stricmp(sub, "effects")) {
+		for (const auto& e : EventFx::kEffects)
+			advancedfx::Message("%-14s %-20s %s\n", e.key, e.label, e.systems[0]);
 		return;
 	}
 	if (0 == _stricmp(sub, "select") && argc >= 4) {
@@ -523,29 +425,43 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		return;
 	}
 	if (0 == _stricmp(sub, "test") && argc >= 4) {
-		const int id = std::atoi(args->ArgV(3));
+		// On the wall clock, so it plays while the demo is paused; in front of the camera unless the
+		// preset is placed there anyway.
 		std::lock_guard<std::mutex> l(g_mutex);
-		if (auto* p = FindPresetLocked(id)) {
-			// Use wall-clock time for Test Fire so the pulse plays smoothly even while paused.
-			const double wallNow = (double)GetTickCount64() * 0.001;
-			FirePresetLocked(*p, wallNow, false, 0, 0, 0);
-			if (!g_activeCues.empty()) g_activeCues.back().useWallClock = true;
+		if (auto* p = FindPresetLocked(std::atoi(args->ArgV(3)))) {
+			for (const auto& s : EventFx::SystemsOf({ *p })) Props_PrecacheEffect(s.c_str());
+			QueueFiringLocked(*p, false, nullptr, true);
 		}
 		return;
 	}
+	if (0 == _stricmp(sub, "place") && argc >= 4) {
+		// The preset's effects as Scene Objects at the crosshair, playing on the preset's event.
+		EventFx::EventPreset copy;
+		{
+			std::lock_guard<std::mutex> l(g_mutex);
+			auto* p = FindPresetLocked(std::atoi(args->ArgV(3)));
+			if (!p) return;
+			copy = *p;
+		}
+		int placed = 0;
+		for (const auto& key : copy.effects)
+			if (const auto* def = EventFx::FindEffect(key))
+				for (const char* s : def->systems)
+					if (s && Props_AddTriggeredEffect(s, EventFx::TriggerToken(copy.trigger),
+						copy.life > 0 ? copy.life : def->life, copy.name.c_str(), copy.lift + def->lift)) ++placed;
+		advancedfx::Message("%s eventfx: placed %d effect(s) of '%s' at the crosshair; they play on %s.\n",
+			cmd, placed, copy.name.c_str(), EventFx::TriggerToken(copy.trigger));
+		return;
+	}
 	if (0 == _stricmp(sub, "enable") && argc >= 5) {
-		const int id = std::atoi(args->ArgV(3));
-		const bool on = std::atoi(args->ArgV(4)) != 0;
 		std::lock_guard<std::mutex> l(g_mutex);
-		if (auto* p = FindPresetLocked(id)) p->enabled = on;
+		if (auto* p = FindPresetLocked(std::atoi(args->ArgV(3)))) p->enabled = std::atoi(args->ArgV(4)) != 0;
 		return;
 	}
 	if (0 == _stricmp(sub, "add")) {
 		std::lock_guard<std::mutex> l(g_mutex);
-		EventFx::EventPreset p;
-		p.id = g_nextPresetId++;
-		p.name = "Custom Cue " + std::to_string(p.id);
-		p.trigger = EventFx::TriggerKind::Kill;
+		EventFx::EventPreset p = EventFx::MakePreset(g_nextPresetId++, "", EventFx::TriggerKind::Kill, "blood", nullptr, nullptr);
+		p.name = "Custom " + std::to_string(p.id);
 		g_selectedPresetId = p.id;
 		g_presets.push_back(p);
 		return;
@@ -558,33 +474,6 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		if (g_selectedPresetId == id) g_selectedPresetId = g_presets.empty() ? -1 : g_presets.front().id;
 		return;
 	}
-	if (0 == _stricmp(sub, "bake") && argc >= 4) {
-		const int id = std::atoi(args->ArgV(3));
-		EventFx::EventPreset copy;
-		{
-			std::lock_guard<std::mutex> l(g_mutex);
-			auto* p = FindPresetLocked(id);
-			if (!p) return;
-			copy = *p;
-		}
-		int curTick = 0;
-		g_MirvTime.GetCurrentDemoTick(curTick);
-		const auto keys = EventFx::BuildBakedExposureKeys(copy, (double)curTick, 64.0);
-		const auto* spec = SceneKeys::FindSpec(SceneKeys::Catalog(), "exposure");
-		if (spec) {
-			SceneKeys_Edit([&](SceneKeys::SceneKeyframeTrack& tr) {
-				tr.data.armed.insert(spec->id);
-				for (const auto& bk : keys) {
-					SceneKeys::Value v;
-					v.numbers = { std::clamp(bk.exposureScale, spec->min, spec->max) };
-					tr.Put(*spec, bk.tick, v);
-				}
-			});
-			advancedfx::Message("%s eventfx: baked '%s' exposure pulse (%zu scene keys from tick %d).\n",
-				cmd, copy.name.c_str(), keys.size(), curTick);
-		}
-		return;
-	}
 	if (0 == _stricmp(sub, "set") && argc >= 6) {
 		const int id = std::atoi(args->ArgV(3));
 		const char* f = args->ArgV(4);
@@ -595,18 +484,23 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		auto* p = FindPresetLocked(id);
 		if (!p) return;
 		if (0 == _stricmp(f, "trigger")) EventFx::TriggerFromToken(val, p->trigger);
-		else if (0 == _stricmp(f, "attack")) p->attackSec = Clamp(fv, 0.005f, 1.0f);
-		else if (0 == _stricmp(f, "decay")) p->decaySec = Clamp(fv, 0.02f, 5.0f);
-		else if (0 == _stricmp(f, "exposureEv")) p->exposureEv = Clamp(fv, -2.0f, 4.0f);
-		else if (0 == _stricmp(f, "tintStrength")) p->tintStrength = Clamp(fv, 0.0f, 1.0f);
-		else if (0 == _stricmp(f, "shakeAmp")) p->shakeAmp = Clamp(fv, 0.0f, 10.0f);
-		else if (0 == _stricmp(f, "shakeRoll")) p->shakeRoll = Clamp(fv, 0.0f, 10.0f);
-		else if (0 == _stricmp(f, "shakeFreq")) p->shakeFreq = Clamp(fv, 1.0f, 40.0f);
-		else if (0 == _stricmp(f, "fovKick")) p->fovKick = Clamp(fv, -15.0f, 20.0f);
+		else if (0 == _strnicmp(f, "effect", 6) && f[6] >= '0' && f[6] < '0' + EventFx::kPresetEffects && !f[7]) {
+			const std::string key = std::strcmp(val, "-") ? val : "";
+			if (key.empty() || EventFx::FindEffect(key)) p->effects[f[6] - '0'] = key;
+			else advancedfx::Warning("%s eventfx: unknown effect '%s' (see `eventfx effects`).\n", cmd, val);
+		}
+		else if (0 == _stricmp(f, "where")) p->where = !_stricmp(val, "camera") ? EventFx::Where::FrontOfCamera : EventFx::Where::AtEvent;
+		else if (0 == _stricmp(f, "lift")) p->lift = Clamp(fv, -200.0f, 400.0f);
+		else if (0 == _stricmp(f, "copies")) p->copies = (std::max)(1, (std::min)(EventFx::kMaxCopies, std::atoi(val)));
+		else if (0 == _stricmp(f, "spread")) p->spread = Clamp(fv, 0.0f, 600.0f);
+		else if (0 == _stricmp(f, "delay")) p->delay = Clamp(fv, 0.0f, 10.0f);
+		else if (0 == _stricmp(f, "life")) p->life = Clamp(fv, 0.0f, 60.0f);
 		else if (0 == _stricmp(f, "lightBurst")) p->lightBurst = fv > 0.5f;
 		else if (0 == _stricmp(f, "lightFlash")) p->lightFlashStyle = fv > 0.5f;
-		else if (0 == _stricmp(f, "chromatic")) p->chromatic = Clamp(fv, 0.0f, 1.0f);
-		else if (0 == _stricmp(f, "vignette")) p->vignette = Clamp(fv, 0.0f, 1.0f);
+		else if (0 == _stricmp(f, "shake")) p->shake = Clamp(fv, 0.0f, 1.0f);
+		else if (0 == _stricmp(f, "name")) { std::string n = val; for (int i = 6; i < argc; ++i) { n += ' '; n += args->ArgV(i); } p->name = n.substr(0, 40); }
+		else { advancedfx::Warning("%s eventfx: unknown field '%s'.\n", cmd, f); return; }
+		g_warmed.clear(); // a new effect is loaded before it can fire
 		return;
 	}
 	advancedfx::Warning("%s eventfx: unknown subcommand '%s'.\n", cmd, sub);

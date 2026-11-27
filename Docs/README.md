@@ -41,7 +41,7 @@ they disagree, follow the intent, then update the implementation and the documen
 | World Effects: Little Planet and the vertex-shader warps (`mirv_filmmaker worldwarp`) | [`world-warp.md`](features/world-warp.md) |
 | Effect Nodes: mask and effect graph (`mirv_filmmaker nodes`) | [`effect-nodes.md`](features/effect-nodes.md) |
 | Decals and media on map surfaces (`mirv_filmmaker decals`) | [`world-decals.md`](features/world-decals.md) |
-| Event FX presets: cues on kills, grenades, the bomb and markers (`mirv_filmmaker eventfx`) | [`event-fx.md`](features/event-fx.md) |
+| Event FX: CS2 explosions, fire, blood and sparks on kills, grenades, the bomb and markers, at the event or placed in the map (`mirv_filmmaker eventfx`) | [`event-fx.md`](features/event-fx.md) |
 | Scene object rigs: attachments, pose keys and camera objects | [`scene-object-rigs.md`](features/scene-object-rigs.md) |
 | Runtime map lighting, smoke, VFX and shadows | [`whole-map-relighting.md`](effects/whole-map-relighting.md) |
 | Lighting frame timings, speed changes and their A/B switches | [`whole-map-relighting-performance.md`](effects/whole-map-relighting-performance.md) |
