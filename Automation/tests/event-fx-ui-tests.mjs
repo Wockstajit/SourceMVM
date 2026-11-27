@@ -14,7 +14,7 @@ test('the card offers exactly the C++ effect catalog, in the same order', () => 
   const cpp = [...math.matchAll(/^\s*\{"([a-z_0-9]+)",\s+"[^"]+",\s+"[a-z]+",\s+\{"particles\//gm)].map((m) => m[1]);
   const block = /var EV_EFFECTS = \[([\s\S]*?)\];/.exec(card)[1];
   const js = [...block.matchAll(/\['([a-z_0-9]+)', T\('[^']+'\)\]/g)].map((m) => m[1]);
-  assert.ok(cpp.length >= 30);
+  assert.ok(cpp.length >= 25);
   assert.deepEqual(js, cpp);
 });
 

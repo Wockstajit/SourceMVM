@@ -52,7 +52,7 @@ inline bool TriggerFromToken(const char* s, TriggerKind& out) {
 }
 
 // ---- The effect catalog -------------------------------------------------------------------------
-// Every system below is a real CS2 particle system (checked against pak01_dir.vpk, 2026-11-26).
+// Every system below is a real CS2 particle system (checked against pak01_dir.vpk, and each seen playing in CS2 when spawned this way, 2026-11-27).
 // `life` is how long the effect is kept before it is removed (looping fire would burn forever);
 // `lift` raises it off the point it is placed at.
 struct EffectDef {
@@ -73,8 +73,6 @@ inline const EffectDef kEffects[] = {
 	{"c4_indoor",     "Bomb indoor blast",  "explosions", {"particles/explosions_fx/explosion_c4_interior.vpcf", nullptr}, 8, 0},
 	{"c4_short",      "Bomb short blast",   "explosions", {"particles/explosions_fx/explosion_c4_short.vpcf", nullptr}, 6, 0},
 	{"heavy_charge",  "Heavy charge",       "explosions", {"particles/explosions_fx/explosion_coop_mission_c4.vpcf", nullptr}, 8, 0},
-	{"gas",           "Gas explosion",      "explosions", {"particles/explosions_fx/expl_coopmission_gas_explosion_main.vpcf", nullptr}, 8, 0},
-	{"sky_burst",     "Sky burst",          "explosions", {"particles/explosions_fx/expl_coopmission_skyboom.vpcf", nullptr}, 8, 0},
 	{"basic",         "Small explosion",    "explosions", {"particles/explosions_fx/explosion_basic.vpcf", nullptr}, 4, 0},
 	{"water",         "Water blast",        "explosions", {"particles/explosions_fx/explosion_basic_water.vpcf", nullptr}, 5, 0},
 	{"molotov",       "Molotov burst",      "fire",       {"particles/inferno_fx/molotov_explosion.vpcf", nullptr}, 4, 0},
@@ -83,16 +81,10 @@ inline const EffectDef kEffects[] = {
 	{"falling_fire",  "Falling fire",       "fire",       {"particles/inferno_fx/explosion_molotov_fallingfire.vpcf", nullptr}, 4, 0},
 	{"fire",          "Fire",               "fire",       {"particles/burning_fx/env_fire_medium.vpcf", nullptr}, 6, 0},
 	{"fire_large",    "Large fire",         "fire",       {"particles/burning_fx/env_fire_large.vpcf", nullptr}, 6, 0},
-	{"embers",        "Embers",             "fire",       {"particles/explosions_fx/explosion_c4_embers.vpcf", nullptr}, 5, 0},
 	{"blood",         "Blood burst",        "blood",      {"particles/blood_impact/blood_impact_heavy.vpcf", nullptr}, 3, 0},
 	{"blood_head",    "Headshot blood",     "blood",      {"particles/blood_impact/blood_impact_headshot.vpcf", nullptr}, 3, 0},
 	{"blood_mist",    "Blood mist",         "blood",      {"particles/blood_impact/blood_impact_red_01_mist.vpcf", nullptr}, 3, 0},
-	{"blood_chunks",  "Blood chunks",       "blood",      {"particles/blood_impact/blood_impact_red_01_chunk.vpcf", nullptr}, 3, 0},
 	{"blood_goop",    "Blood goop",         "blood",      {"particles/blood_impact/blood_impact_goop_heavy.vpcf", nullptr}, 3, 0},
-	{"sparks",        "Spark spray",        "sparks",     {"particles/impact_fx/impact_spark_spray_large.vpcf", nullptr}, 3, 0},
-	{"metal_sparks",  "Trailing sparks",    "sparks",     {"particles/impact_fx/impact_metal_sparks_trailing.vpcf", nullptr}, 3, 0},
-	{"electric",      "Electric sparks",    "sparks",     {"particles/generic_fx/fx_electricspark_glow_large.vpcf", nullptr}, 3, 0},
-	{"arc",           "Electric arc",       "sparks",     {"particles/generic_fx/fx_electric_arc_spark.vpcf", nullptr}, 3, 0},
 	{"flash",         "Flashbang burst",    "sparks",     {"particles/explosions_fx/explosion_flashbang.vpcf", nullptr}, 3, 0},
 	{"smoke_puff",    "Smoke puff",         "smoke",      {"particles/explosions_fx/explosion_smoke_disperse.vpcf", nullptr}, 6, 0},
 	{"debris",        "Debris",             "smoke",      {"particles/explosions_fx/explosion_c4_debris.vpcf", nullptr}, 5, 0},
@@ -261,10 +253,10 @@ inline EventPreset MakePreset(int id, const char* name, TriggerKind trigger, con
 
 inline std::vector<EventPreset> DefaultPresets() {
 	std::vector<EventPreset> out;
-	EventPreset he = MakePreset(1, "HE: bigger blast", TriggerKind::HeGrenadePop, "he", "debris", "embers");
+	EventPreset he = MakePreset(1, "HE: bigger blast", TriggerKind::HeGrenadePop, "he", "he_dirt", "debris");
 	he.lightBurst = true; he.shake = 0.25f;
 	out.push_back(he);
-	EventPreset bomb = MakePreset(2, "Bomb: huge blast", TriggerKind::BombExplode, "c4", "gas", "embers");
+	EventPreset bomb = MakePreset(2, "Bomb: huge blast", TriggerKind::BombExplode, "c4", "heavy_charge", "debris");
 	bomb.lightBurst = true; bomb.shake = 0.5f; bomb.copies = 3; bomb.spread = 140.0f;
 	out.push_back(bomb);
 	EventPreset molly = MakePreset(3, "Molotov: fireball", TriggerKind::MolotovPop, "molotov", "molotov_air", "falling_fire");
@@ -273,9 +265,9 @@ inline std::vector<EventPreset> DefaultPresets() {
 	EventPreset kill = MakePreset(4, "Kill: blood burst", TriggerKind::Kill, "blood", "blood_mist", nullptr);
 	kill.lift = 40.0f;
 	out.push_back(kill);
-	EventPreset head = MakePreset(5, "Headshot: blood spray", TriggerKind::Headshot, "blood_head", "blood_chunks", nullptr);
+	EventPreset head = MakePreset(5, "Headshot: blood spray", TriggerKind::Headshot, "blood_head", "blood_goop", nullptr);
 	out.push_back(head);
-	EventPreset flash = MakePreset(6, "Flash: spark burst", TriggerKind::FlashbangPop, "flash", "electric", "sparks");
+	EventPreset flash = MakePreset(6, "Flash: spark burst", TriggerKind::FlashbangPop, "flash", "spark_shower", nullptr);
 	flash.lightBurst = true; flash.lightFlashStyle = true;
 	out.push_back(flash);
 	EventPreset smoke = MakePreset(7, "Smoke: debris puff", TriggerKind::SmokePop, "smoke_puff", "debris", nullptr);

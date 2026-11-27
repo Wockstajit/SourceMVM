@@ -36,14 +36,12 @@ R"CFJS(
     var EV_EFFECTS = [
       ['he', T('HE grenade blast')], ['he_dirt', T('HE dirt blast')], ['he_snow', T('HE snow blast')],
       ['he_indoor', T('HE indoor blast')], ['c4', T('Bomb blast')], ['c4_indoor', T('Bomb indoor blast')],
-      ['c4_short', T('Bomb short blast')], ['heavy_charge', T('Heavy charge')], ['gas', T('Gas explosion')],
-      ['sky_burst', T('Sky burst')], ['basic', T('Small explosion')], ['water', T('Water blast')],
+      ['c4_short', T('Bomb short blast')], ['heavy_charge', T('Heavy charge')],
+      ['basic', T('Small explosion')], ['water', T('Water blast')],
       ['molotov', T('Molotov burst')], ['molotov_air', T('Molotov air burst')], ['incendiary', T('Incendiary burst')],
-      ['falling_fire', T('Falling fire')], ['fire', T('Fire')], ['fire_large', T('Large fire')], ['embers', T('Embers')],
+      ['falling_fire', T('Falling fire')], ['fire', T('Fire')], ['fire_large', T('Large fire')],
       ['blood', T('Blood burst')], ['blood_head', T('Headshot blood')], ['blood_mist', T('Blood mist')],
-      ['blood_chunks', T('Blood chunks')], ['blood_goop', T('Blood goop')],
-      ['sparks', T('Spark spray')], ['metal_sparks', T('Trailing sparks')], ['electric', T('Electric sparks')],
-      ['arc', T('Electric arc')], ['flash', T('Flashbang burst')],
+      ['blood_goop', T('Blood goop')], ['flash', T('Flashbang burst')],
       ['smoke_puff', T('Smoke puff')], ['debris', T('Debris')], ['ground_smoke', T('Lingering smoke')],
       ['fireworks', T('Fireworks')], ['fireworks_big', T('Big fireworks')], ['spark_shower', T('Spark shower')]
     ];

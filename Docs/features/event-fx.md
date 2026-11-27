@@ -25,12 +25,14 @@ headshot blood spray, flash spark burst, smoke debris puff (off) and marker fire
 ## The effect catalog
 
 `kEffects` in [EventFxMath.h](../../AfxHookSource2/Filmmaker/EventFx/EventFxMath.h) lists every
-effect a preset can spawn, each a CS2 particle system checked against `pak01_dir.vpk`: HE grenade
-blasts (plain, dirt, snow, indoor), bomb blasts (plain, indoor, short), heavy charge, gas
-explosion, sky burst, small explosion, water blast; molotov and incendiary bursts, falling fire,
-fire, large fire, embers; blood burst, headshot blood, mist, chunks, goop; spark spray, trailing
-sparks, electric sparks, electric arc, flashbang burst; smoke puff, debris, lingering smoke;
-fireworks, big fireworks, spark shower. `mirv_filmmaker eventfx effects` prints the list.
+effect a preset can spawn, each a CS2 particle system checked against `pak01_dir.vpk` and seen
+playing in CS2 when spawned this way: HE grenade blasts (plain, dirt, snow, indoor), bomb blasts
+(plain, indoor, short), heavy charge, small explosion, water blast; molotov and incendiary bursts,
+molotov air burst, falling fire, fire, large fire; blood burst, headshot blood, mist, goop;
+flashbang burst; smoke puff, debris, lingering smoke; fireworks, big fireworks, spark shower.
+Systems that drew nothing when spawned at a point were left out (the gas and sky explosions,
+embers, blood chunks, and the spark and electric sprays, which need a direction from a real hit).
+`mirv_filmmaker eventfx effects` prints the list.
 
 Effects are created through the game's particle manager (`Props_SpawnEffect`), every control point
 at the spawn point. Every system an enabled preset uses is precached once the level has settled,
