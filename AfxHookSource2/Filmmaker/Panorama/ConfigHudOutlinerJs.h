@@ -71,7 +71,8 @@ R"CFJS(
       ((st.props && st.props.placed) || []).forEach(function (q) {
         out.push({ key: 'p' + q.id, src: 'p', id: q.id, name: q.name, kind: 'asset', group: q.group || '',
                    visible: !!q.visible, render: q.render !== false, locked: !!q.locked,
-                   model: q.model, folder: q.folder, source: q.source || '', scale: q.scale, ang: q.ang || [0, 0, 0] });
+                   model: q.model, folder: q.folder, source: q.source || '', scale: q.scale, ang: q.ang || [0, 0, 0],
+                   play: q.play || '', playTick: q.playTick || 0, playLife: q.playLife || 0, playing: !!q.playing });
       });
       var s = envState();
       ((s && s.objects) || []).forEach(function (o) {
@@ -532,6 +533,37 @@ R"CFJS(
     actionBtn(olAssetActs, T('Drop to floor'), function () { olAct(olFind(olSel), 'floor'); });
     actionBtn(olAssetActs, T('To crosshair'), function () { olAct(olFind(olSel), 'here'); });
     var olUprightBtn = actionBtn(olAssetActs, T('Stand upright'), function () { olAct(olFind(olSel), 'upright'); });
+    // An effect plays all the time, or only on a demo event or when the playhead crosses a tick, for
+    // a few seconds each time (Props.cpp PumpTriggers). Event FX's Place in world sets these.
+    var olFxBox = mk('Panel', olCard);
+    olFxBox.style.width = '100%'; olFxBox.style.flowChildren = 'down'; olFxBox.style.marginTop = '6px';
+    var OL_PLAYS = [['-', T('All the time')], ['kill', T('On a kill')], ['headshot', T('On a headshot')],
+      ['flashbang', T('On a flashbang')], ['hegrenade', T('On an HE grenade')], ['smoke', T('On a smoke grenade')],
+      ['molotov', T('On a molotov')], ['bomb', T('When the bomb explodes')], ['marker', T('At a timeline marker')],
+      ['tick', T('At a tick')]];
+    function olFxSet(field, v) { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('set ' + it.id + ' ' + field + ' ' + v); }
+    // Plays and Plays for side by side, each with a short label column: one row, no dead space.
+    var olFxLine = mk('Panel', olFxBox); olFxLine.hittest = false; olFxLine.hittestchildren = true;
+    olFxLine.style.width = '100%'; olFxLine.style.flowChildren = 'right';
+    var olFxCellA = mk('Panel', olFxLine), olFxCellB = mk('Panel', olFxLine);
+    [olFxCellA, olFxCellB].forEach(function (c, i) {
+      c.hittest = false; c.hittestchildren = true; c.style.flowChildren = 'down';
+      c.style.width = 'fill-parent-flow(1.0)'; if (i) c.style.marginLeft = '8px';
+    });
+    var olFxPlay = dropdownRow(olFxCellA, T('Plays'), OL_PLAYS, function (k) { olFxSet('play', k); });
+    olFxPlay.label.style.width = '58px';
+    var olFxLife = sliderRow(olFxCellB, {
+      label: T('Plays for'), min: 0, max: 30, decimals: 1, unit: 's', tip: T('How long it plays each time. 0 is 6 seconds.'),
+      onChange: function (v) { olFxSet('playlife', v); }
+    });
+    olFxLife.label.style.width = '70px';
+    var olFxNote = lbl(olFxBox, '', S.muted, 12);
+    olFxNote.style.marginTop = '8px'; olFxNote.style.marginLeft = UI.line.padH + 'px';
+    var olFxActs = actionRowEnd(olFxBox, 10);
+    var olFxTickBtn = actionBtn(olFxActs, T('Set to playhead'), function () { olFxSet('playtick', 'here'); });
+    var olFxFireBtn = actionBtn(olFxActs, T('Play now'), function () { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('fire ' + it.id); });
+    var olFxGotoBtn = actionBtn(olFxActs, T('Go to'), function () { var it = olFind(olSel); if (it && it.src === 'p') propsCommand('goto ' + it.id); });
+    attachTip(olFxGotoBtn, T('Moves the camera to look at it.'));
     // Light and mesh: their inspectors land in these hosts.
     var olLightHost = mk('Panel', olCard);
     olLightHost.style.width = '100%'; olLightHost.style.flowChildren = 'down';
@@ -680,7 +712,9 @@ R"CFJS(
         return;
       }
       olMultiActs.visible = false;
-      var kind = isGroup ? ['#e0b861', T('GROUP')] : [OL_KIND[it.kind][0], OL_KIND[it.kind][1].toUpperCase()];
+      var kind = isGroup ? ['#e0b861', T('GROUP')]
+        : it.kind === 'asset' && /\.vpcf$/i.test(it.model || '') ? ['#ffb86b', T('EFFECT')]
+        : [OL_KIND[it.kind][0], OL_KIND[it.kind][1].toUpperCase()];
       olCardTitle.text = isGroup ? olSel.substring(2) : it.name;
       olCardKind.text = kind[1]; olCardKind.style.color = kind[0] + 'ff';
       olCardChip.style.backgroundColor = kind[0] + '1f';
@@ -692,6 +726,21 @@ R"CFJS(
       olGroupDrop.row.visible = !isGroup;
       olCardHint.visible = !isGroup;
       olAssetBox.visible = !!it && it.kind === 'asset';
+      var olIsFx = !!it && it.kind === 'asset' && /\.vpcf$/i.test(it.model || '');
+      olFxBox.visible = olIsFx;
+      // A particle effect has no size and nothing to stand on.
+      olAssetSize.row.visible = !olIsFx;
+      olAssetSolid.row.visible = !olIsFx;
+      if (olIsFx) {
+        olFxPlay.sync(it.play || '-');
+        olFxLife.sync(it.playLife || 0);
+        olFxCellB.visible = !!it.play;
+        olFxTickBtn.visible = it.play === 'tick';
+        olFxFireBtn.visible = !!it.play;
+        olFxNote.visible = !!it.play;
+        olFxNote.text = !it.play ? '' : (it.playing ? T('Playing now')
+          : it.play === 'tick' ? T('Plays when the playhead crosses tick {0}', it.playTick || 0) : T('Waits for its event'));
+      }
       olLightHost.visible = !!it && it.kind === 'light';
       olMeshHost.visible = !!it && it.kind === 'mesh';
       if (isGroup) {

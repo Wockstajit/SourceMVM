@@ -1218,7 +1218,7 @@ R"CFJS(
                [T('Lens'), ['config.section.dof', 'config.section.flare', 'config.section.rain']]],
       effects: [[T('Particles'), ['fx.packs']], [T('World'), ['light.card', 'atmos.card', 'weather.card']]],
       environment: [[T('Grade'), ['env.looks']], [T('Atmosphere'), ['env.sky', 'env.light', 'env.fog', 'env.wx']],
-                    [T('Scene'), ['env.scene', 'env.heat']], [T('World'), ['env.map']]],
+                    [T('Scene'), ['env.scene', 'env.eventfx', 'env.heat']], [T('World'), ['env.map']]],
       ragdolls: [[T('Bodies'), ['ragdoll.model', 'ragdoll.nervous', 'ragdoll.physics']], [T('Detail'), ['ragdoll.weapon', 'acting']]],
       bots: [[T('Scene'), ['bots.scene', 'bots.takes']],
              [T('Performance'), ['bots.anims']],

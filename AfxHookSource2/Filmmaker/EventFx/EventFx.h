@@ -1,13 +1,13 @@
 #pragma once
 
-// Event-Driven FX Presets:
-// Turns game events (kill, headshot, flashbang/HE/smoke/molotov pop, bomb blast) and timeline
-// marker crossings into reusable visual cues (exposure pulse, camera shake, FOV kick, native
-// light burst, chromatic pulse) -- and can bake any preset envelope into editable Scene Keyframes.
+// Event FX: CS2's own particle effects (explosions, fire, blood, sparks, fireworks) spawned in the
+// world when a demo event happens -- a kill, a headshot, a grenade going off, the bomb, a timeline
+// marker -- at the event itself or in front of the camera, with an optional light burst and camera
+// shake. A preset can also be placed in the map as Scene Objects that play on the same event
+// (Props.h, `props set <id> play`). Docs/features/event-fx.md.
 
 #include "EventFxMath.h"
 
-#include <d3d11.h>
 #include <sstream>
 #include <string>
 
@@ -21,13 +21,21 @@ void EventFx_OnGameEvent(SOURCESDK::CS2::CGameEvent* event);
 void EventFx_RunMainThreadFrame();
 void EventFx_OnLevelInit();
 
-// View-setup additive camera impulse (pitch/yaw/roll/fov in degrees), called from main.cpp.
+// View-setup additive camera shake (pitch/yaw/roll in degrees), called from main.cpp.
 bool EventFx_ApplyCameraImpulse(double curTime, float& pitch, float& yaw, float& roll, float& fov);
 
-// Render thread post-process pulse (exposure, tint flash, chromatic, vignette).
-void EventFx_BeginDevice(ID3D11Device* device);
-void EventFx_EndDevice();
-bool EventFx_RenderPost(ID3D11DeviceContext* immediate, ID3D11RenderTargetView* target, double demoTime);
+// A paused demo freezes particles: plays the demo for `seconds`, then pauses and goes back to the
+// tick it was on, so Test and Play now show their effect moving. Nothing while it plays. Main thread.
+void EventFx_PreviewWhilePaused(double seconds);
+
+// Every event effect placed at a spot, for its icon in the view (Props.cpp AppendMarkers). Any thread.
+struct EventFxSpot {
+	int id = 0;
+	std::string name, trigger;
+	float pos[3] = { 0, 0, 0 };
+	bool enabled = true, selected = false;
+};
+void EventFx_Spots(std::vector<EventFxSpot>& out);
 
 // State JSON and console commands (`mirv_filmmaker eventfx ...`)
 void EventFx_AppendStateJson(std::ostringstream& out);

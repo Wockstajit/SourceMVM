@@ -16,6 +16,7 @@
 #include "../Environment/MapCollisionGrid.h"
 #include "../MapData/MapSources.h"
 #include "../Movie/CameraBridge.h"
+#include "../EventFx/EventFx.h" // a paused demo plays for a moment so Play now shows its effect
 #include "../Movie/MovieMode.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
@@ -24,6 +25,7 @@
 #include "../World/WorldTransient.h" // props.wind: Foliage wind keyed in Scene Keys
 #include "../../SceneMarkerMath.h" // each kind's colour for the Config view's markers
 #include "../../ClientEntitySystem.h"
+#include "../../MirvTime.h" // demo clock and tick: effects that play on an event or at a tick
 #include "../../hlaeFolder.h"
 #include "../../../Shared/AfxConsole.h"
 
@@ -47,6 +49,7 @@ extern void (__fastcall *g_Original_destroyParticle)(unsigned char*, int, bool, 
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -73,7 +76,18 @@ struct Placed {
 	int particle = -1;                // an EFFECT's particle-manager index instead (no entity)
 	bool failed = false;              // the engine refused it; do not retry every frame
 	bool held = false;                // loaded but not spawned: the last spawn on this map never survived
+	// An effect's play mode: "" plays all the time; a trigger token ("kill", "hegrenade", "bomb",
+	// "marker", ...) or "tick" plays it once per event, or when the playhead crosses playTick, for
+	// playLife seconds (0 = 6). playing/playUntil: the current playing, in demo seconds.
+	std::string play;
+	int playTick = 0;
+	float playLife = 0;
+	bool playing = false;
+	double playUntil = 0;
+	bool precached = false; // a waiting effect is loaded once after the map settles (the precache rule)
 };
+// Whether a placed effect waits for an event instead of playing all the time.
+bool Triggered(const Placed& p) { return !p.play.empty() && Props::IsEffect(p.model); }
 
 // Live in the world: a prop's entity, or an effect's particle.
 bool Live(const Placed& p) { return p.entity || p.particle >= 0; }
@@ -304,6 +318,11 @@ void Save() {
 		j.BoolField("render", p.render);
 		j.BoolField("locked", p.locked);
 		j.BoolField("solid", p.solid);
+		if (!p.play.empty()) {
+			j.StringField("play", p.play);
+			j.IntField("playTick", p.playTick);
+			j.DoubleField("playLife", p.playLife);
+		}
 		j.EndObject();
 	}
 	j.EndArray();
@@ -371,6 +390,9 @@ void Load(const std::string& map) {
 		p.render = !v.Find("render") || v.Find("render")->AsBool(true);
 		p.locked = v.Find("locked") && v.Find("locked")->AsBool(false);
 		p.solid = v.Find("solid") && v.Find("solid")->AsBool(false);
+		p.play = v.Find("play") ? v.Find("play")->AsString() : "";
+		p.playTick = v.Find("playTick") ? v.Find("playTick")->AsInt() : 0;
+		p.playLife = v.Find("playLife") ? float(v.Find("playLife")->AsNumber(0)) : 0.0f;
 		if (p.model.empty()) continue;
 		g_nextId = std::max(g_nextId, p.id + 1);
 		g_props.push_back(p);
@@ -552,6 +574,7 @@ void PumpKeyedWind() {
 
 void Spawn(Placed& p) {
 	if (!Shown(p) || p.failed || p.held) return;
+	if (Triggered(p) && !p.playing) { Props::PrecacheModel(p.model.c_str()); return; } // waits for its event, loaded
 	ArmSpawnMarker();
 	if (Props::IsEffect(p.model)) {
 		// Loaded first (the precache rule), so the first placement of a new effect never hitches.
@@ -753,7 +776,8 @@ const Placed* GizmoTarget() {
 	if (g_brush.active) return nullptr;
 	if (g_placing) return Live(g_ghost) ? &g_ghost : nullptr;
 	const Placed* p = Find(g_selected);
-	return p && Alive(*p) ? p : nullptr;
+	// An effect waiting for its event has no particle yet, but it still has a place to move.
+	return p && (Alive(*p) || Props::IsEffect(p->model)) ? p : nullptr;
 }
 
 std::vector<Vec3> StrokeNearBrush();
@@ -977,7 +1001,20 @@ int PickAt(float u, float v) {
 	std::vector<Props::PickCandidate> candidates;
 	for (const Placed& q : g_props) {
 		Vec3 mins, maxs, corners[8];
-		if (q.locked || !Alive(q) || !PropBounds(q, mins, maxs)) continue;
+		if (q.locked) continue;
+		if (Props::IsEffect(q.model)) {
+			// An effect is picked by its icon (AppendMarkers), live or waiting for its event.
+			if (!q.visible) continue;
+			const auto c = Environment::GizmoProject(vp, q.position);
+			if (!c.visible) continue;
+			Props::ScreenRect r;
+			r.x0 = c.x - kMarkerReach; r.x1 = c.x + kMarkerReach;
+			r.y0 = c.y - kMarkerReach; r.y1 = c.y + kMarkerReach;
+			r.valid = true;
+			candidates.push_back({q.id, r, 0.f});
+			continue;
+		}
+		if (!Alive(q) || !PropBounds(q, mins, maxs)) continue;
 		Props::BoxCorners(q.position, q.angles, q.scale, mins, maxs, corners);
 		const Vec3 d = q.position - eye;
 		candidates.push_back({q.id, Props::ProjectRect(vp, corners, 8), std::sqrt(Environment::Dot(d, d))});
@@ -1037,6 +1074,38 @@ void AppendMarkers(JsonBuilder& j) {
 			j.StringField("accent", color);
 		}
 		j.Key("at"); point(box.center);
+		j.EndObject();
+	}
+	// Every placed effect: a particle has nothing to click, and one waiting for its event shows
+	// nothing at all, so its icon is where it is (Event FX's orange; the tag names its event).
+	for (const Placed& p : g_props) {
+		if (!Props::IsEffect(p.model) || !p.visible) continue;
+		j.BeginObject();
+		j.IntField("id", p.id);
+		j.StringField("kind", "effect");
+		j.StringField("name", Props::DisplayName(p.model));
+		j.BoolField("selected", p.id == g_selected);
+		j.StringField("color", "#ffb86b");
+		j.StringField("accent", "#ffb86b");
+		j.StringField("play", p.play);
+		j.BoolField("playing", p.playing);
+		j.Key("at"); point(p.position);
+		j.EndObject();
+	}
+	// Event FX entries placed at a spot (ENVIRONMENT > EVENT FX): the same icon, so the place an
+	// effect will play is visible before its event. A click on it selects that entry (`eventfx`).
+	std::vector<EventFxSpot> spots;
+	EventFx_Spots(spots);
+	for (const EventFxSpot& s : spots) {
+		j.BeginObject();
+		j.IntField("eventfx", s.id);
+		j.StringField("kind", "effect");
+		j.StringField("name", s.name);
+		j.BoolField("selected", s.selected);
+		j.StringField("color", s.enabled ? "#ffb86b" : "#8b95a3");
+		j.StringField("accent", s.enabled ? "#ffb86b" : "#8b95a3");
+		j.StringField("play", s.trigger);
+		j.Key("at"); point(Vec3{s.pos[0], s.pos[1], s.pos[2]});
 		j.EndObject();
 	}
 	j.EndArray();
@@ -1133,8 +1202,105 @@ void PublishCasterBoxes() {
 }
 } // namespace
 
+// ---- Effects that play on a demo event or at a tick -------------------------------------------------
+namespace {
+std::mutex g_triggerMutex;
+std::vector<std::string> g_triggerQueue; // tokens fired since the last frame ("#<id>": play that one now)
+int g_lastTriggerTick = -1;
+double g_lastTriggerTime = -1;
+
+double DemoSeconds() {
+	double t = 0;
+	if (!g_MirvTime.GetCurrentDemoTime(t)) t = g_MirvTime.curtime_get();
+	return std::isfinite(t) ? t : 0.0;
+}
+
+// Starts the effect again from its first frame: a new particle, not the old one rewound.
+void StartPlaying(Placed& p, double now) {
+	if (Live(p)) Despawn(p);
+	p.failed = false;
+	p.playing = true;
+	p.playUntil = now + (p.playLife > 0 ? p.playLife : 6.0);
+	Spawn(p);
+	if (!Live(p)) p.playing = false;
+	MvmDebugLog_LinefAlways("props.trigger", "id=%d play=%s %s -> particle %d until %.2f", p.id, p.play.c_str(),
+		p.model.c_str(), p.particle, p.playUntil);
+	++g_revision;
+}
+
+void StopPlaying(Placed& p) {
+	if (Live(p)) Despawn(p);
+	p.playing = false;
+	++g_revision;
+}
+
+// Every frame: an effect plays when its event was fired or the playhead crossed its tick, and stops
+// when its time is up, when the demo is rewound past it, or when it is hidden.
+void PumpTriggers() {
+	std::vector<std::string> fired;
+	{
+		std::lock_guard<std::mutex> lock(g_triggerMutex);
+		fired.swap(g_triggerQueue);
+	}
+	if (g_map.empty() || GetTickCount64() - g_mapSince < 3000) return;
+	const double now = DemoSeconds();
+	int tick = 0;
+	const bool haveTick = g_MirvTime.GetCurrentDemoTick(tick);
+	const bool rewound = g_lastTriggerTime >= 0 && now < g_lastTriggerTime - 0.15;
+	const bool crossed = haveTick && !rewound && g_lastTriggerTick >= 0 && tick > g_lastTriggerTick && tick - g_lastTriggerTick <= 64;
+	for (Placed& p : g_props) {
+		if (!Triggered(p)) continue;
+		if (p.playing && (rewound || now >= p.playUntil || !Shown(p))) StopPlaying(p);
+		if (!Shown(p) || p.held) continue;
+		bool go = crossed && p.play == "tick" && p.playTick > g_lastTriggerTick && p.playTick <= tick;
+		for (const std::string& t : fired)
+			if (t == p.play || t == "#" + std::to_string(p.id)) go = true;
+		if (go) StartPlaying(p, now);
+	}
+	g_lastTriggerTime = now;
+	if (haveTick) g_lastTriggerTick = tick;
+}
+} // namespace
+
+void Props_FireTrigger(const char* token) {
+	if (!token || !*token) return;
+	std::lock_guard<std::mutex> lock(g_triggerMutex);
+	if (g_triggerQueue.size() < 64) g_triggerQueue.push_back(token);
+}
+
+bool Props_PrecacheEffect(const char* system) { return Props::PrecacheModel(system); }
+
+int Props_SpawnEffect(const char* system, const float position[3]) {
+	if (!system || !position) return -1;
+	return CreateEffect(system, Vec3{position[0], position[1], position[2]});
+}
+
+void Props_DestroyEffect(int particle) { DestroyEffect(particle); }
+
+void Props_LookAt(const float pos[3]) {
+	// From the side the camera is on now, a little back and above, looking down at the point.
+	double org[3] = {}, ang[3] = {}, fov = 90.0;
+	CameraBridge_GetCurrentCamera(org, ang, fov);
+	const double kPi = 3.14159265358979, back = 260.0, up = 110.0;
+	const double dx = pos[0] - org[0], dy = pos[1] - org[1];
+	const double yaw = std::sqrt(dx * dx + dy * dy) > 1.0 ? std::atan2(dy, dx) : ang[1] * kPi / 180.0;
+	CameraBridge_SetFreeCamEnabled(true);
+	CameraBridge_SetCameraPose(pos[0] - std::cos(yaw) * back, pos[1] - std::sin(yaw) * back, pos[2] + up,
+		std::atan2(up, back) * 180.0 / kPi, yaw * 180.0 / kPi, 0.0, fov);
+	MvmDebugLog_LinefAlways("props.goto", "look at %.1f %.1f %.1f from yaw %.1f", pos[0], pos[1], pos[2], yaw * 180.0 / kPi);
+}
+
+bool Props_CrosshairPoint(float out[3]) {
+	if (g_map.empty()) return false;
+	Vec3 position, angles;
+	AimPose(position, angles);
+	out[0] = position.x; out[1] = position.y; out[2] = position.z;
+	return std::isfinite(out[0]) && std::isfinite(out[1]) && std::isfinite(out[2]);
+}
+
 void Props_RunMainThreadFrame() {
 	PropPreview_RunFrame(); // every frame: the preview's fit must land before it is drawn
+	PumpTriggers();         // every frame, so an effect starts on the frame of its event
 	// Every frame, so the grid is ready before the first placement or paint stroke on a map.
 	Environment::MapCollisionGrid_Pump();
 	PublishCasterBoxes();
@@ -1165,7 +1331,7 @@ void Props_RunMainThreadFrame() {
 		g_placing = g_ghostDirty = false;
 		g_grab = Grab::None;
 		SyncBusy();
-		for (Placed& p : g_props) { p.entity = nullptr; p.entityIndex = -1; p.particle = -1; }
+		for (Placed& p : g_props) { p.entity = nullptr; p.entityIndex = -1; p.particle = -1; p.playing = false; }
 		g_wind = nullptr; g_windIndex = -1;
 		// Leaving a level the game survived on: its spawns are not why anything crashed.
 		if (g_spawnArmed) DisarmSpawnMarker(g_map);
@@ -1199,6 +1365,12 @@ void Props_RunMainThreadFrame() {
 	// A demo seek (full update) can clear client entities; put ours back.
 	for (Placed& p : g_props) {
 		if (!Shown(p) || p.failed || p.held) continue;
+		if (Triggered(p) && !p.playing) {
+			// Waiting for its event: not spawned, but loaded now, so the event's frame never stalls
+			// on a blocking load. A map's saved effects reach this once the level has settled.
+			if (!p.precached) { Props::PrecacheModel(p.model.c_str()); p.precached = true; }
+			continue;
+		}
 		if (!Alive(p)) { p.entity = nullptr; Spawn(p); ++g_revision; }
 	}
 	PumpKeyedWind();
@@ -1627,6 +1799,19 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			Save(); ++g_revision;
 			return;
 		}
+		if (!_stricmp(sub, "fire")) { // fire <id>: play an effect set to play on an event, now
+			if (!p) throw std::runtime_error("No such prop");
+			if (!Triggered(*p)) throw std::runtime_error("It plays all the time already");
+			Props_FireTrigger(("#" + std::to_string(p->id)).c_str());
+			EventFx_PreviewWhilePaused(p->playLife > 0 ? p->playLife : 6.0);
+			return;
+		}
+		if (!_stricmp(sub, "goto")) { // goto <id>: the camera to the object, looking at it
+			if (!p) throw std::runtime_error("No such prop");
+			const float at[3] = {p->position.x, p->position.y, p->position.z};
+			Props_LookAt(at);
+			return;
+		}
 		if (!_stricmp(sub, "floor")) { // rest the prop on the floor under it
 			if (!p) throw std::runtime_error("No such prop");
 			const Placed before = *p;
@@ -1669,6 +1854,25 @@ void Props_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd)
 			if (field == "locked") { p->locked = atoi(arg(5)) != 0; Save(); ++g_revision; return; }
 			if (field == "render") { p->render = atoi(arg(5)) != 0; Save(); ++g_revision; return; }
 			if (field == "solid") { p->solid = atoi(arg(5)) != 0; Save(); ++g_revision; return; }
+			// play <token>|- : always (-), on a demo event, or at playTick ("tick"); an effect only.
+			if (field == "play" || field == "playtick" || field == "playlife") {
+				if (!Props::IsEffect(p->model)) throw std::runtime_error("Only an effect can play on an event");
+				if (field == "play") {
+					static const char* const kPlays[] = {"kill", "headshot", "flashbang", "hegrenade", "smoke", "molotov", "bomb", "marker", "tick"};
+					const std::string v = !strcmp(arg(5), "-") ? "" : arg(5);
+					if (!v.empty() && std::none_of(std::begin(kPlays), std::end(kPlays), [&](const char* k) { return v == k; }))
+						throw std::runtime_error("Unknown play mode " + v);
+					p->play = v;
+				} else if (field == "playtick") { // a tick, or "here": the playhead's
+					int tick = atoi(arg(5));
+					if (!_stricmp(arg(5), "here") && !g_MirvTime.GetCurrentDemoTick(tick)) throw std::runtime_error("No demo is playing");
+					p->playTick = std::max(0, tick);
+				}
+				else p->playLife = std::max(0.0f, std::min(60.0f, float(atof(arg(5)))));
+				if (field == "play") { if (Live(*p)) Despawn(*p); p->playing = false; p->failed = false; if (!Triggered(*p)) Spawn(*p); }
+				Save(); ++g_revision;
+				return;
+			}
 			const float v = float(atof(arg(5)));
 			if (field == "x") p->position.x = v;
 			else if (field == "y") p->position.y = v;
@@ -1744,6 +1948,10 @@ void Props_AppendStateJson(std::ostringstream& out) {
 		j.BoolField("render", p.render);
 		j.BoolField("locked", p.locked);
 		j.BoolField("solid", p.solid);
+		j.StringField("play", Props::IsEffect(p.model) ? p.play : "");
+		j.IntField("playTick", p.playTick);
+		j.DoubleField("playLife", p.playLife);
+		j.BoolField("playing", p.playing);
 		j.EndObject();
 	}
 	j.EndArray();

@@ -59,7 +59,7 @@ R"CFJS(
     // technique as the gizmo arrows -- because CS2 ships no such icons and the earlier circle /
     // diamond shapes all read as the same square in game.
     var PROPS_MARKERS = 48, PROPS_MARK = 26, propsMarkers = [];
-    var PROPS_MARKER_TAGS = { point: T('POINT'), spot: T('SPOT'), area: T('AREA'), mesh: T('MESH'), camera: T('CAMERA') };
+    var PROPS_MARKER_TAGS = { point: T('POINT'), spot: T('SPOT'), area: T('AREA'), mesh: T('MESH'), camera: T('CAMERA'), effect: T('EFFECT') };
     function propsSeg(host, x1, y1, x2, y2, color, th) {
       var l = mk('Panel', host); l.hittest = false;
       var dx = x2 - x1, dy = y2 - y1;
@@ -94,6 +94,13 @@ R"CFJS(
         propsSeg(host, 5, 9, 5, 17, color, 2); propsSeg(host, 15, 9, 15, 17, color, 2);
         propsSeg(host, 15, 11, 21, 8, color, 2); propsSeg(host, 15, 15, 21, 18, color, 2);
         propsSeg(host, 21, 8, 21, 18, color, 2);
+      } else if (kind === 'effect') {
+        // A placed effect (Event FX, Scene Objects): a burst -- a four-point star and four sparks.
+        propsSeg(host, c, 4, 16, c, color, 2); propsSeg(host, 16, c, c, 22, color, 2);
+        propsSeg(host, c, 22, 10, c, color, 2); propsSeg(host, 10, c, c, 4, color, 2);
+        propsSeg(host, 4, c, 8, c, color, 2); propsSeg(host, 18, c, 22, c, color, 2);
+        propsSeg(host, 6, 6, 8, 8, color, 1.5); propsSeg(host, 20, 6, 18, 8, color, 1.5);
+        propsSeg(host, 6, 20, 8, 18, color, 1.5); propsSeg(host, 20, 20, 18, 18, color, 1.5);
       } else if (kind === 'area') {
         propsSeg(host, 6, 7, 20, 7, color, 2); propsSeg(host, 6, 12, 20, 12, color, 2);
         propsSeg(host, 6, 6, 6, 13, color, 2); propsSeg(host, 20, 6, 20, 13, color, 2);
@@ -131,6 +138,12 @@ R"CFJS(
     propsHoverTag.style.backgroundColor = '#101318ee'; propsHoverTag.style.padding = '3px 8px';
     propsHoverTag.style.borderRadius = '4px'; propsHoverTag.style.border = '1px solid #ffffff44';
     var propsHoverSent = false;
+    // A waiting effect's tag says what starts it.
+    function propsPlayTag(play) {
+      var tags = { kill: T('ON KILL'), headshot: T('ON HEADSHOT'), flashbang: T('ON FLASHBANG'), hegrenade: T('ON HE'),
+        smoke: T('ON SMOKE'), molotov: T('ON MOLOTOV'), bomb: T('ON BOMB'), marker: T('ON MARKER'), tick: T('AT TICK') };
+      return tags[play] || T('EFFECT');
+    }
     function propsDrawMarkers(p, w, h, hover) {
       var marks = p.markers || [];
       for (var mi = 0; mi < PROPS_MARKERS; mi++) {
@@ -142,7 +155,7 @@ R"CFJS(
         var hot = hover && hover.name === mark.name && hover.at &&
           Math.abs(hover.at[0] - at[0]) < 0.0001 && Math.abs(hover.at[1] - at[1]) < 0.0001;
         var color = mesh ? '#b9a3ffff' : (mark.color || '#ffffff');
-        var sig = mark.kind + '|' + color + '|' + (mark.accent || '');
+        var sig = mark.kind + '|' + color + '|' + (mark.accent || '') + '|' + (mark.play || '') + (mark.playing ? '*' : '');
         if (sig !== m.sig) {
           m.sig = sig; propsGlyph(m.glyph, mark.kind, color);
           m.text.style.color = mark.accent || '#e8ecf2';
@@ -151,7 +164,9 @@ R"CFJS(
           : mark.accent ? '2px solid ' + mark.accent : '1px solid #ffffff40');
         m.disc.style.backgroundColor = mark.selected ? '#2a3442f0' : hot ? '#1c2530f0' : '#101318e6';
         m.box.style.position = (at[0] * w - PROPS_MARK / 2).toFixed(1) + 'px ' + (at[1] * h - PROPS_MARK / 2).toFixed(1) + 'px 0px';
-        m.text.text = mesh ? mark.name : (PROPS_MARKER_TAGS[mark.kind] || T('LIGHT'));
+        m.text.text = mesh ? mark.name
+          : mark.kind === 'effect' && mark.play ? (mark.playing ? T('PLAYING') : propsPlayTag(mark.play))
+          : (PROPS_MARKER_TAGS[mark.kind] || T('LIGHT'));
         m.tag.style.position = (at[0] * w + PROPS_MARK / 2 + 4).toFixed(1) + 'px ' + (at[1] * h - 8).toFixed(1) + 'px 0px';
       }
     }
@@ -339,7 +354,19 @@ R"CFJS(
           axis = envAxisHit(g, u, v, aspect);
           ring = axis < 0 ? propsRingHit(g, u, v, aspect) : -1;
         }
-        if (free && pressed) {
+        // An Event FX icon (ENVIRONMENT > EVENT FX): a click on it selects that entry and shows its card.
+        var evHit = null;
+        if (free && pressed && axis < 0 && ring < 0) {
+          (p.markers || []).forEach(function (mk2) {
+            if (!mk2.eventfx || !mk2.at || !mk2.at[2]) return;
+            var ddx = (mk2.at[0] - u) * w, ddy = (mk2.at[1] - v) * h;
+            if (ddx * ddx + ddy * ddy <= (PROPS_MARK / 2 + 4) * (PROPS_MARK / 2 + 4)) evHit = mk2;
+          });
+        }
+        if (evHit) {
+          cmd('mirv_filmmaker eventfx select ' + evHit.eventfx);
+          if (typeof api !== 'undefined' && api.card) api.card('env.eventfx');
+        } else if (free && pressed) {
           if (axis >= 0 || ring >= 0) {
             propsCommand('grab ' + p.selected + ' ' + (ring >= 0 ? PROPS_RINGS[ring] : ['x', 'y', 'z'][axis]) + ' ' + u.toFixed(4) + ' ' + v.toFixed(4));
             propsGrabbing = true;

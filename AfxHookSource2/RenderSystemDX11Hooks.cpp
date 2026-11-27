@@ -2198,7 +2198,6 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                     Filmmaker::WorldWarp::EndDevice();
                     Filmmaker::WorldDecals::EndDevice();
                     Filmmaker::EffectNodes::EndDevice();
-                    Filmmaker::EventFx_EndDevice();
                     AfxContactShadow::EndDevice();
                     AfxRenderPass::EndDevice();
                     if (environmentDeviceChanged)
@@ -2226,7 +2225,6 @@ HRESULT STDMETHODCALLTYPE New_CreateRenderTargetView(  ID3D11Device * This,
                 Filmmaker::WorldWarp::BeginDevice(This);
                 Filmmaker::WorldDecals::BeginDevice(This);
                 Filmmaker::EffectNodes::BeginDevice(This);
-                Filmmaker::EventFx_BeginDevice(This);
                 AfxContactShadow::BeginDevice(This);
                 AfxRenderPass::BeginDevice(This);
                 if (environmentDeviceChanged)
@@ -3849,7 +3847,6 @@ public:
                                 f.hasWorldToClip ? f.projection.data() : nullptr,
                                 eye, fwd, g_ViewPort.MinDepth, g_ViewPort.MaxDepth, f.time);
                         }
-                        Filmmaker::EventFx_RenderPost(pDeviceContext, pRenderTargetViews[0], f.time);
                         if (Filmmaker::WorldWarp_Active()) {
                             Filmmaker::WorldWarp::Render(pDeviceContext, pRenderTargetViews[0], g_pCurrentDepthStencilView,
                                 f.hasWorldToClip ? f.worldToClip.data() : nullptr,

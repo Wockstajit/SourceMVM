@@ -771,9 +771,17 @@ bool CS2_Client_CSetupView_Trampoline_IsPlayingDemo(void *ThisCViewSetup) {
 	if (pathShakeApplied)
 		originOrAnglesOverriden = true;
 
-	// Event-driven FX camera impulse (flashbang / kill / HE / marker punch & shake).
-	if (Filmmaker::EventFx_ApplyCameraImpulse(curTime, Rx, Ry, Rz, Fov))
-		originOrAnglesOverriden = true;
+	// Event FX camera shake. It jogs the frame on its way out, like the path shake above, and its
+	// offset is remembered so a free camera reading back the last view (GetLastCameraData) gets the
+	// pose without it -- else the shake accumulated into the camera and never settled.
+	{
+		const float preRx = Rx, preRy = Ry, preRz = Rz;
+		const bool shook = Filmmaker::EventFx_ApplyCameraImpulse(curTime, Rx, Ry, Rz, Fov);
+		g_MirvInputEx.ShakeAngles[0] = shook ? (double)Rx - preRx : 0.0;
+		g_MirvInputEx.ShakeAngles[1] = shook ? (double)Ry - preRy : 0.0;
+		g_MirvInputEx.ShakeAngles[2] = shook ? (double)Rz - preRz : 0.0;
+		if (shook) originOrAnglesOverriden = true;
+	}
 
 	// Little Planet 360 cubemap capture: cycle through the 6 cube faces in lock-step with BeforeUi.
 	if (Filmmaker::WorldWarp_WantsCubemap()) {
