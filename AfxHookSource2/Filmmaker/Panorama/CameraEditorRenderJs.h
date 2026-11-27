@@ -864,7 +864,7 @@ R"EDJS(
     }, T('Clear the picked player target.'), true);
     pmClearBtn.style.height = '26px';
     var pmGrid = mk('Panel', pmSec); pmGrid.hittest = false; pmGrid.hittestchildren = true;
-    pmGrid.style.flowChildren = 'right-wrap'; pmGrid.style.width = '100%'; pmGrid.style.marginTop = '6px';
+    pmGrid.style.flowChildren = 'down'; pmGrid.style.width = '100%'; pmGrid.style.marginTop = '6px';
     var pmEmptyNote = rsNote(pmSec, T('Load a demo with players to pick an isolated player matte.'), 4);
     var pmPlayerChips = [], pmRosterSig = '';
     function pmRebuildRoster(pm) {
@@ -876,36 +876,52 @@ R"EDJS(
       pmGrid.RemoveAndDeleteChildren();
       pmPlayerChips = [];
       pmEmptyNote.visible = list.length === 0;
-      for (var i = 0; i < list.length; i++) (function (pl) {
-        var on = pl.controller === sel;
-        var accent = pl.team === 2 ? '#f0b323' : (pl.team === 3 ? '#80bdff' : '#aeb4bc');
-        var chip = mk('Panel', pmGrid);
-        chip.style.height = '28px'; chip.style.flowChildren = 'right';
-        chip.style.paddingLeft = '9px'; chip.style.paddingRight = '10px';
-        chip.style.marginRight = '6px'; chip.style.marginBottom = '6px';
-        chip.style.borderRadius = '3px';
-        var dot = mk('Panel', chip); dot.hittest = false;
-        dot.style.width = '7px'; dot.style.height = '7px'; dot.style.borderRadius = '4px';
-        dot.style.verticalAlign = 'center'; dot.style.marginRight = '6px';
-        dot.style.backgroundColor = pl.alive ? (accent + 'ff') : '#6b7480ff';
-        var nl = lbl(chip, pl.name + (pl.alive ? '' : ' (dead)'), on ? '#0c0e12ff' : S.label, 12);
-        nl.hittest = false; nl.style.fontWeight = 'bold'; nl.style.verticalAlign = 'center';
-        nl.style.whiteSpace = 'nowrap';
-        chip.__on = on;
-        chip.__paint = function (p) {
-          p.style.backgroundColor = p.__on ? (accent + 'ff') : (p.__hot ? '#ffffff18' : '#ffffff0a');
-          p.style.border = '1px solid ' + (p.__on ? (accent + 'ff') : (p.__hot ? '#ffffff40' : (accent + '44')));
-          nl.style.color = p.__on ? '#0c0e12ff' : (p.__hot ? S.value : S.label);
-        };
-        chip.__tipText = T('Isolate {0} for Selected player passes, live highlight, and Effect Nodes.', pl.name);
-        edHoverable(chip, chip.__paint);
-        chip.SetPanelEvent('onactivate', function () {
-          edPressFlash(chip, chip.__paint);
-          cmd('mirv_filmmaker render player pick ' + pl.controller);
-        });
-        chip.__paint(chip);
-        pmPlayerChips.push(chip);
-      })(list[i]);
+      // One row of five per team, T then CT (anyone else after), each chip an equal fifth, so the
+      // roster reads as the two teams. A dead player stays clickable, only dimmed.
+      var teams = [[], [], []];
+      list.forEach(function (pl) { teams[pl.team === 2 ? 0 : pl.team === 3 ? 1 : 2].push(pl); });
+      teams.forEach(function (group) {
+        for (var r = 0; r < group.length; r += 5) {
+          var line = mk('Panel', pmGrid); line.hittest = false; line.hittestchildren = true;
+          line.style.flowChildren = 'right'; line.style.width = '100%'; line.style.marginBottom = '6px';
+          for (var c = 0; c < 5; c++) {
+            if (group[r + c]) pmChip(line, group[r + c], sel, c < 4);
+            else { var gap = mk('Panel', line); gap.hittest = false; gap.style.width = 'fill-parent-flow(1.0)'; if (c < 4) gap.style.marginRight = '6px'; }
+          }
+        }
+      });
+    }
+    function pmChip(line, pl, sel, gapAfter) {
+      var on = pl.controller === sel;
+      var accent = pl.team === 2 ? '#f0b323' : (pl.team === 3 ? '#80bdff' : '#aeb4bc');
+      var chip = mk('Panel', line);
+      chip.style.width = 'fill-parent-flow(1.0)';
+      chip.style.height = '28px'; chip.style.flowChildren = 'right';
+      chip.style.paddingLeft = '8px'; chip.style.paddingRight = '6px';
+      if (gapAfter) chip.style.marginRight = '6px';
+      chip.style.borderRadius = '3px';
+      chip.style.opacity = pl.alive ? '1' : '0.45';
+      var dot = mk('Panel', chip); dot.hittest = false;
+      dot.style.width = '7px'; dot.style.height = '7px'; dot.style.borderRadius = '4px';
+      dot.style.verticalAlign = 'center'; dot.style.marginRight = '6px';
+      dot.style.backgroundColor = pl.alive ? (accent + 'ff') : '#6b7480ff';
+      var nl = lbl(chip, pl.name, on ? '#0c0e12ff' : S.label, 12);
+      nl.hittest = false; nl.style.fontWeight = 'bold'; nl.style.verticalAlign = 'center';
+      nl.style.width = 'fill-parent-flow(1.0)'; nl.style.whiteSpace = 'nowrap'; nl.style.textOverflow = 'ellipsis';
+      chip.__on = on;
+      chip.__paint = function (p) {
+        p.style.backgroundColor = p.__on ? (accent + 'ff') : (p.__hot ? '#ffffff18' : '#ffffff0a');
+        p.style.border = '1px solid ' + (p.__on ? (accent + 'ff') : (p.__hot ? '#ffffff40' : (accent + '44')));
+        nl.style.color = p.__on ? '#0c0e12ff' : (p.__hot ? S.value : S.label);
+      };
+      chip.__tipText = T('Isolate {0} for Selected player passes, live highlight, and Effect Nodes.', pl.name);
+      edHoverable(chip, chip.__paint);
+      chip.SetPanelEvent('onactivate', function () {
+        edPressFlash(chip, chip.__paint);
+        cmd('mirv_filmmaker render player pick ' + pl.controller);
+      });
+      chip.__paint(chip);
+      pmPlayerChips.push(chip);
     }
     var pmHlTog = edSwitchTile(pmSec, T('Highlight picked player in scene'),
       T('Live spotlight preview: dims and desaturates the rest of the shot while keeping the picked player in full colour with an optional rim outline.'),
