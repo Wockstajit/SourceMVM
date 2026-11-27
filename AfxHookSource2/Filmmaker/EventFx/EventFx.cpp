@@ -5,6 +5,7 @@
 #include "../Debug/MvmDebugLog.h"
 #include "../Movie/CameraBridge.h"
 #include "../Movie/CameraPath.h"
+#include "../Movie/DemoScrub.h"
 #include "../Movie/ParticleFxInternal.h"
 #include "../Platform/JsonBuilder.h"
 #include "../Platform/JsonParser.h"
@@ -354,9 +355,9 @@ void EventFx_RunMainThreadFrame() {
 	if (g_preview.active && GetTickCount64() >= g_preview.until) {
 		g_preview.active = false;
 		StopAllSpawns();
-		char c[64];
-		snprintf(c, sizeof(c), "demo_pause; demo_gototick %d", g_preview.tick);
-		Console(c);
+		// Through the scrub controller: a gototick sent while the demo plays lands under a seek
+		// pause the engine lifts again, so the demo kept playing; this one lands paused.
+		DemoScrub_Release((double)g_preview.tick, /*resume*/ false);
 		MvmDebugLog_LinefAlways("eventfx.preview", "done: back to tick %d", g_preview.tick);
 	}
 	// A rewind takes the demo-clock effects away with the moment they belonged to.

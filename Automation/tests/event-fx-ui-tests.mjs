@@ -67,7 +67,7 @@ test('Test plays through a pause, and Go to finds the effect', () => {
   const header = read('AfxHookSource2/Filmmaker/EventFx/EventFx.h');
   assert.match(header, /void EventFx_PreviewWhilePaused\(double seconds\);/);
   assert.match(fx, /if \(g_preview\.active \|\| !fx::DemoIsPaused\(\)\) return;/);
-  assert.match(fx, /snprintf\(c, sizeof\(c\), "demo_pause; demo_gototick %d", g_preview\.tick\);/);
+  assert.match(fx, /DemoScrub_Release\(\(double\)g_preview\.tick, \/\*resume\*\/ false\);/);
   assert.match(fx, /EventFx_PreviewWhilePaused\(longest \+ p->delay\);/);
   assert.match(props, /EventFx_PreviewWhilePaused\(p->playLife > 0 \? p->playLife : 6\.0\);/);
   assert.match(card, /evCmd\('goto ' \+ p\.id\)/);
