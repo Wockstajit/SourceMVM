@@ -28,6 +28,15 @@ bool EventFx_ApplyCameraImpulse(double curTime, float& pitch, float& yaw, float&
 // tick it was on, so Test and Play now show their effect moving. Nothing while it plays. Main thread.
 void EventFx_PreviewWhilePaused(double seconds);
 
+// Every event effect placed at a spot, for its icon in the view (Props.cpp AppendMarkers). Any thread.
+struct EventFxSpot {
+	int id = 0;
+	std::string name, trigger;
+	float pos[3] = { 0, 0, 0 };
+	bool enabled = true, selected = false;
+};
+void EventFx_Spots(std::vector<EventFxSpot>& out);
+
 // State JSON and console commands (`mirv_filmmaker eventfx ...`)
 void EventFx_AppendStateJson(std::ostringstream& out);
 void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd);

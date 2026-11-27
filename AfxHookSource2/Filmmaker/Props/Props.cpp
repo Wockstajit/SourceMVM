@@ -1091,6 +1091,22 @@ void AppendMarkers(JsonBuilder& j) {
 		j.Key("at"); point(p.position);
 		j.EndObject();
 	}
+	// Event FX entries placed at a spot (ENVIRONMENT > EVENT FX): the same icon, so the place an
+	// effect will play is visible before its event. A click on it selects that entry (`eventfx`).
+	std::vector<EventFxSpot> spots;
+	EventFx_Spots(spots);
+	for (const EventFxSpot& s : spots) {
+		j.BeginObject();
+		j.IntField("eventfx", s.id);
+		j.StringField("kind", "effect");
+		j.StringField("name", s.name);
+		j.BoolField("selected", s.selected);
+		j.StringField("color", s.enabled ? "#ffb86b" : "#8b95a3");
+		j.StringField("accent", s.enabled ? "#ffb86b" : "#8b95a3");
+		j.StringField("play", s.trigger);
+		j.Key("at"); point(Vec3{s.pos[0], s.pos[1], s.pos[2]});
+		j.EndObject();
+	}
 	j.EndArray();
 	if (!g_hover) return;
 	j.Key("hover"); j.BeginObject();
@@ -1273,24 +1289,12 @@ void Props_LookAt(const float pos[3]) {
 	MvmDebugLog_LinefAlways("props.goto", "look at %.1f %.1f %.1f from yaw %.1f", pos[0], pos[1], pos[2], yaw * 180.0 / kPi);
 }
 
-int Props_AddTriggeredEffect(const char* system, const char* play, float life, const char* group, float lift) {
-	if (g_map.empty() || !system || !Props::IsEffect(system)) return 0;
-	Placed p;
-	p.id = g_nextId++;
-	p.model = system;
-	p.play = play ? play : "";
-	p.playLife = std::max(0.0f, std::min(60.0f, life));
-	p.group = group ? std::string(group).substr(0, 40) : "";
-	AimPose(p.position, p.angles);
-	p.position.z += lift;
-	Spawn(p); // a triggered effect only loads here; it plays on its event
-	g_props.push_back(p);
-	PushAdded(p.id);
-	g_selected = p.id;
-	g_message.clear();
-	Save();
-	++g_revision;
-	return p.id;
+bool Props_CrosshairPoint(float out[3]) {
+	if (g_map.empty()) return false;
+	Vec3 position, angles;
+	AimPose(position, angles);
+	out[0] = position.x; out[1] = position.y; out[2] = position.z;
+	return std::isfinite(out[0]) && std::isfinite(out[1]) && std::isfinite(out[2]);
 }
 
 void Props_RunMainThreadFrame() {

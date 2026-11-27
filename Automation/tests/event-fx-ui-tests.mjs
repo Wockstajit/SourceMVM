@@ -73,3 +73,16 @@ test('Test plays through a pause, and Go to finds the effect', () => {
   assert.match(card, /evCmd\('goto ' \+ p\.id\)/);
   assert.match(outliner, /propsCommand\('goto ' \+ it\.id\)/);
 });
+
+// Nothing plays until a template is picked from the dropdown; a pick places it at the crosshair
+// (Where::Spot), with an icon, and Move here puts it where the crosshair points.
+test('Event FX starts empty, and a picked template is placed where you aim', () => {
+  assert.match(fx, /std::vector<EventFx::EventPreset> g_presets;\n/);
+  assert.match(fx, /if \(0 == _stricmp\(sub, "addfrom"\) && argc >= 4\)/);
+  assert.match(fx, /if \(aimed\) \{ p\.where = EventFx::Where::Spot; std::memcpy\(p\.spot, at, sizeof\(at\)\); \}/);
+  assert.match(fx, /if \(p\.where == EventFx::Where::Spot\) std::memcpy\(at, p\.spot, sizeof\(at\)\);/);
+  assert.doesNotMatch(fx, /sub, "place"\)/);
+  assert.match(card, /var evAdd = dropdownRow\(evSec, T\('Add effect'\), \[\]/);
+  assert.match(card, /evCmd\('set ' \+ p\.id \+ ' spot here'\)/);
+  assert.match(props, /j\.IntField\("eventfx", s\.id\);/);
+});

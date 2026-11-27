@@ -354,7 +354,19 @@ R"CFJS(
           axis = envAxisHit(g, u, v, aspect);
           ring = axis < 0 ? propsRingHit(g, u, v, aspect) : -1;
         }
-        if (free && pressed) {
+        // An Event FX icon (ENVIRONMENT > EVENT FX): a click on it selects that entry and shows its card.
+        var evHit = null;
+        if (free && pressed && axis < 0 && ring < 0) {
+          (p.markers || []).forEach(function (mk2) {
+            if (!mk2.eventfx || !mk2.at || !mk2.at[2]) return;
+            var ddx = (mk2.at[0] - u) * w, ddy = (mk2.at[1] - v) * h;
+            if (ddx * ddx + ddy * ddy <= (PROPS_MARK / 2 + 4) * (PROPS_MARK / 2 + 4)) evHit = mk2;
+          });
+        }
+        if (evHit) {
+          cmd('mirv_filmmaker eventfx select ' + evHit.eventfx);
+          if (typeof api !== 'undefined' && api.card) api.card('env.eventfx');
+        } else if (free && pressed) {
           if (axis >= 0 || ring >= 0) {
             propsCommand('grab ' + p.selected + ' ' + (ring >= 0 ? PROPS_RINGS[ring] : ['x', 'y', 'z'][axis]) + ' ' + u.toFixed(4) + ' ' + v.toFixed(4));
             propsGrabbing = true;

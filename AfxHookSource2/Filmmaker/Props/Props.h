@@ -41,9 +41,9 @@ void Props_LookAt(const float pos[3]);
 // A demo event happened ("kill", "headshot", "flashbang", "hegrenade", "smoke", "molotov", "bomb",
 // "marker"): placed effects set to play on it start again. Any thread; handled on the next frame.
 void Props_FireTrigger(const char* token);
-// Places `system` at the surface under the crosshair as a Scene Object that plays on `play` (a
-// trigger token above) for `life` seconds, in outliner group `group`. Main thread; returns its id or 0.
-int Props_AddTriggeredEffect(const char* system, const char* play, float life, const char* group, float lift);
+// The surface point under the crosshair (a point ahead of the camera when the map's collision is not
+// ready); false with no map. Main thread.
+bool Props_CrosshairPoint(float out[3]);
 
 // Placed models marked solid. Takes/Takes.cpp gives each an invisible collider on the local server,
 // so players and bots stand on what the client draws. Main thread.

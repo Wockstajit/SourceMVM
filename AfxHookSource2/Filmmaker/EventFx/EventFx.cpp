@@ -33,9 +33,11 @@ namespace {
 
 std::mutex g_mutex;
 bool g_masterEnabled = false;
-std::vector<EventFx::EventPreset> g_presets = EventFx::DefaultPresets();
-int g_nextPresetId = EventFx::kFirstCustomPresetId;
-int g_selectedPresetId = 1;
+// The scene's event effects: empty until a template is picked (`addfrom`), so switching Event FX on
+// never sets off effects nobody asked for.
+std::vector<EventFx::EventPreset> g_presets;
+int g_nextPresetId = 1;
+int g_selectedPresetId = -1;
 uint32_t g_seed = 1;
 
 // A planned particle waiting for its start, or alive until its end. Main thread only.
@@ -159,7 +161,8 @@ void TriggerKindLocked(EventFx::TriggerKind kind, bool hasPos, const float* pos)
 void StartFiring(const Firing& f) {
 	const EventFx::EventPreset& p = f.preset;
 	float at[3];
-	if (p.where == EventFx::Where::AtEvent && f.hasPos) std::memcpy(at, f.pos, sizeof(at));
+	if (p.where == EventFx::Where::Spot) std::memcpy(at, p.spot, sizeof(at));
+	else if (p.where == EventFx::Where::AtEvent && f.hasPos) std::memcpy(at, f.pos, sizeof(at));
 	else InFrontOfCamera(at, 220.0f);
 	const double now = f.wallClock ? WallClock() : DemoClock();
 	const uint32_t seed = ++g_seed;
@@ -225,7 +228,9 @@ bool EventDataToJson(SOURCESDK::CS2::CGameEvent* event, JsonValue& out) {
 	return JsonParse(text.Get(), out) && out.type == JsonValue::Type::Object;
 }
 
-const char* WhereToken(EventFx::Where w) { return w == EventFx::Where::FrontOfCamera ? "camera" : "event"; }
+const char* WhereToken(EventFx::Where w) {
+	return w == EventFx::Where::FrontOfCamera ? "camera" : w == EventFx::Where::Spot ? "spot" : "event";
+}
 
 } // namespace
 
@@ -442,7 +447,18 @@ void EventFx_AppendStateJson(std::ostringstream& out) {
 		j.DoubleField("shake", p.shake);
 		j.DoubleField("shakeSpeed", p.shakeSpeed);
 		j.DoubleField("shakeLength", p.shakeLength);
-		j.BoolField("played", std::any_of(g_lastAt.begin(), g_lastAt.end(), [&](const LastAt& l) { return l.id == p.id; }));
+		j.BoolField("played", p.where == EventFx::Where::Spot
+			|| std::any_of(g_lastAt.begin(), g_lastAt.end(), [&](const LastAt& l) { return l.id == p.id; }));
+		j.EndObject();
+	}
+	j.EndArray();
+	// The dropdown's templates: id, name, event.
+	j.Key("templates"); j.BeginArray();
+	for (const auto& t : EventFx::Templates()) {
+		j.BeginObject();
+		j.IntField("id", t.id);
+		j.StringField("name", t.name);
+		j.StringField("trigger", EventFx::TriggerToken(t.trigger));
 		j.EndObject();
 	}
 	j.EndArray();
@@ -450,12 +466,27 @@ void EventFx_AppendStateJson(std::ostringstream& out) {
 	out << ",\"eventFx\":" << j.Str();
 }
 
+void EventFx_Spots(std::vector<EventFxSpot>& out) {
+	std::lock_guard<std::mutex> lock(g_mutex);
+	for (const auto& p : g_presets) {
+		if (p.where != EventFx::Where::Spot) continue;
+		EventFxSpot s;
+		s.id = p.id;
+		s.name = p.name;
+		s.trigger = EventFx::TriggerToken(p.trigger);
+		s.enabled = p.enabled;
+		s.selected = p.id == g_selectedPresetId;
+		s.pos[0] = p.spot[0]; s.pos[1] = p.spot[1]; s.pos[2] = p.spot[2] + p.lift;
+		out.push_back(s);
+	}
+}
+
 void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cmd) {
 	if (argc < 3) {
 		advancedfx::Message(
 			"%s eventfx on|off|toggle|reset\n"
-			"%s eventfx test <id> | goto <id> | select <id> | enable <id> <0|1> | add | remove <id> | place <id>\n"
-			"%s eventfx set <id> trigger|effect0|effect1|effect2|where|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|shakeSpeed|shakeLength|name <value>\n"
+			"%s eventfx addfrom <template id> | test <id> | goto <id> | select <id> | enable <id> <0|1> | remove <id>\n"
+			"%s eventfx set <id> trigger|effect0|effect1|effect2|where (spot|event|camera)|spot here|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|shakeSpeed|shakeLength|name <value>\n"
 			"%s eventfx effects  (the effects a preset can spawn)\n",
 			cmd, cmd, cmd, cmd);
 		return;
@@ -472,9 +503,10 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 	if (0 == _stricmp(sub, "reset")) {
 		std::lock_guard<std::mutex> l(g_mutex);
 		g_masterEnabled = false;
-		g_presets = EventFx::DefaultPresets();
-		g_nextPresetId = EventFx::kFirstCustomPresetId;
-		g_selectedPresetId = 1;
+		g_presets.clear();
+		g_lastAt.clear();
+		g_nextPresetId = 1;
+		g_selectedPresetId = -1;
 		g_firings.clear(); g_shakes.clear(); g_hasShakes.store(false);
 		StopAllSpawns();
 		return;
@@ -504,48 +536,48 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		return;
 	}
 	if (0 == _stricmp(sub, "goto") && argc >= 4) {
-		// The camera to where this preset last played (Test or a demo event), looking at it.
+		// The camera to the effect's placed spot, else to where it last played, looking at it.
 		const int id = std::atoi(args->ArgV(3));
 		float at[3];
 		bool known = false;
 		{
 			std::lock_guard<std::mutex> l(g_mutex);
-			for (const auto& la : g_lastAt) if (la.id == id) { std::memcpy(at, la.pos, sizeof(at)); known = true; }
+			if (auto* p = FindPresetLocked(id); p && p->where == EventFx::Where::Spot) {
+				std::memcpy(at, p->spot, sizeof(at)); at[2] += p->lift; known = true;
+			}
+			if (!known) for (const auto& la : g_lastAt) if (la.id == id) { std::memcpy(at, la.pos, sizeof(at)); known = true; }
 		}
 		if (!known) { advancedfx::Warning("%s eventfx: that preset has not played yet; Test it or play the demo to its event.\n", cmd); return; }
 		Props_LookAt(at);
 		return;
 	}
-	if (0 == _stricmp(sub, "place") && argc >= 4) {
-		// The preset's effects as Scene Objects at the crosshair, playing on the preset's event.
-		EventFx::EventPreset copy;
-		{
-			std::lock_guard<std::mutex> l(g_mutex);
-			auto* p = FindPresetLocked(std::atoi(args->ArgV(3)));
-			if (!p) return;
-			copy = *p;
+	if (0 == _stricmp(sub, "addfrom") && argc >= 4) {
+		// A template from the dropdown, copied into the scene and placed where the crosshair points.
+		// Picking one is asking for it, so Event FX switches on.
+		const int templateId = std::atoi(args->ArgV(3));
+		float at[3];
+		const bool aimed = Props_CrosshairPoint(at);
+		std::lock_guard<std::mutex> l(g_mutex);
+		for (const auto& t : EventFx::Templates()) {
+			if (t.id != templateId) continue;
+			EventFx::EventPreset p = t;
+			p.id = g_nextPresetId++;
+			p.enabled = true;
+			if (aimed) { p.where = EventFx::Where::Spot; std::memcpy(p.spot, at, sizeof(at)); }
+			g_presets.push_back(p);
+			g_selectedPresetId = p.id;
+			g_masterEnabled = true;
+			g_warmed.clear();
+			advancedfx::Message("%s eventfx: added '%s'%s; it plays on %s.\n", cmd, p.name.c_str(),
+				aimed ? " at the crosshair" : " (no surface under the crosshair: it plays at the event)", EventFx::TriggerToken(p.trigger));
+			return;
 		}
-		int placed = 0;
-		for (const auto& key : copy.effects)
-			if (const auto* def = EventFx::FindEffect(key))
-				for (const char* s : def->systems)
-					if (s && Props_AddTriggeredEffect(s, EventFx::TriggerToken(copy.trigger),
-						copy.life > 0 ? copy.life : def->life, copy.name.c_str(), copy.lift + def->lift)) ++placed;
-		advancedfx::Message("%s eventfx: placed %d effect(s) of '%s' at the crosshair; they play on %s.\n",
-			cmd, placed, copy.name.c_str(), EventFx::TriggerToken(copy.trigger));
+		advancedfx::Warning("%s eventfx: no template %d.\n", cmd, templateId);
 		return;
 	}
 	if (0 == _stricmp(sub, "enable") && argc >= 5) {
 		std::lock_guard<std::mutex> l(g_mutex);
 		if (auto* p = FindPresetLocked(std::atoi(args->ArgV(3)))) p->enabled = std::atoi(args->ArgV(4)) != 0;
-		return;
-	}
-	if (0 == _stricmp(sub, "add")) {
-		std::lock_guard<std::mutex> l(g_mutex);
-		EventFx::EventPreset p = EventFx::MakePreset(g_nextPresetId++, "", EventFx::TriggerKind::Kill, "blood", nullptr, nullptr);
-		p.name = "Custom " + std::to_string(p.id);
-		g_selectedPresetId = p.id;
-		g_presets.push_back(p);
 		return;
 	}
 	if (0 == _stricmp(sub, "remove") && argc >= 4) {
@@ -571,7 +603,19 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 			if (key.empty() || EventFx::FindEffect(key)) p->effects[f[6] - '0'] = key;
 			else advancedfx::Warning("%s eventfx: unknown effect '%s' (see `eventfx effects`).\n", cmd, val);
 		}
-		else if (0 == _stricmp(f, "where")) p->where = !_stricmp(val, "camera") ? EventFx::Where::FrontOfCamera : EventFx::Where::AtEvent;
+		else if (0 == _stricmp(f, "where")) {
+			p->where = !_stricmp(val, "camera") ? EventFx::Where::FrontOfCamera
+				: !_stricmp(val, "spot") ? EventFx::Where::Spot : EventFx::Where::AtEvent;
+			// A spot it never had is the crosshair's.
+			if (p->where == EventFx::Where::Spot && p->spot[0] == 0 && p->spot[1] == 0 && p->spot[2] == 0) Props_CrosshairPoint(p->spot);
+		}
+		else if (0 == _stricmp(f, "spot") && !_stricmp(val, "here")) {
+			// Move it to where the crosshair points (Move here), and play it there.
+			float at[3];
+			if (!Props_CrosshairPoint(at)) { advancedfx::Warning("%s eventfx: nothing under the crosshair.\n", cmd); return; }
+			std::memcpy(p->spot, at, sizeof(at));
+			p->where = EventFx::Where::Spot;
+		}
 		else if (0 == _stricmp(f, "lift")) p->lift = Clamp(fv, -200.0f, 400.0f);
 		else if (0 == _stricmp(f, "copies")) p->copies = (std::max)(1, (std::min)(EventFx::kMaxCopies, std::atoi(val)));
 		else if (0 == _stricmp(f, "spread")) p->spread = Clamp(fv, 0.0f, 600.0f);

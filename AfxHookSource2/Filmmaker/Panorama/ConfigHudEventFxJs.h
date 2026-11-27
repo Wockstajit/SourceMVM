@@ -68,22 +68,21 @@ R"CFJS(
       if (handle && handle.label) handle.label.style.width = EV_CELL_LABEL + 'px';
       return handle;
     }
-    // ---- the preset tiles: two to a row --------------------------------------------------------
-    var evTop = mk('Panel', evSec); evTop.hittest = false; evTop.hittestchildren = true;
-    evTop.style.width = '100%'; evTop.style.flowChildren = 'right'; evTop.style.marginTop = '2px';
-    var evHint = lbl(evTop, T('Pick a preset, choose its event and effects, then Test or Place in world.'), S.muted, 12);
-    evHint.style.width = 'fill-parent-flow(1.0)'; evHint.style.verticalAlign = 'center';
-    var evAddBtn = btn(evTop, '+ ' + T('New preset'), function () { evCmd('add'); }, EV_ACCENT + 'ff');
-    evAddBtn.style.marginRight = '0px';
+    // ---- adding: a template, placed where the crosshair points -------------------------------------
+    // Nothing plays until one is picked (EventFxMath.h Templates); a pick copies it into the scene
+    // at the crosshair, with an icon in the view, and switches Event FX on.
+    var evAdd = dropdownRow(evSec, T('Add effect'), [], function (k) {
+      evCmd('addfrom ' + k);
+      evAdd.setText(T('Choose…'), true); // a pick adds one; the field is ready for the next
+    }, { placeholder: T('Choose…') });
+    attachTip(evAdd.row, T('Places the effect where the crosshair points. It plays there when its event happens.'));
+    var evAddSig = '';
 
     var evGrid = mk('Panel', evSec); evGrid.hittest = false; evGrid.hittestchildren = true;
     evGrid.style.width = '100%'; evGrid.style.flowChildren = 'down'; evGrid.style.marginTop = '8px';
+    var evEmpty = lbl(evSec, T('Nothing placed yet. Aim at a spot and pick an effect above.'), S.muted, 12);
+    evEmpty.style.marginLeft = UI.line.padH + 'px'; evEmpty.style.marginTop = '4px';
 
-    function evPlacedCount(p) {
-      var placed = (st && st.props && st.props.placed) || [], n = 0;
-      for (var i = 0; i < placed.length; i++) if (placed[i].play && placed[i].group === p.name) n++;
-      return n;
-    }
     function evEffectCount(p) {
       var n = 0;
       for (var i = 0; i < 3; i++) if (p.effects && p.effects[i]) n++;
@@ -105,9 +104,7 @@ R"CFJS(
       eb.style.marginRight = '0px'; eb.style.paddingTop = '1px'; eb.style.paddingBottom = '1px';
       var bot = mk('Panel', t); bot.hittest = false; bot.hittestchildren = true;
       bot.style.width = '100%'; bot.style.flowChildren = 'right'; bot.style.marginTop = '2px';
-      var placed = evPlacedCount(p);
-      var info = evTriggerName(p.trigger) + '  ·  ' + TN(evEffectCount(p), '{0} effect', '{0} effects')
-        + (placed ? '  ·  ' + T('{0} placed', placed) : '');
+      var info = evTriggerName(p.trigger) + '  ·  ' + TN(evEffectCount(p), '{0} effect', '{0} effects');
       var tg = lbl(bot, info, EV_ACCENT + 'ff', 11); tg.hittest = false;
       tg.style.width = 'fill-parent-flow(1.0)'; tg.style.whiteSpace = 'nowrap'; tg.style.textOverflow = 'ellipsis';
       tg.style.verticalAlign = 'center';
@@ -136,12 +133,12 @@ R"CFJS(
       var p = evSelected(); if (p && p.played) evCmd('goto ' + p.id);
     }, S.label);
     evGotoBtn.style.marginRight = '4px';
-    attachTip(evGotoBtn, T('Moves the camera to where this preset last played.'));
-    var evPlaceBtn = btn(evInspHead, T('Place in world'), function () {
-      var p = evSelected(); if (p) evCmd('place ' + p.id);
+    attachTip(evGotoBtn, T('Moves the camera to look at where it plays.'));
+    var evMoveBtn = btn(evInspHead, T('Move here'), function () {
+      var p = evSelected(); if (p) evCmd('set ' + p.id + ' spot here');
     }, S.accent);
-    evPlaceBtn.style.marginRight = '4px';
-    attachTip(evPlaceBtn, T('Puts these effects at the crosshair as Scene Objects that play on the same event. Move them in ENVIRONMENT > Scene Objects.'));
+    evMoveBtn.style.marginRight = '4px';
+    attachTip(evMoveBtn, T('Moves it to where the crosshair points.'));
     var evDelBtn = btn(evInspHead, T('Delete'), function () {
       var p = evSelected(); if (p) evCmd('remove ' + p.id);
     }, '#ff8a8aff');
@@ -150,9 +147,10 @@ R"CFJS(
     function evSet(field, v) { var p = evSelected(); if (p) evCmd('set ' + p.id + ' ' + field + ' ' + v); }
     var evRowA = evCells(evInsp, 2, 4);
     var evTrig = evNarrow(dropdownRow(evRowA[0], T('Plays on'), EV_TRIGGERS, function (k) { evSet('trigger', k); }));
-    var evWhere = evNarrow(dropdownRow(evRowA[1], T('Place'), [['event', T('At the event')], ['camera', T('In front of camera')]],
+    var evWhere = evNarrow(dropdownRow(evRowA[1], T('Place'),
+      [['spot', T('Where you placed it')], ['event', T('At the event')], ['camera', T('In front of camera')]],
       function (k) { evSet('where', k); }));
-    attachTip(evWhere.row, T('At the event: where the grenade went off, the player who died, the bomb. A timeline marker has no place, so it plays in front of the camera.'));
+    attachTip(evWhere.row, T('Where you placed it: the spot you aimed at (Move here changes it). At the event: where the grenade went off, the player who died, the bomb.'));
 
     var evFxHead = lbl(evInsp, T('Effects'), S.muted, 11);
     evFxHead.style.fontWeight = 'bold'; evFxHead.style.letterSpacing = '1px'; evFxHead.style.marginTop = '10px';
@@ -212,8 +210,16 @@ R"CFJS(
       for (var k = 0; k < presets.length; k++) if (presets[k].enabled) armed++;
       evSec.__note(es.on ? T('{0} armed', armed) : T('Off'));
 
-      var placedSig = ((st.props && st.props.placed) || []).map(function (q) { return q.play ? q.group : ''; }).join(',');
-      var sig = es.selected + '|' + placedSig + '|' + presets.map(function (p) {
+      var templates = es.templates || [];
+      var addSig = templates.map(function (t) { return t.id + ':' + t.name; }).join('|');
+      if (addSig !== evAddSig) {
+        evAddSig = addSig;
+        evAdd.setItems(templates.map(function (t) { return [String(t.id), t.name + '  ·  ' + evTriggerName(t.trigger)]; }));
+        evAdd.setText(T('Choose…'), true);
+      }
+      evEmpty.visible = presets.length === 0;
+
+      var sig = es.selected + '|' + presets.map(function (p) {
         return p.id + ':' + p.name + ':' + p.trigger + ':' + (p.enabled ? 1 : 0) + ':' + (p.effects || []).join(',');
       }).join('|');
       if (sig !== evListSig) {
@@ -231,6 +237,7 @@ R"CFJS(
       if (!sel) return;
       evInspTitle.text = sel.name;
       setBtnDisabled(evGotoBtn, !sel.played);
+      evMoveBtn.visible = sel.where === 'spot';
       evTrig.sync(sel.trigger || 'kill');
       evWhere.sync(sel.where || 'event');
       for (var e = 0; e < 3; e++) evFx[e].sync((sel.effects && sel.effects[e]) || '-');

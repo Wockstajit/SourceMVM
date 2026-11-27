@@ -31,14 +31,15 @@ void TestCatalog() {
 	CHECK(FindEffect("nope") == nullptr);
 }
 
-// The built-in presets spawn real effects, each on its own event, at the event.
-void TestDefaultPresets() {
-	const auto presets = DefaultPresets();
+// The dropdown's templates spawn real effects, each on its own event, and every one is ready to play
+// once picked (the scene starts with none, so nothing plays until a template is chosen).
+void TestTemplates() {
+	const auto presets = Templates();
 	CHECK(presets.size() >= 6);
 	std::set<int> ids;
 	for (const EventPreset& p : presets) {
 		CHECK(ids.insert(p.id).second);
-		CHECK(p.id < kFirstCustomPresetId);
+		CHECK(p.enabled);
 		int effects = 0;
 		for (const std::string& e : p.effects) if (!e.empty()) { CHECK(FindEffect(e) != nullptr); ++effects; }
 		CHECK(effects >= 1);
@@ -117,7 +118,7 @@ void TestTriggerTokens() {
 
 int main() {
 	TestCatalog();
-	TestDefaultPresets();
+	TestTemplates();
 	TestPlanSpawns();
 	TestShake();
 	TestTriggerTokens();

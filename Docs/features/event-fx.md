@@ -1,16 +1,18 @@
 # Event FX
 
 `CONFIG > ENVIRONMENT > EVENT FX`, beside Scene Objects, spawns CS2's own particle effects when
-something happens in the demo. The presets are tiles, two to a row, each showing its event, how
-many effects it plays and how many are placed in the map; the selected one's settings sit in two-
-and three-column rows under them, so the card shows whole. A preset says which event plays it,
-which effects play, and where:
+something happens in the demo. Nothing plays until you add an effect: **Add effect** is a dropdown
+of templates (HE bigger blast, bomb huge blast, molotov fireball, kill blood burst, headshot blood
+spray, flash spark burst, smoke debris puff, marker fireworks), and picking one places it where the
+crosshair points, switches Event FX on, and shows its icon in the view (an orange burst tagged with
+its event; a click on it selects it). The added effects are tiles, two to a row; the selected one's
+settings sit under them. Each says which event plays it, which effects play, and where:
 
 | Setting | What it does |
 | --- | --- |
 | Plays on | A kill, a headshot, a flashbang, an HE grenade, a smoke grenade, a molotov, the bomb exploding, or a timeline marker the playhead crosses |
 | Effect 1 to 3 | Up to three effects from the catalog below, played together |
-| Place | **At the event**: where the grenade went off (the event's own coordinates), the player who died (their feet, or their eye for a headshot), or the planted bomb. **In front of camera**: a little ahead of the view. A timeline marker has no place, so it plays in front of the camera |
+| Place | **Where you placed it**: the spot you aimed at when you added it; **Move here** moves it to where the crosshair points. **At the event**: where the grenade went off (the event's own coordinates), the player who died (their feet, or their eye for a headshot), or the planted bomb. **In front of camera**: a little ahead of the view. A timeline marker has no place, so it plays in front of the camera |
 | Height | Raises the effects above that point |
 | Copies, Spread | Up to six copies scattered on a ring around the point, each starting a moment after the last |
 | Delay | Seconds after the event |
@@ -20,12 +22,8 @@ which effects play, and where:
 
 **Test** plays the preset in front of the camera. CS2 freezes particles while a demo is paused, so
 then the demo plays for the effect's length (up to six seconds) and goes back to the tick it was on;
-**Play now** on a placed effect does the same. **Go to** moves the camera to where the preset last
-played (a Test or its event), and a placed effect's **Go to** moves the camera to look at it. **Place in world** puts the preset's effects at the crosshair as Scene Objects that play
-on the same event (below).
-
-The built-in presets: HE bigger blast, bomb huge blast, molotov fireball, kill blood burst,
-headshot blood spray, flash spark burst, smoke debris puff (off) and marker fireworks (off).
+**Play now** on a placed Scene Object effect does the same. **Go to** moves the camera to look at
+where it plays: its placed spot, else where it last played (a Test or its event).
 
 ## The effect catalog
 
@@ -61,8 +59,8 @@ every frame.
 
 ```text
 mirv_filmmaker eventfx on|off|toggle|reset
-mirv_filmmaker eventfx test <id> | select <id> | enable <id> <0|1> | add | remove <id> | place <id>
-mirv_filmmaker eventfx set <id> trigger|effect0|effect1|effect2|where|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|name <value>
+mirv_filmmaker eventfx addfrom <template id> | test <id> | goto <id> | select <id> | enable <id> <0|1> | remove <id>
+mirv_filmmaker eventfx set <id> trigger|effect0|effect1|effect2|where (spot|event|camera)|spot here|lift|copies|spread|delay|life|lightBurst|lightFlash|shake|shakeSpeed|shakeLength|name <value>
 mirv_filmmaker eventfx effects
 mirv_filmmaker props set <id> play <kill|headshot|flashbang|hegrenade|smoke|molotov|bomb|marker|tick|->
 mirv_filmmaker props set <id> playtick <tick|here> | playlife <seconds>

@@ -105,6 +105,7 @@ inline const EffectDef* FindEffect(const std::string& key) {
 enum class Where : int {
 	AtEvent = 0,         // the grenade's detonation point, the victim, the bomb (the camera when there is none)
 	FrontOfCamera = 1,   // in view, a little ahead of the camera
+	Spot = 2,            // where it was placed in the map (`spot`), whatever the event's own place
 	Count
 };
 
@@ -119,6 +120,7 @@ struct EventPreset {
 	bool enabled = true;
 	std::string effects[kPresetEffects];  // catalog keys, "" = none
 	Where where = Where::AtEvent;
+	float spot[3] = { 0, 0, 0 }; // the placed point, for Where::Spot
 	float lift = 0.0f;     // units above the point
 	int copies = 1;        // 1..kMaxCopies copies, scattered within `spread`
 	float spread = 0.0f;   // units
@@ -257,6 +259,8 @@ inline ShakeFrame EvaluateShakes(const std::vector<ActiveShake>& shakes, double 
 }
 
 // ---- Built-in presets ---------------------------------------------------------------------------
+// The templates in the card's dropdown. Nothing plays until one is picked: a pick copies it into
+// the scene's list, placed at the crosshair (EventFx.cpp `addfrom`). The ids here are template ids.
 inline EventPreset MakePreset(int id, const char* name, TriggerKind trigger, const char* a, const char* b, const char* c) {
 	EventPreset p;
 	p.id = id; p.name = name; p.trigger = trigger;
@@ -264,7 +268,7 @@ inline EventPreset MakePreset(int id, const char* name, TriggerKind trigger, con
 	return p;
 }
 
-inline std::vector<EventPreset> DefaultPresets() {
+inline std::vector<EventPreset> Templates() {
 	std::vector<EventPreset> out;
 	EventPreset he = MakePreset(1, "HE: bigger blast", TriggerKind::HeGrenadePop, "he", "he_dirt", "debris");
 	he.lightBurst = true; he.shake = 0.25f;
@@ -284,13 +288,11 @@ inline std::vector<EventPreset> DefaultPresets() {
 	flash.lightBurst = true; flash.lightFlashStyle = true;
 	out.push_back(flash);
 	EventPreset smoke = MakePreset(7, "Smoke: debris puff", TriggerKind::SmokePop, "smoke_puff", "debris", nullptr);
-	smoke.enabled = false;
 	out.push_back(smoke);
 	EventPreset marker = MakePreset(8, "Marker: fireworks", TriggerKind::TimelineMarker, "fireworks", "fireworks_big", "spark_shower");
-	marker.where = Where::FrontOfCamera; marker.enabled = false; marker.copies = 2; marker.spread = 120.0f;
+	marker.copies = 2; marker.spread = 120.0f;
 	out.push_back(marker);
 	return out;
 }
-inline constexpr int kFirstCustomPresetId = 9;
 
 } // namespace Filmmaker::EventFx
