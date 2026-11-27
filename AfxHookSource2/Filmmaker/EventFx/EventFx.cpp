@@ -74,6 +74,19 @@ std::vector<LastAt> g_lastAt;
 std::vector<std::string> g_warmed;
 ULONGLONG g_levelSince = 0;
 
+// Loads, right now, every system an enabled entry can spawn that is not loaded yet. Called when Event
+// FX is switched on and when an entry is added or changed (main thread, the console command's own
+// frame), so an event in the next frames never reaches a system still waiting for the per-frame
+// warm-up below. g_mutex held.
+void WarmNowLocked() {
+	if (!g_masterEnabled) return;
+	for (const auto& s : EventFx::SystemsOf(g_presets)) {
+		if (std::find(g_warmed.begin(), g_warmed.end(), s) != g_warmed.end()) continue;
+		Props_PrecacheEffect(s.c_str());
+		g_warmed.push_back(s);
+	}
+}
+
 double DemoClock() {
 	double t = 0.0;
 	if (!g_MirvTime.GetCurrentDemoTime(t)) t = g_MirvTime.curtime_get();
@@ -492,14 +505,14 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		return;
 	}
 	const char* sub = args->ArgV(2);
-	if (0 == _stricmp(sub, "on")) { std::lock_guard<std::mutex> l(g_mutex); g_masterEnabled = true; return; }
+	if (0 == _stricmp(sub, "on")) { std::lock_guard<std::mutex> l(g_mutex); g_masterEnabled = true; WarmNowLocked(); return; }
 	if (0 == _stricmp(sub, "off")) {
 		std::lock_guard<std::mutex> l(g_mutex);
 		g_masterEnabled = false; g_firings.clear(); g_shakes.clear(); g_hasShakes.store(false);
 		StopAllSpawns();
 		return;
 	}
-	if (0 == _stricmp(sub, "toggle")) { std::lock_guard<std::mutex> l(g_mutex); g_masterEnabled = !g_masterEnabled; return; }
+	if (0 == _stricmp(sub, "toggle")) { std::lock_guard<std::mutex> l(g_mutex); g_masterEnabled = !g_masterEnabled; WarmNowLocked(); return; }
 	if (0 == _stricmp(sub, "reset")) {
 		std::lock_guard<std::mutex> l(g_mutex);
 		g_masterEnabled = false;
@@ -567,7 +580,7 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 			g_presets.push_back(p);
 			g_selectedPresetId = p.id;
 			g_masterEnabled = true;
-			g_warmed.clear();
+			WarmNowLocked();
 			advancedfx::Message("%s eventfx: added '%s'%s; it plays on %s.\n", cmd, p.name.c_str(),
 				aimed ? " at the crosshair" : " (no surface under the crosshair: it plays at the event)", EventFx::TriggerToken(p.trigger));
 			return;
@@ -578,6 +591,7 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 	if (0 == _stricmp(sub, "enable") && argc >= 5) {
 		std::lock_guard<std::mutex> l(g_mutex);
 		if (auto* p = FindPresetLocked(std::atoi(args->ArgV(3)))) p->enabled = std::atoi(args->ArgV(4)) != 0;
+		WarmNowLocked();
 		return;
 	}
 	if (0 == _stricmp(sub, "remove") && argc >= 4) {
@@ -628,7 +642,7 @@ void EventFx_RunCommand(int argc, advancedfx::ICommandArgs* args, const char* cm
 		else if (0 == _stricmp(f, "shakeLength")) p->shakeLength = fv <= 0.0f ? 0.0f : Clamp(fv, 0.1f, 5.0f);
 		else if (0 == _stricmp(f, "name")) { std::string n = val; for (int i = 6; i < argc; ++i) { n += ' '; n += args->ArgV(i); } p->name = n.substr(0, 40); }
 		else { advancedfx::Warning("%s eventfx: unknown field '%s'.\n", cmd, f); return; }
-		g_warmed.clear(); // a new effect is loaded before it can fire
+		WarmNowLocked(); // a new effect is loaded before it can fire
 		return;
 	}
 	advancedfx::Warning("%s eventfx: unknown subcommand '%s'.\n", cmd, sub);

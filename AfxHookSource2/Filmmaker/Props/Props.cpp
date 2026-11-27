@@ -84,6 +84,7 @@ struct Placed {
 	float playLife = 0;
 	bool playing = false;
 	double playUntil = 0;
+	bool precached = false; // a waiting effect is loaded once after the map settles (the precache rule)
 };
 // Whether a placed effect waits for an event instead of playing all the time.
 bool Triggered(const Placed& p) { return !p.play.empty() && Props::IsEffect(p.model); }
@@ -1363,7 +1364,13 @@ void Props_RunMainThreadFrame() {
 		DisarmSpawnMarker(g_map); // it survived, and kept drawing
 	// A demo seek (full update) can clear client entities; put ours back.
 	for (Placed& p : g_props) {
-		if (!Shown(p) || p.failed || p.held || (Triggered(p) && !p.playing)) continue;
+		if (!Shown(p) || p.failed || p.held) continue;
+		if (Triggered(p) && !p.playing) {
+			// Waiting for its event: not spawned, but loaded now, so the event's frame never stalls
+			// on a blocking load. A map's saved effects reach this once the level has settled.
+			if (!p.precached) { Props::PrecacheModel(p.model.c_str()); p.precached = true; }
+			continue;
+		}
 		if (!Alive(p)) { p.entity = nullptr; Spawn(p); ++g_revision; }
 	}
 	PumpKeyedWind();

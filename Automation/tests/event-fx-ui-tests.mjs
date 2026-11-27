@@ -33,7 +33,7 @@ test('a placed effect can wait for an event or a tick', () => {
   assert.match(outliner, /olFxSet\('playtick', 'here'\)/);
   assert.match(outliner, /propsCommand\('fire ' \+ it\.id\)/);
   assert.match(props, /if \(Triggered\(p\) && !p\.playing\) \{ Props::PrecacheModel\(p\.model\.c_str\(\)\); return; \}/);
-  assert.match(props, /\|\| \(Triggered\(p\) && !p\.playing\)\) continue;/);
+  assert.match(props, /if \(Triggered\(p\) && !p\.playing\) \{/);
   assert.match(props, /j\.StringField\("play", p\.play\);/);
 });
 
@@ -85,4 +85,12 @@ test('Event FX starts empty, and a picked template is placed where you aim', () 
   assert.match(card, /var evAdd = dropdownRow\(evSec, T\('Add effect'\), \[\]/);
   assert.match(card, /evCmd\('set ' \+ p\.id \+ ' spot here'\)/);
   assert.match(props, /j\.IntField\("eventfx", s\.id\);/);
+});
+
+// The precache rule: a waiting placed effect is loaded once the map settles, and Event FX loads every
+// system its entries use the moment it is switched on, added to or changed.
+test('effects are loaded before any event can fire them', () => {
+  assert.match(props, /if \(!p\.precached\) \{ Props::PrecacheModel\(p\.model\.c_str\(\)\); p\.precached = true; \}/);
+  assert.match(fx, /if \(0 == _stricmp\(sub, "on"\)\) \{ std::lock_guard<std::mutex> l\(g_mutex\); g_masterEnabled = true; WarmNowLocked\(\); return; \}/);
+  assert.match(fx, /WarmNowLocked\(\); \/\/ a new effect is loaded before it can fire/);
 });
